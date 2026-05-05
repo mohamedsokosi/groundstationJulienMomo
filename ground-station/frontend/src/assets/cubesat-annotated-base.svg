@@ -1,0 +1,150 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 145" fill="none">
+  <defs>
+    <linearGradient id="railLeft" x1="9" y1="20" x2="42" y2="140" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#24d4d2"/>
+      <stop offset="0.45" stop-color="#0b6574"/>
+      <stop offset="1" stop-color="#062d3b"/>
+    </linearGradient>
+    <linearGradient id="railRight" x1="74" y1="12" x2="86" y2="137" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#5be7e0"/>
+      <stop offset="0.38" stop-color="#158395"/>
+      <stop offset="1" stop-color="#073242"/>
+    </linearGradient>
+    <linearGradient id="brushedAlu" x1="21" y1="12" x2="79" y2="142" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#f1f5f6"/>
+      <stop offset="0.28" stop-color="#aeb8bf"/>
+      <stop offset="0.58" stop-color="#6e7b87"/>
+      <stop offset="1" stop-color="#303b46"/>
+    </linearGradient>
+    <linearGradient id="innerWall" x1="30" y1="24" x2="68" y2="123" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#d7d0a7"/>
+      <stop offset="0.55" stop-color="#9f997a"/>
+      <stop offset="1" stop-color="#514d3d"/>
+    </linearGradient>
+    <linearGradient id="darkCavity" x1="34" y1="19" x2="60" y2="135" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#17252e"/>
+      <stop offset="1" stop-color="#071117"/>
+    </linearGradient>
+    <linearGradient id="battery" x1="40" y1="20" x2="66" y2="47" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#f0e56b"/>
+      <stop offset="0.42" stop-color="#b2aa32"/>
+      <stop offset="1" stop-color="#6f681b"/>
+    </linearGradient>
+    <linearGradient id="board" x1="24" y1="54" x2="67" y2="112" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#6ddc7d"/>
+      <stop offset="0.35" stop-color="#2c9f50"/>
+      <stop offset="1" stop-color="#075a2e"/>
+    </linearGradient>
+    <linearGradient id="boardEdge" x1="28" y1="48" x2="68" y2="57" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#72a7e8"/>
+      <stop offset="1" stop-color="#1d4f89"/>
+    </linearGradient>
+    <linearGradient id="payload" x1="18" y1="117" x2="47" y2="138" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ffbc42"/>
+      <stop offset="0.45" stop-color="#ef8721"/>
+      <stop offset="1" stop-color="#8b3e05"/>
+    </linearGradient>
+    <radialGradient id="glass" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(36 108) rotate(38) scale(19 8)">
+      <stop stop-color="#7df1ff" stop-opacity="0.42"/>
+      <stop offset="1" stop-color="#106b8e" stop-opacity="0.08"/>
+    </radialGradient>
+    <filter id="softShadow" x="-20%" y="-10%" width="140%" height="125%" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0.8" dy="2.6" stdDeviation="1.6" flood-color="#000814" flood-opacity="0.38"/>
+    </filter>
+    <filter id="microShadow" x="-10%" y="-10%" width="120%" height="120%" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0.35" dy="0.7" stdDeviation="0.35" flood-color="#00131c" flood-opacity="0.45"/>
+    </filter>
+    <linearGradient id="antennaMetal" x1="30" y1="0" x2="82" y2="20" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#f3f6f6"/>
+      <stop offset="0.45" stop-color="#99a3aa"/>
+      <stop offset="1" stop-color="#58636c"/>
+    </linearGradient>
+  </defs>
+
+  <ellipse cx="47" cy="139.2" rx="34" ry="5.2" fill="#03111b" opacity="0.34"/>
+
+  <g filter="url(#softShadow)">
+    <path d="M25.8 9.5L78 7.1L70 19.6L18.8 22.8Z" fill="#cbc29a" stroke="#726b50" stroke-width="0.7"/>
+    <path d="M18.8 22.8L70 19.6L73.5 139.6L38.4 137.1Z" fill="url(#darkCavity)" opacity="0.94"/>
+    <path d="M22.5 25.5L66.8 23L68.9 133.5L40.6 131.4Z" fill="url(#innerWall)" opacity="0.62"/>
+
+    <path d="M9.1 23.3L18.8 22.8L38.4 137.1L28.7 141.6Z" fill="url(#brushedAlu)" stroke="#687783" stroke-width="0.85"/>
+    <path d="M18.8 22.8L22.6 24.8L42 138.4L38.4 137.1Z" fill="url(#railLeft)" stroke="#0c6774" stroke-width="0.52"/>
+    <path d="M70 19.6L80.4 15.2L84.4 132.2L73.5 139.6Z" fill="url(#brushedAlu)" stroke="#687783" stroke-width="0.85"/>
+    <path d="M70 19.6L73.5 19.4L77.4 136.8L73.5 139.6Z" fill="url(#railRight)" stroke="#0c6b78" stroke-width="0.52"/>
+    <path d="M28.7 141.6L38.4 137.1L73.5 139.6L64.5 144.1Z" fill="#b5a878" stroke="#6e6549" stroke-width="0.8"/>
+
+    <path d="M12.9 40.6L20.6 29.3L34.6 42.1" stroke="#0e8396" stroke-width="1.25"/>
+    <path d="M16.4 61.5L24.3 49.4L38.1 63.8" stroke="#0e8396" stroke-width="1.25"/>
+    <path d="M20.1 82.7L28 70.5L42 85.8" stroke="#0e8396" stroke-width="1.25"/>
+    <path d="M23.7 105.9L31.8 92.7L46.5 109.7" stroke="#0e8396" stroke-width="1.25"/>
+    <path d="M73.3 35.1L80 28.2L79.2 48.4" stroke="#0e8396" stroke-width="1.2"/>
+    <path d="M74 57.6L80.8 50.2L80.1 71.3" stroke="#0e8396" stroke-width="1.2"/>
+    <path d="M74.8 80.6L81.6 73.1L81 94.5" stroke="#0e8396" stroke-width="1.2"/>
+    <path d="M75.6 104.4L82.4 96.4L81.8 118.1" stroke="#0e8396" stroke-width="1.2"/>
+
+    <g fill="#071620" opacity="0.9">
+      <circle cx="16.4" cy="32.1" r="0.9"/><circle cx="22.4" cy="67.6" r="0.9"/><circle cx="28.7" cy="104.4" r="0.9"/>
+      <circle cx="76.2" cy="30.5" r="0.9"/><circle cx="77.4" cy="67" r="0.9"/><circle cx="78.5" cy="105.8" r="0.9"/>
+    </g>
+  </g>
+
+  <g filter="url(#microShadow)">
+    <path d="M39.8 22.7L67.5 27.5L62.6 50.5L35.2 45.4Z" fill="url(#battery)" stroke="#6f6a22" stroke-width="0.65"/>
+    <path d="M40.8 26.8L66 31.1" stroke="#eee974" stroke-width="0.72" opacity="0.75"/>
+    <path d="M38.9 32.1L64.8 36.7" stroke="#786f1e" stroke-width="0.8" opacity="0.65"/>
+    <path d="M37.8 38.3L63.8 43.1" stroke="#776e1e" stroke-width="0.8" opacity="0.65"/>
+    <path d="M44 23.5C45.5 31.2 44.8 39 41.1 46.5" stroke="#81791f" stroke-width="0.7"/>
+    <path d="M50 24.5C51.1 32.6 50.4 40.4 46.9 47.4" stroke="#81791f" stroke-width="0.7"/>
+    <path d="M56 25.5C57.2 33.3 56.4 41 53 48.4" stroke="#81791f" stroke-width="0.7"/>
+    <path d="M61.7 26.5C62.9 34.1 62.2 41.9 59 49.4" stroke="#81791f" stroke-width="0.7"/>
+  </g>
+
+  <g filter="url(#microShadow)">
+    <path d="M29.4 50.2L69 56.8L65.6 63.7L26 57.4Z" fill="url(#boardEdge)" stroke="#153f70" stroke-width="0.65"/>
+    <path d="M26 57.4L65.6 63.7L62.2 74.2L22.8 68.3Z" fill="url(#board)" stroke="#0d552e" stroke-width="0.65"/>
+    <path d="M28.1 60L61.7 65.1L60.4 69.7L26.8 64.7Z" fill="#67ce75" opacity="0.78"/>
+    <path d="M34 62.1L37.9 62.7L37.3 65.4L33.3 64.8Z" fill="#09321f"/>
+    <path d="M44.5 63.7L47.7 64.2L47.1 66.8L43.9 66.3Z" fill="#0b3b24"/>
+    <path d="M53.2 65L57.6 65.7L56.8 68.7L52.6 68Z" fill="#0b3b24"/>
+    <path d="M31 67.2L58.5 71.3" stroke="#0d6e3a" stroke-width="0.45"/>
+    <circle cx="30.1" cy="60.4" r="0.55" fill="#b7ffd0"/>
+    <circle cx="62.2" cy="65.2" r="0.55" fill="#b7ffd0"/>
+  </g>
+
+  <g filter="url(#microShadow)">
+    <path d="M26 73L66.9 79.3L63 87.1L21.9 81.1Z" fill="url(#boardEdge)" stroke="#153f70" stroke-width="0.65"/>
+    <path d="M21.9 81.1L63 87.1L58.8 101L18.1 94.9Z" fill="url(#board)" stroke="#0d552e" stroke-width="0.65"/>
+    <path d="M24.6 84.1L57.9 89L56.7 93.8L23.2 88.9Z" fill="#58bf69" opacity="0.82"/>
+    <rect x="33.4" y="87.3" width="13.6" height="4.6" rx="0.7" transform="rotate(8.5 33.4 87.3)" fill="#14242d" stroke="#315260" stroke-width="0.35"/>
+    <path d="M49.1 89.4L54.5 90.2L53.7 93.4L48.3 92.7Z" fill="#173827"/>
+    <path d="M26.5 91.8L55.5 96.1" stroke="#0d6e3a" stroke-width="0.45"/>
+    <text x="30" y="97.8" fill="#e2e7ec" font-size="4.1" font-family="Arial, sans-serif" transform="rotate(8.5 30 97.8)">ASSFID</text>
+  </g>
+
+  <g filter="url(#microShadow)">
+    <path d="M22.5 102L62 108.4L57.3 119.5L17.6 113.7Z" fill="url(#boardEdge)" stroke="#153f70" stroke-width="0.65"/>
+    <path d="M17.6 113.7L57.3 119.5L52.2 130.2L13.7 124.7Z" fill="#c6bea0" stroke="#887f61" stroke-width="0.65"/>
+    <path d="M20.5 107.5L56.2 112.8L53.9 118.4L18.1 113.2Z" fill="url(#board)" stroke="#0d552e" stroke-width="0.62"/>
+    <path d="M22.4 110.2L50.2 114.2" stroke="#5ee17a" stroke-width="0.65" opacity="0.75"/>
+    <path d="M29.2 111.2L37.8 112.4L37.2 115.1L28.6 113.9Z" fill="#0c3a25"/>
+    <path d="M40.1 112.7L46.4 113.6L45.7 116.5L39.4 115.6Z" fill="#0c3a25"/>
+    <path d="M19.5 112.8L56.5 118.2L53.2 124.2L16.7 119Z" fill="url(#glass)" opacity="0.75"/>
+  </g>
+
+  <g filter="url(#microShadow)">
+    <path d="M17.3 122.1L48.8 126.6C50 126.8 50.6 127.7 50.1 128.7L45.8 139.2L18.7 135.2L15.8 124.2C15.5 123 16.2 121.9 17.3 122.1Z" fill="url(#payload)" stroke="#824509" stroke-width="0.72"/>
+    <path d="M17.3 122.1C20.6 119.8 25.2 118.8 31.2 119.7L40.9 121.1C45.7 121.8 48.6 123.6 49.5 126.1" fill="#f69724"/>
+    <path d="M21.9 125.8L43 128.8L41.1 135.4L23.2 132.8Z" fill="#b3560c" opacity="0.74"/>
+    <path d="M24.2 126.8L42.1 129.4" stroke="#ffcd77" stroke-width="0.55" opacity="0.62"/>
+  </g>
+
+  <g stroke="url(#antennaMetal)" stroke-width="1.25" stroke-linecap="round" filter="url(#microShadow)">
+    <path d="M33.3 9.4C30.5 7.1 30.2 3.6 32.2 1.7C34.5 -0.4 38.7 -0.1 41.2 2.6C43.7 5.3 43.3 8.9 40.8 10.7"/>
+    <path d="M53.7 7.6C50.9 5.2 50.8 1.8 53.1 -0.2C55.5 -2.3 59.7 -1.8 62 0.9C64.4 3.8 63.7 7.2 61.3 9"/>
+    <path d="M75.2 14.2C72.1 12 71.7 8.2 74.2 6.2C76.7 4.1 81 4.8 83.3 7.7C85.6 10.6 84.9 14.2 82.3 16"/>
+    <path d="M34.5 10.6L32.2 15.7"/>
+    <path d="M55.3 8.8L52.9 14.5"/>
+    <path d="M76.3 15.6L73.5 22.1"/>
+  </g>
+</svg>
