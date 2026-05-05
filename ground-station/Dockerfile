@@ -3,6 +3,9 @@ FROM node:20-alpine AS frontend-builder
 
 WORKDIR /app/frontend
 
+ARG VITE_CESIUM_ION_TOKEN
+ENV VITE_CESIUM_ION_TOKEN=${VITE_CESIUM_ION_TOKEN}
+
 # Copy frontend package files
 COPY frontend/package.json frontend/package-lock.json* ./
 
@@ -16,7 +19,7 @@ COPY frontend/ ./
 RUN cp .env.production .env
 
 # Build the frontend for production
-RUN npm run build
+RUN NODE_OPTIONS="--max-old-space-size=4096" npm run build
 
 # Stage 2: Set up the Python backend
 FROM ubuntu:noble-20250925

@@ -577,6 +577,7 @@ export default function Layout() {
         if (segment && currentPath.startsWith(segment)) return true;
         return false;
     };
+    const isCustomizeRoute = location.pathname === '/customize';
 
     // Get scheduler state for dynamic tooltip
     const schedulerObservations = useSelector((state) => state.scheduler?.observations || []);
@@ -828,7 +829,7 @@ export default function Layout() {
                     minWidth: 0,
                 }}
             >
-                {connected && !initialDataLoading ? <Outlet /> : <ConnectionOverlay />}
+                {isCustomizeRoute || (connected && !initialDataLoading) ? <Outlet /> : <ConnectionOverlay />}
                 {hasVersionChanged && <VersionUpdateOverlay />}
                 <PerformanceMetricsDialog />
             </Box>

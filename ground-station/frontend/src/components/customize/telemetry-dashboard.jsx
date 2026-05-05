@@ -17,60 +17,47 @@
  *
  */
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
-    Box,
-    Container,
-    Grid,
-    Card,
-    CardContent,
-    Typography,
-    Paper,
-    Button,
-    CircularProgress,
-} from '@mui/material';
-import { useTranslation } from 'react-i18next';
-import UploadIcon from '@mui/icons-material/Upload';
+    Cartesian2,
+    Cartesian3,
+    Color,
+    ColorMaterialProperty,
+    createWorldImageryAsync,
+    Ion,
+    IonWorldImageryStyle,
+    LabelStyle,
+    Math as CesiumMath,
+    PolylineGlowMaterialProperty,
+    TileMapServiceImageryProvider,
+    VerticalOrigin,
+    Viewer,
+} from 'cesium';
+import 'cesium/Build/Cesium/Widgets/widgets.css';
 import {
-    LineChart,
-    Line,
-    AreaChart,
     Area,
+    AreaChart,
+    CartesianGrid,
+    ComposedChart,
+    Line,
+    LineChart,
+    ResponsiveContainer,
+    Scatter,
+    ScatterChart,
+    Tooltip as RechartsTooltip,
     XAxis,
     YAxis,
-    CartesianGrid,
-    Tooltip,
-    Legend,
-    ResponsiveContainer,
-    ScatterChart,
-    Scatter,
-    ComposedChart,
-    Bar,
 } from 'recharts';
 import {
-    MapContainer,
-    TileLayer,
-    Polyline,
-    CircleMarker,
-} from 'react-leaflet';
-import L from 'leaflet';
-import { useTheme } from '@mui/material/styles';
-import { TelemetrySummary } from './telemetry-components.jsx';
-import {
-    formatTelemetryNumber,
     getTelemetryNumber,
     isTelemetryNumericHeader,
     normalizeTelemetryHeader,
     toTelemetryNumber,
 } from './telemetry-utils.js';
+import './ground-station-view.css';
 
-// Fix leaflet icon issue
-delete L.Icon.Default.prototype._getIconUrl;
-L.Icon.Default.mergeOptions({
-    iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.3/dist/images/marker-icon-2x.png',
-    iconUrl: 'https://unpkg.com/leaflet@1.9.3/dist/images/marker-icon.png',
-    shadowUrl: 'https://unpkg.com/leaflet@1.9.3/dist/images/marker-shadow.png',
-});
+const DEFAULT_CENTER = [48.55, -81.35];
+const CESIUM_VIEW_HEIGHT = 120000;
 
 const parseCSV = (text) => {
     const lines = text
@@ -84,9 +71,9 @@ const parseCSV = (text) => {
 
     const headers = lines[0].split(',').map(header => header.trim());
 
-    return lines.slice(1).map((line) => {
-        const values = line.split(',').map(v => v.trim());
-        const obj = {};
+    return lines.slice(1).map((line, rowIndex) => {
+        const values = line.split(',').map(value => value.trim());
+        const obj = { streamIndex: rowIndex };
 
         headers.forEach((header, index) => {
             const value = values[index];
@@ -103,109 +90,540 @@ const parseCSV = (text) => {
     });
 };
 
-export default function TelemetryDashboard() {
-    const { t } = useTranslation('customize');
-    const theme = useTheme();
-    const [data, setData] = useState([]);
-    const [loading, setLoading] = useState(false);
-    const [hasData, setHasData] = useState(false);
+const formatDateTime = (date) => {
+    const pad = (value) => String(value).padStart(2, '0');
 
-    // Load sample data from public folder and stream it in real-time
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ` +
+        `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+};
+
+const formatClock = (value, fallback) => {
+    if (!value) return fallback;
+
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return fallback;
+
+    return date.toLocaleTimeString('fr-CA', {
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false,
+    });
+};
+
+const getRecordClock = (record, fallback) => {
+    return formatClock(record?.['m-time'] || record?.m_time || record?.['Ublox UTC'] || record?.Ublox_UTC, fallback);
+};
+
+const distanceKm = (start, end) => {
+    if (!start || !end) return 0;
+
+    const earthRadiusKm = 6371;
+    const toRadians = (value) => value * Math.PI / 180;
+    const dLat = toRadians(end[0] - start[0]);
+    const dLon = toRadians(end[1] - start[1]);
+    const lat1 = toRadians(start[0]);
+    const lat2 = toRadians(end[0]);
+    const a = Math.sin(dLat / 2) ** 2 +
+        Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
+
+    return earthRadiusKm * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+};
+
+const TopNav = ({ activeTab, onTabChange }) => {
+    const [now, setNow] = useState(() => new Date());
+    const tabs = [
+        { id: 'globe', label: 'Vue Globe 3D' },
+        { id: 'analyse', label: 'Analyse' },
+    ];
+
     useEffect(() => {
-        let isMounted = true;
-        let streamInterval = null;
+        const interval = setInterval(() => setNow(new Date()), 1000);
+        return () => clearInterval(interval);
+    }, []);
 
-        const loadAndStreamData = async () => {
-            try {
-                setLoading(true);
-                const response = await fetch('/api/telemetry.csv');
-                if (response.ok) {
-                    const text = await response.text();
-                    const parsedData = parseCSV(text);
+    return (
+        <header className="gs-top-nav">
+            <nav className="gs-nav-tabs" aria-label="Vues station sol">
+                {tabs.map(tab => (
+                    <button
+                        className={`gs-nav-tab${activeTab === tab.id ? ' is-active' : ''}`}
+                        key={tab.id}
+                        onClick={() => onTabChange(tab.id)}
+                        type="button"
+                    >
+                        {tab.label}
+                    </button>
+                ))}
+            </nav>
+            <time className="gs-nav-clock" dateTime={now.toISOString()}>
+                {formatDateTime(now)}
+            </time>
+        </header>
+    );
+};
 
-                    if (parsedData.length === 0) {
-                        if (isMounted) {
-                            setHasData(false);
-                            setLoading(false);
-                        }
-                        return;
+const TelemetryStatsBar = ({ currentRecord, distance }) => {
+    const altitude = getTelemetryNumber(currentRecord, ['U_Alt', 'U Alt'], 0);
+    const speed = getTelemetryNumber(currentRecord, 'Speed', 0);
+    const satellites = getTelemetryNumber(currentRecord, ['#_Sat', '#Sat'], 0);
+    const pressure = getTelemetryNumber(currentRecord, 'Pressure', 0);
+    const stats = [
+        { label: 'ALTITUDE', value: `${altitude.toFixed(0)} m` },
+        { label: 'DISTANCE', value: `${distance.toFixed(4)} km` },
+        { label: 'VITESSE', value: `${speed.toFixed(2)} m/s` },
+        { label: 'GPS SAT', value: satellites.toFixed(0) },
+        { label: 'PRESSION', value: `${pressure.toFixed(1)} hPa` },
+        { label: 'STATUS', value: 'NOMINAL', status: true },
+    ];
+
+    return (
+        <section className="gs-stats-bar" aria-label="Resume telemetrie">
+            {stats.map(stat => (
+                <article className={`gs-stat-card${stat.status ? ' gs-stat-status' : ''}`} key={stat.label}>
+                    <span className="gs-stat-label">{stat.label}</span>
+                    <span className="gs-stat-value">{stat.value}</span>
+                </article>
+            ))}
+        </section>
+    );
+};
+
+const RightControlPanel = ({ options, onToggle }) => {
+    const controls = [
+        { key: 'follow', label: 'Suivre CubeSat' },
+        { key: 'trajectory', label: 'Trajectoire' },
+        { key: 'linkBeam', label: 'Liaison sol' },
+    ];
+
+    return (
+        <aside className="gs-right-panel compact" aria-label="Controles carte">
+            <div className="gs-control-stack">
+                {controls.map(control => (
+                    <button
+                        className={`gs-cyan-button${options[control.key] ? ' is-on' : ''}`}
+                        key={control.key}
+                        onClick={() => onToggle(control.key)}
+                        type="button"
+                    >
+                        {control.label} {options[control.key] ? 'ON' : 'OFF'}
+                    </button>
+                ))}
+            </div>
+        </aside>
+    );
+};
+
+const getCesiumRecordPosition = (record) => {
+    const lat = toTelemetryNumber(record?.['U_Lat'], null);
+    const lon = toTelemetryNumber(record?.['U_Long'], null);
+    const alt = getTelemetryNumber(record, ['U_Alt', 'U Alt'], 0);
+
+    if (lat === null || lon === null) {
+        return null;
+    }
+
+    return Cartesian3.fromDegrees(lon, lat, alt);
+};
+
+const createBaseImageryProvider = async (hasIonToken) => {
+    if (hasIonToken) {
+        try {
+            return await createWorldImageryAsync({
+                style: IonWorldImageryStyle.AERIAL_WITH_LABELS,
+            });
+        } catch (error) {
+            console.warn('Cesium ion imagery unavailable, falling back to local imagery.', error);
+        }
+    }
+
+    return TileMapServiceImageryProvider.fromUrl('/cesiumStatic/Assets/Textures/NaturalEarthII');
+};
+
+const MapViewport = ({
+    currentRecord,
+    firstRecord,
+    hasData,
+    loading,
+    mapOptions,
+    onToggleMapOption,
+    trajectoryRecords,
+}) => {
+    const containerRef = useRef(null);
+    const viewerRef = useRef(null);
+    const satelliteEntityRef = useRef(null);
+    const startEntityRef = useRef(null);
+    const trajectoryEntityRef = useRef(null);
+    const linkEntityRef = useRef(null);
+    const initializedRef = useRef(false);
+
+    useEffect(() => {
+        let disposed = false;
+        let resizeObserver = null;
+
+        const initializeViewer = async () => {
+            if (!containerRef.current || viewerRef.current) return;
+
+            const token = import.meta.env.VITE_CESIUM_ION_TOKEN;
+            if (token) {
+                Ion.defaultAccessToken = token;
+            }
+
+            if (disposed || !containerRef.current) return;
+
+            const viewer = new Viewer(containerRef.current, {
+                animation: false,
+                baseLayerPicker: false,
+                fullscreenButton: false,
+                geocoder: false,
+                homeButton: false,
+                infoBox: false,
+                navigationHelpButton: false,
+                sceneModePicker: false,
+                selectionIndicator: false,
+                timeline: false,
+                baseLayer: false,
+            });
+
+            viewer.scene.globe.enableLighting = true;
+            viewer.scene.globe.depthTestAgainstTerrain = false;
+            viewer.scene.skyAtmosphere.show = true;
+            viewer.scene.requestRenderMode = false;
+            viewer.camera.setView({
+                destination: Cartesian3.fromDegrees(DEFAULT_CENTER[1], DEFAULT_CENTER[0], CESIUM_VIEW_HEIGHT * 14),
+                orientation: {
+                    heading: CesiumMath.toRadians(0),
+                    pitch: CesiumMath.toRadians(-62),
+                    roll: 0,
+                },
+            });
+
+            resizeObserver = new ResizeObserver(() => viewer.resize());
+            resizeObserver.observe(containerRef.current);
+            viewerRef.current = viewer;
+
+            const maxTextureSize = viewer.scene.context?.maximumTextureSize ?? 0;
+            if (maxTextureSize > 0) {
+                createBaseImageryProvider(Boolean(token)).then((imageryProvider) => {
+                    if (!disposed && viewerRef.current && !viewerRef.current.isDestroyed()) {
+                        viewer.imageryLayers.addImageryProvider(imageryProvider, 0);
                     }
-
-                    if (isMounted) {
-                        setHasData(true);
-                        setLoading(false);
-                    }
-
-                    // Stream data in real-time using state
-                    let currentIndex = 0;
-                    let streamIndex = 0;
-                    const maxStreamPoints = Math.max(parsedData.length * 3, 500);
-
-                    streamInterval = setInterval(() => {
-                        if (!isMounted) return;
-
-                        const nextPoint = {
-                            ...parsedData[currentIndex],
-                            streamIndex,
-                        };
-
-                        setData((previousData) => {
-                            const nextData = [...previousData, nextPoint];
-                            return nextData.length > maxStreamPoints
-                                ? nextData.slice(nextData.length - maxStreamPoints)
-                                : nextData;
-                        });
-
-                        currentIndex++;
-                        streamIndex++;
-
-                        // Loop over the CSV without clearing the already displayed stream.
-                        if (currentIndex >= parsedData.length) {
-                            currentIndex = 0;
-                        }
-                    }, 500); // 500ms interval between each row
-                } else {
-                    console.log('Fichier de données non trouvé.');
-                    if (isMounted) setLoading(false);
-                }
-            } catch (error) {
-                console.log('Erreur de chargement:', error);
-                if (isMounted) setLoading(false);
+                }).catch((error) => {
+                    console.warn('Cesium imagery layer could not be loaded.', error);
+                });
             }
         };
 
-        loadAndStreamData();
+        initializeViewer();
 
-        // Cleanup
         return () => {
-            isMounted = false;
-            if (streamInterval) {
-                clearInterval(streamInterval);
+            disposed = true;
+            resizeObserver?.disconnect();
+            if (viewerRef.current && !viewerRef.current.isDestroyed()) {
+                viewerRef.current.destroy();
             }
+            viewerRef.current = null;
         };
     }, []);
 
-    const handleFileUpload = (event) => {
-        const file = event.target.files?.[0];
-        if (!file) return;
+    useEffect(() => {
+        const viewer = viewerRef.current;
+        if (!viewer) return;
 
-        const reader = new FileReader();
-        reader.onload = (e) => {
-            try {
-                const text = e.target?.result;
-                if (typeof text === 'string') {
-                    const parsedData = parseCSV(text);
-                    setData(parsedData);
-                    setHasData(true);
+        const positions = trajectoryRecords
+            .map(getCesiumRecordPosition)
+            .filter(Boolean);
+        const currentPosition = getCesiumRecordPosition(currentRecord);
+        const startPosition = getCesiumRecordPosition(firstRecord);
+
+        if (!trajectoryEntityRef.current) {
+            trajectoryEntityRef.current = viewer.entities.add({
+                name: 'Trajectoire CubeSat',
+                polyline: {
+                    positions,
+                    width: 4,
+                    material: new PolylineGlowMaterialProperty({
+                        glowPower: 0.16,
+                        color: Color.CYAN.withAlpha(0.96),
+                    }),
+                },
+            });
+        } else {
+            trajectoryEntityRef.current.polyline.positions = positions;
+        }
+        trajectoryEntityRef.current.show = mapOptions.trajectory && positions.length > 1;
+
+        if (startPosition && !startEntityRef.current) {
+            startEntityRef.current = viewer.entities.add({
+                name: 'Depart trajectoire',
+                position: startPosition,
+                point: {
+                    pixelSize: 11,
+                    color: Color.LIME,
+                    outlineColor: Color.WHITE,
+                    outlineWidth: 1,
+                },
+            });
+        } else if (startPosition) {
+            startEntityRef.current.position = startPosition;
+        }
+
+        if (currentPosition && !satelliteEntityRef.current) {
+            satelliteEntityRef.current = viewer.entities.add({
+                name: 'CubeSat temps reel',
+                position: currentPosition,
+                point: {
+                    pixelSize: 13,
+                    color: Color.RED,
+                    outlineColor: Color.WHITE,
+                    outlineWidth: 2,
+                },
+                label: {
+                    text: 'CubeSat',
+                    font: '12px Consolas',
+                    fillColor: Color.CYAN,
+                    outlineColor: Color.BLACK,
+                    outlineWidth: 3,
+                    style: LabelStyle.FILL_AND_OUTLINE,
+                    verticalOrigin: VerticalOrigin.BOTTOM,
+                    pixelOffset: new Cartesian2(0, -16),
+                },
+            });
+        } else if (currentPosition) {
+            satelliteEntityRef.current.position = currentPosition;
+        }
+
+        if (!linkEntityRef.current) {
+            linkEntityRef.current = viewer.entities.add({
+                name: 'Liaison sol',
+                polyline: {
+                    positions: startPosition && currentPosition ? [startPosition, currentPosition] : [],
+                    width: 2,
+                    material: new ColorMaterialProperty(Color.LIME.withAlpha(0.78)),
+                },
+            });
+        } else {
+            linkEntityRef.current.polyline.positions = startPosition && currentPosition
+                ? [startPosition, currentPosition]
+                : [];
+        }
+        linkEntityRef.current.show = mapOptions.linkBeam && Boolean(startPosition && currentPosition);
+
+        if (!initializedRef.current && positions.length > 1) {
+            initializedRef.current = true;
+            viewer.zoomTo(trajectoryEntityRef.current);
+        }
+
+        viewer.trackedEntity = mapOptions.follow ? satelliteEntityRef.current : undefined;
+    }, [currentRecord, firstRecord, mapOptions.follow, mapOptions.linkBeam, mapOptions.trajectory, trajectoryRecords]);
+
+    return (
+        <section className="gs-map-frame gs-cesium-frame" aria-label="Globe Cesium de suivi CubeSat">
+            <div ref={containerRef} className="gs-cesium-viewer" />
+            <RightControlPanel options={mapOptions} onToggle={onToggleMapOption} />
+            {(loading || !hasData) && (
+                <div className="gs-map-status">
+                    {loading ? 'CHARGEMENT CSV...' : 'AUCUNE TELEMETRIE'}
+                </div>
+            )}
+        </section>
+    );
+};
+
+const chartTooltipStyle = {
+    backgroundColor: 'rgba(8, 22, 36, 0.96)',
+    border: '1px solid rgba(0, 216, 255, 0.42)',
+    color: '#c9eaff',
+};
+
+const AnalysisView = ({ data }) => (
+    <section className="gs-analysis">
+        <article className="gs-chart-card">
+            <h2>Altitude vs Temps</h2>
+            <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={data}>
+                    <defs>
+                        <linearGradient id="altitudeFill" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor="#00ff9c" stopOpacity={0.78} />
+                            <stop offset="95%" stopColor="#00ff9c" stopOpacity={0.02} />
+                        </linearGradient>
+                    </defs>
+                    <CartesianGrid stroke="rgba(111, 145, 168, 0.26)" strokeDasharray="3 3" />
+                    <XAxis dataKey="Time Index" stroke="#6f91a8" />
+                    <YAxis stroke="#6f91a8" />
+                    <RechartsTooltip contentStyle={chartTooltipStyle} />
+                    <Area dataKey="U_Alt" fill="url(#altitudeFill)" name="Altitude" stroke="#00ff9c" />
+                </AreaChart>
+            </ResponsiveContainer>
+        </article>
+
+        <article className="gs-chart-card">
+            <h2>Vitesse vs Temps</h2>
+            <ResponsiveContainer width="100%" height="100%">
+                <ComposedChart data={data}>
+                    <CartesianGrid stroke="rgba(111, 145, 168, 0.26)" strokeDasharray="3 3" />
+                    <XAxis dataKey="Time Index" stroke="#6f91a8" />
+                    <YAxis stroke="#6f91a8" />
+                    <RechartsTooltip contentStyle={chartTooltipStyle} />
+                    <Line dataKey="Speed" dot={false} name="Vitesse horizontale" stroke="#ffaa00" strokeWidth={2} />
+                    <Line dataKey="Vert_speed" dot={false} name="Vitesse verticale" stroke="#ff3b3b" strokeDasharray="5 5" strokeWidth={2} />
+                </ComposedChart>
+            </ResponsiveContainer>
+        </article>
+
+        <article className="gs-chart-card">
+            <h2>Pression vs Altitude</h2>
+            <ResponsiveContainer width="100%" height="100%">
+                <ScatterChart>
+                    <CartesianGrid stroke="rgba(111, 145, 168, 0.26)" strokeDasharray="3 3" />
+                    <XAxis dataKey="U_Alt" name="Altitude" stroke="#6f91a8" type="number" />
+                    <YAxis dataKey="Pressure" name="Pression" stroke="#6f91a8" />
+                    <RechartsTooltip contentStyle={chartTooltipStyle} />
+                    <Scatter data={data} fill="#00d8ff" name="Donnees" />
+                </ScatterChart>
+            </ResponsiveContainer>
+        </article>
+
+        <article className="gs-chart-card">
+            <h2>Satellites visibles vs Temps</h2>
+            <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={data}>
+                    <CartesianGrid stroke="rgba(111, 145, 168, 0.26)" strokeDasharray="3 3" />
+                    <XAxis dataKey="Time Index" stroke="#6f91a8" />
+                    <YAxis stroke="#6f91a8" />
+                    <RechartsTooltip contentStyle={chartTooltipStyle} />
+                    <Line dataKey="#_Sat" dot={false} name="Satellites GPS" stroke="#00d8ff" strokeWidth={2} />
+                </LineChart>
+            </ResponsiveContainer>
+        </article>
+    </section>
+);
+
+const TimelineControls = ({
+    currentLabel,
+    endLabel,
+    isPlaying,
+    onReset,
+    onSeek,
+    onSpeedChange,
+    onTogglePlay,
+    progress,
+    speedMs,
+    startLabel,
+}) => (
+    <footer className="gs-timeline" aria-label="Timeline player">
+        <button className="gs-play-button" onClick={onTogglePlay} type="button">
+            {isPlaying ? 'PAUSE' : 'PLAY'}
+        </button>
+        <button className="gs-reset-button" onClick={onReset} type="button" aria-label="Reset timeline">
+            RESET
+        </button>
+        <span className="gs-timecode">{startLabel}</span>
+        <input
+            className="gs-range"
+            max="100"
+            min="0"
+            onChange={(event) => onSeek(Number(event.target.value))}
+            type="range"
+            value={progress}
+            aria-label="Pass timeline"
+        />
+        <span className="gs-timecode">{currentLabel || endLabel}</span>
+        <select
+            className="gs-speed-select"
+            onChange={(event) => onSpeedChange(Number(event.target.value))}
+            value={speedMs}
+            aria-label="Vitesse lecture"
+        >
+            <option value={500}>500ms</option>
+            <option value={250}>250ms</option>
+            <option value={60}>60ms</option>
+        </select>
+    </footer>
+);
+
+export default function TelemetryDashboard() {
+    const [activeTab, setActiveTab] = useState('globe');
+    const [sourceData, setSourceData] = useState([]);
+    const [data, setData] = useState([]);
+    const [hasData, setHasData] = useState(false);
+    const [isPlaying, setIsPlaying] = useState(true);
+    const [loading, setLoading] = useState(true);
+    const [speedMs, setSpeedMs] = useState(500);
+    const [mapOptions, setMapOptions] = useState({
+        follow: true,
+        trajectory: true,
+        linkBeam: true,
+    });
+    const sourceIndexRef = useRef(0);
+    const streamIndexRef = useRef(0);
+
+    useEffect(() => {
+        let isMounted = true;
+
+        const loadTelemetry = async () => {
+            const endpoints = ['/api/telemetry.csv', '/telemetry.csv'];
+
+            for (const endpoint of endpoints) {
+                try {
+                    const response = await fetch(endpoint);
+
+                    if (!response.ok) {
+                        continue;
+                    }
+
+                    const parsedData = parseCSV(await response.text());
+
+                    if (isMounted) {
+                        setSourceData(parsedData);
+                        setHasData(parsedData.length > 0);
+                        setLoading(false);
+                    }
+
+                    return;
+                } catch (error) {
+                    console.log(`Erreur de chargement ${endpoint}:`, error);
                 }
-            } catch (error) {
-                console.error('Erreur lors de la lecture du fichier:', error);
+            }
+
+            if (isMounted) {
+                setHasData(false);
+                setLoading(false);
             }
         };
-        reader.readAsText(file);
-    };
 
-    // Prepare chart data with index for better display
+        loadTelemetry();
+
+        return () => {
+            isMounted = false;
+        };
+    }, []);
+
+    useEffect(() => {
+        if (!isPlaying || sourceData.length === 0) return undefined;
+
+        const interval = setInterval(() => {
+            const sourcePoint = sourceData[sourceIndexRef.current];
+            const nextPoint = {
+                ...sourcePoint,
+                streamIndex: streamIndexRef.current,
+            };
+            const maxStreamPoints = Math.max(sourceData.length * 3, 500);
+
+            setData((previousData) => {
+                const nextData = [...previousData, nextPoint];
+                return nextData.length > maxStreamPoints
+                    ? nextData.slice(nextData.length - maxStreamPoints)
+                    : nextData;
+            });
+
+            sourceIndexRef.current = (sourceIndexRef.current + 1) % sourceData.length;
+            streamIndexRef.current += 1;
+        }, speedMs);
+
+        return () => clearInterval(interval);
+    }, [isPlaying, sourceData, speedMs]);
+
     const chartData = useMemo(() => {
         return data.map((item, index) => ({
             ...item,
@@ -215,60 +633,11 @@ export default function TelemetryDashboard() {
             'Speed': getTelemetryNumber(item, 'Speed'),
             'Vert_speed': getTelemetryNumber(item, ['Vert_speed', 'Vert speed']),
             'Pressure': getTelemetryNumber(item, 'Pressure'),
-            'U_Lat': getTelemetryNumber(item, ['U_Lat', 'U Lat']),
-            'U_Long': getTelemetryNumber(item, ['U_Long', 'U Long']),
+            'U_Lat': getTelemetryNumber(item, ['U_Lat', 'U Lat'], null),
+            'U_Long': getTelemetryNumber(item, ['U_Long', 'U Long'], null),
             '#_Sat': getTelemetryNumber(item, ['#_Sat', '#Sat']),
         }));
     }, [data]);
-
-    // Calculate map bounds
-    const mapBounds = useMemo(() => {
-        if (chartData.length === 0) return [[48.5, -81.4], [48.6, -81.3]];
-
-        const lats = chartData
-            .map(point => toTelemetryNumber(point['U_Lat'], null))
-            .filter(value => value !== null);
-        const lons = chartData
-            .map(point => toTelemetryNumber(point['U_Long'], null))
-            .filter(value => value !== null);
-
-        if (lats.length === 0 || lons.length === 0) {
-            return [[48.5, -81.4], [48.6, -81.3]];
-        }
-
-        const minLat = Math.min(...lats);
-        const maxLat = Math.max(...lats);
-        const minLon = Math.min(...lons);
-        const maxLon = Math.max(...lons);
-
-        // Add padding
-        const latPadding = (maxLat - minLat) * 0.1 || 0.01;
-        const lonPadding = (maxLon - minLon) * 0.1 || 0.01;
-
-        return [
-            [minLat - latPadding, minLon - lonPadding],
-            [maxLat + latPadding, maxLon + lonPadding],
-        ];
-    }, [chartData]);
-
-    const centerPoint = useMemo(() => {
-        if (chartData.length === 0) return [48.55, -81.35];
-        const lats = chartData
-            .map(point => toTelemetryNumber(point['U_Lat'], null))
-            .filter(value => value !== null);
-        const lons = chartData
-            .map(point => toTelemetryNumber(point['U_Long'], null))
-            .filter(value => value !== null);
-
-        if (lats.length === 0 || lons.length === 0) {
-            return [48.55, -81.35];
-        }
-
-        return [
-            lats.reduce((a, b) => a + b, 0) / lats.length,
-            lons.reduce((a, b) => a + b, 0) / lons.length,
-        ];
-    }, [chartData]);
 
     const trajectoryPoints = useMemo(() => {
         return chartData
@@ -279,294 +648,89 @@ export default function TelemetryDashboard() {
             .filter(([lat, lon]) => lat !== null && lon !== null);
     }, [chartData]);
 
-    const isDark = theme.palette.mode === 'dark';
-    const chartColor = isDark ? '#90caf9' : '#1976d2';
-    const altitudeColor = isDark ? '#81c784' : '#388e3c';
-    const speedColor = isDark ? '#ffb74d' : '#f57c00';
-    const vertSpeedColor = isDark ? '#e57373' : '#d32f2f';
+    const trajectoryRecords = useMemo(() => {
+        return chartData.filter(point => (
+            toTelemetryNumber(point['U_Lat'], null) !== null &&
+            toTelemetryNumber(point['U_Long'], null) !== null
+        ));
+    }, [chartData]);
 
-    if (loading) {
-        return (
-            <Container maxWidth="lg" sx={{ py: 4, display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '400px' }}>
-                <CircularProgress />
-            </Container>
+    const firstPoint = trajectoryPoints[0] ?? null;
+    const currentPoint = trajectoryPoints[trajectoryPoints.length - 1] ?? null;
+    const firstRecord = trajectoryRecords[0] ?? null;
+    const currentRecord = chartData[chartData.length - 1] ?? sourceData[0] ?? {};
+    const distance = distanceKm(firstPoint, currentPoint);
+    const progress = sourceData.length > 0
+        ? Math.round((sourceIndexRef.current / sourceData.length) * 100)
+        : 0;
+
+    const handleReset = () => {
+        sourceIndexRef.current = 0;
+        streamIndexRef.current = 0;
+        setData([]);
+        setIsPlaying(true);
+    };
+
+    const handleSeek = (percentage) => {
+        if (sourceData.length === 0) return;
+
+        const nextIndex = Math.min(
+            sourceData.length - 1,
+            Math.max(0, Math.round((percentage / 100) * (sourceData.length - 1)))
         );
-    }
+        sourceIndexRef.current = nextIndex;
+        streamIndexRef.current += 1;
+        setData(previousData => [
+            ...previousData,
+            {
+                ...sourceData[nextIndex],
+                streamIndex: streamIndexRef.current,
+            },
+        ]);
+    };
+
+    const handleToggleMapOption = (key) => {
+        setMapOptions(previous => ({
+            ...previous,
+            [key]: !previous[key],
+        }));
+    };
+
+    const startLabel = getRecordClock(sourceData[0], '15:43:24');
+    const endLabel = getRecordClock(sourceData[sourceData.length - 1], '17:54:46');
+    const currentLabel = getRecordClock(currentRecord, startLabel);
 
     return (
-        <Container maxWidth="xl" sx={{ py: 4 }}>
-            <Box sx={{ mb: 4 }}>
-                <Typography variant="h4" sx={{ mb: 2 }}>
-                    Tableau de bord de télémétrie CubeSat
-                </Typography>
-                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                    Visualisez les données de trajectoire et de performance du satellite ICARUS2
-                </Typography>
-
-                {!hasData && (
-                    <Button
-                        variant="contained"
-                        component="label"
-                        startIcon={<UploadIcon />}
-                        sx={{ mb: 2 }}
-                    >
-                        Charger un fichier CSV
-                        <input
-                            type="file"
-                            accept=".csv"
-                            hidden
-                            onChange={handleFileUpload}
-                        />
-                    </Button>
-                )}
-            </Box>
-
-            {chartData.length > 0 && (
-                <Grid container spacing={4} sx={{ mt: 2 }}>
-                    {/* Carte de la trajectoire */}
-                    <Grid item xs={12}>
-                        <Card>
-                            <CardContent>
-                                <Typography variant="h6" sx={{ mb: 2 }}>
-                                    🗺️ Trajectoire du satellite
-                                </Typography>
-                                <Box sx={{ height: 350, borderRadius: 1, overflow: 'hidden' }}>
-                                    <MapContainer
-                                        bounds={mapBounds}
-                                        style={{ height: '100%', width: '100%' }}
-                                    >
-                                        <TileLayer
-                                            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                                            attribution='&copy; OpenStreetMap contributors'
-                                        />
-                                        {trajectoryPoints.length > 0 && (
-                                            <Polyline
-                                                positions={trajectoryPoints}
-                                                color={chartColor}
-                                                weight={3}
-                                                opacity={0.8}
-                                            />
-                                        )}
-                                        {chartData.length > 0 && (
-                                            <>
-                                                <CircleMarker
-                                                    center={[chartData[0]['U_Lat'], chartData[0]['U_Long']]}
-                                                    radius={8}
-                                                    color="green"
-                                                    fill
-                                                    fillColor="green"
-                                                    fillOpacity={0.7}
-                                                >
-                                                </CircleMarker>
-                                                <CircleMarker
-                                                    center={[chartData[chartData.length - 1]['U_Lat'], chartData[chartData.length - 1]['U_Long']]}
-                                                    radius={8}
-                                                    color="red"
-                                                    fill
-                                                    fillColor="red"
-                                                    fillOpacity={0.7}
-                                                >
-                                                </CircleMarker>
-                                            </>
-                                        )}
-                                    </MapContainer>
-                                </Box>
-                            </CardContent>
-                        </Card>
-                    </Grid>
-
-                    {/* Graphique Altitude vs Temps */}
-                    <Grid item xs={12} md={6} lg={5}>
-                        <Card>
-                            <CardContent>
-                                <Typography variant="h6" sx={{ mb: 2 }}>
-                                    📈 Altitude vs Temps
-                                </Typography>
-                                <ResponsiveContainer width="100%" height={300}>
-                                    <AreaChart data={chartData}>
-                                        <defs>
-                                            <linearGradient id="colorAlt" x1="0" y1="0" x2="0" y2="1">
-                                                <stop offset="5%" stopColor={altitudeColor} stopOpacity={0.8}/>
-                                                <stop offset="95%" stopColor={altitudeColor} stopOpacity={0}/>
-                                            </linearGradient>
-                                        </defs>
-                                        <CartesianGrid strokeDasharray="3 3" stroke={isDark ? '#444' : '#ccc'} />
-                                        <XAxis 
-                                            dataKey="Time Index" 
-                                            stroke={isDark ? '#aaa' : '#666'}
-                                            label={{ value: 'Points de données', position: 'insideBottomRight', offset: -5 }}
-                                        />
-                                        <YAxis 
-                                            stroke={isDark ? '#aaa' : '#666'}
-                                            label={{ value: 'Altitude (m)', angle: -90, position: 'insideLeft' }}
-                                        />
-                                        <Tooltip 
-                                            contentStyle={{ 
-                                                backgroundColor: isDark ? '#333' : '#fff',
-                                                border: `1px solid ${isDark ? '#555' : '#ccc'}`,
-                                                color: isDark ? '#fff' : '#000'
-                                            }}
-                                            formatter={(value) => formatTelemetryNumber(value, 1, 'm')}
-                                        />
-                                        <Area 
-                                            type="monotone" 
-                                            dataKey="U_Alt" 
-                                            stroke={altitudeColor} 
-                                            fillOpacity={1} 
-                                            fill="url(#colorAlt)"
-                                            name="Altitude"
-                                        />
-                                    </AreaChart>
-                                </ResponsiveContainer>
-                            </CardContent>
-                        </Card>
-                    </Grid>
-
-                    {/* Graphique Vitesse vs Temps */}
-                    <Grid item xs={12} md={6} lg={5}>
-                        <Card>
-                            <CardContent>
-                                <Typography variant="h6" sx={{ mb: 2 }}>
-                                    ⚡ Vitesse vs Temps
-                                </Typography>
-                                <ResponsiveContainer width="100%" height={300}>
-                                    <ComposedChart data={chartData}>
-                                        <CartesianGrid strokeDasharray="3 3" stroke={isDark ? '#444' : '#ccc'} />
-                                        <XAxis 
-                                            dataKey="Time Index" 
-                                            stroke={isDark ? '#aaa' : '#666'}
-                                        />
-                                        <YAxis 
-                                            stroke={isDark ? '#aaa' : '#666'}
-                                            label={{ value: 'Vitesse (m/s)', angle: -90, position: 'insideLeft' }}
-                                        />
-                                        <Tooltip 
-                                            contentStyle={{ 
-                                                backgroundColor: isDark ? '#333' : '#fff',
-                                                border: `1px solid ${isDark ? '#555' : '#ccc'}`,
-                                                color: isDark ? '#fff' : '#000'
-                                            }}
-                                            formatter={(value) => formatTelemetryNumber(value, 2, 'm/s')}
-                                        />
-                                        <Legend />
-                                        <Line 
-                                            type="monotone" 
-                                            dataKey="Speed" 
-                                            stroke={speedColor} 
-                                            dot={false}
-                                            name="Vitesse horizontale"
-                                        />
-                                        <Line 
-                                            type="monotone" 
-                                            dataKey="Vert_speed" 
-                                            stroke={vertSpeedColor} 
-                                            dot={false}
-                                            strokeDasharray="5 5"
-                                            name="Vitesse verticale"
-                                        />
-                                    </ComposedChart>
-                                </ResponsiveContainer>
-                            </CardContent>
-                        </Card>
-                    </Grid>
-
-                    {/* Graphique Pression vs Altitude */}
-                    <Grid item xs={12} md={6} lg={5}>
-                        <Card>
-                            <CardContent>
-                                <Typography variant="h6" sx={{ mb: 2 }}>
-                                    💨 Pression vs Altitude
-                                </Typography>
-                                <ResponsiveContainer width="100%" height={300}>
-                                    <ScatterChart
-                                        margin={{ top: 20, right: 20, bottom: 20, left: 20 }}
-                                    >
-                                        <CartesianGrid strokeDasharray="3 3" stroke={isDark ? '#444' : '#ccc'} />
-                                        <XAxis 
-                                            dataKey="U_Alt" 
-                                            type="number"
-                                            stroke={isDark ? '#aaa' : '#666'}
-                                            label={{ value: 'Altitude (m)', position: 'insideBottomRight', offset: -5 }}
-                                        />
-                                        <YAxis 
-                                            dataKey="Pressure"
-                                            stroke={isDark ? '#aaa' : '#666'}
-                                            label={{ value: 'Pression (hPa)', angle: -90, position: 'insideLeft' }}
-                                        />
-                                        <Tooltip 
-                                            contentStyle={{ 
-                                                backgroundColor: isDark ? '#333' : '#fff',
-                                                border: `1px solid ${isDark ? '#555' : '#ccc'}`,
-                                                color: isDark ? '#fff' : '#000'
-                                            }}
-                                            cursor={{ strokeDasharray: '3 3' }}
-                                        />
-                                        <Scatter 
-                                            name="Données" 
-                                            data={chartData} 
-                                            fill={chartColor}
-                                            opacity={0.6}
-                                        />
-                                    </ScatterChart>
-                                </ResponsiveContainer>
-                            </CardContent>
-                        </Card>
-                    </Grid>
-
-                    {/* Graphique Satellites visibles vs Temps */}
-                    <Grid item xs={12} md={6} lg={5}>
-                        <Card>
-                            <CardContent>
-                                <Typography variant="h6" sx={{ mb: 2 }}>
-                                    🛰️ Satellites visibles vs Temps
-                                </Typography>
-                                <ResponsiveContainer width="100%" height={300}>
-                                    <LineChart data={chartData}>
-                                        <CartesianGrid strokeDasharray="3 3" stroke={isDark ? '#444' : '#ccc'} />
-                                        <XAxis 
-                                            dataKey="Time Index" 
-                                            stroke={isDark ? '#aaa' : '#666'}
-                                        />
-                                        <YAxis 
-                                            stroke={isDark ? '#aaa' : '#666'}
-                                            label={{ value: 'Nombre de satellites', angle: -90, position: 'insideLeft' }}
-                                        />
-                                        <Tooltip 
-                                            contentStyle={{ 
-                                                backgroundColor: isDark ? '#333' : '#fff',
-                                                border: `1px solid ${isDark ? '#555' : '#ccc'}`,
-                                                color: isDark ? '#fff' : '#000'
-                                            }}
-                                            formatter={(value) => formatTelemetryNumber(value, 0, 'satellites')}
-                                        />
-                                        <Line 
-                                            type="monotone" 
-                                            dataKey="#_Sat" 
-                                            stroke={chartColor}
-                                            dot={false}
-                                            strokeWidth={2}
-                                            name="Nombre de satellites GPS"
-                                        />
-                                    </LineChart>
-                                </ResponsiveContainer>
-                            </CardContent>
-                        </Card>
-                    </Grid>
-
-                    {/* Statistiques */}
-                    <Grid item xs={12}>
-                        <TelemetrySummary data={chartData} />
-                    </Grid>
-                </Grid>
+        <main className="ground-station-shell">
+            <TopNav activeTab={activeTab} onTabChange={setActiveTab} />
+            <TelemetryStatsBar currentRecord={currentRecord} distance={distance} />
+            {activeTab === 'analyse' ? (
+                <AnalysisView data={chartData} />
+            ) : (
+                <>
+                    <MapViewport
+                        currentRecord={currentRecord}
+                        firstRecord={firstRecord}
+                        hasData={hasData}
+                        loading={loading}
+                        mapOptions={mapOptions}
+                        onToggleMapOption={handleToggleMapOption}
+                        trajectoryRecords={trajectoryRecords}
+                    />
+                    <TimelineControls
+                        currentLabel={currentLabel}
+                        endLabel={endLabel}
+                        isPlaying={isPlaying}
+                        onReset={handleReset}
+                        onSeek={handleSeek}
+                        onSpeedChange={setSpeedMs}
+                        onTogglePlay={() => setIsPlaying(previous => !previous)}
+                        progress={progress}
+                        speedMs={speedMs}
+                        startLabel={startLabel}
+                    />
+                </>
             )}
-
-            {!hasData && !loading && (
-                <Paper sx={{ p: 4, textAlign: 'center' }}>
-                    <Typography variant="h6" color="text.secondary">
-                        Aucune donnée. Chargez un fichier CSV pour commencer.
-                    </Typography>
-                </Paper>
-            )}
-        </Container>
+        </main>
     );
 }

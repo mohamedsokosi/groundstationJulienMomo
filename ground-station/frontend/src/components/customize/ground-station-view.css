@@ -1,0 +1,575 @@
+.ground-station-shell {
+    position: fixed;
+    inset: 0;
+    z-index: 1500;
+    display: flex;
+    flex-direction: column;
+    box-sizing: border-box;
+    overflow: hidden;
+    color: #c9eaff;
+    background:
+        repeating-linear-gradient(
+            to bottom,
+            rgba(0, 216, 255, 0.035) 0,
+            rgba(0, 216, 255, 0.035) 1px,
+            transparent 1px,
+            transparent 5px
+        ),
+        linear-gradient(180deg, #020812 0%, #050b12 52%, #020812 100%);
+    font-family: Consolas, "Courier New", monospace;
+}
+
+.ground-station-shell * {
+    box-sizing: border-box;
+}
+
+.gs-top-nav {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex: 0 0 42px;
+    min-height: 42px;
+    padding: 0 8px 0 20px;
+    border-bottom: 1px solid rgba(0, 216, 255, 0.28);
+    background: rgba(1, 7, 13, 0.98);
+    box-shadow: 0 1px 18px rgba(0, 216, 255, 0.08);
+}
+
+.gs-nav-tabs {
+    display: flex;
+    align-items: stretch;
+    height: 100%;
+    gap: 12px;
+}
+
+.gs-nav-tab {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    height: 100%;
+    padding: 0 20px;
+    border: 0;
+    border-radius: 0;
+    color: #6f91a8;
+    background: transparent;
+    font: 700 10px/1 Consolas, "Courier New", monospace;
+    letter-spacing: 0;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: color 160ms ease, text-shadow 160ms ease;
+}
+
+.gs-nav-tab::after {
+    content: "";
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    height: 2px;
+    background: transparent;
+}
+
+.gs-nav-tab.is-active {
+    color: #00d8ff;
+    text-shadow: 0 0 10px rgba(0, 216, 255, 0.72);
+}
+
+.gs-nav-tab.is-active::after {
+    background: #00d8ff;
+    box-shadow: 0 0 12px rgba(0, 216, 255, 0.88);
+}
+
+.gs-nav-clock {
+    flex: 0 0 auto;
+    color: #47758f;
+    font-size: 11px;
+    letter-spacing: 0;
+    white-space: nowrap;
+}
+
+.gs-stats-bar {
+    display: flex;
+    align-items: center;
+    flex: 0 0 64px;
+    min-height: 64px;
+    gap: 8px;
+    padding: 8px 8px 6px;
+    background: linear-gradient(180deg, rgba(2, 8, 18, 0.98), rgba(2, 8, 18, 0.84));
+}
+
+.gs-stat-card {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    min-width: 74px;
+    height: 44px;
+    padding: 7px 11px;
+    border: 1px solid rgba(0, 216, 255, 0.26);
+    border-radius: 2px;
+    background: rgba(13, 34, 52, 0.72);
+    box-shadow: inset 0 0 18px rgba(0, 216, 255, 0.035);
+}
+
+.gs-stat-card:nth-child(5),
+.gs-stat-card:nth-child(6),
+.gs-stat-status {
+    min-width: 96px;
+}
+
+.gs-stat-label {
+    display: block;
+    margin-bottom: 5px;
+    color: #557b95;
+    font-size: 9px;
+    font-weight: 700;
+    line-height: 1;
+    letter-spacing: 0;
+}
+
+.gs-stat-value {
+    color: #00d8ff;
+    font-size: 11px;
+    font-weight: 800;
+    line-height: 1;
+    white-space: nowrap;
+    text-shadow: 0 0 7px rgba(0, 216, 255, 0.42);
+}
+
+.gs-stat-status .gs-stat-value {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 66px;
+    min-height: 18px;
+    border: 1px solid rgba(0, 255, 156, 0.62);
+    color: #00ff9c;
+    background: rgba(0, 255, 156, 0.11);
+    box-shadow: 0 0 12px rgba(0, 255, 156, 0.24);
+    text-shadow: 0 0 10px rgba(0, 255, 156, 0.7);
+}
+
+.gs-map-frame {
+    position: relative;
+    flex: 1 1 auto;
+    min-height: 0;
+    margin: 0 8px;
+    overflow: hidden;
+    border: 1px solid rgba(0, 216, 255, 0.72);
+    border-radius: 2px;
+    background: #06111a;
+    box-shadow:
+        inset 0 0 0 1px rgba(255, 255, 255, 0.03),
+        0 0 16px rgba(0, 216, 255, 0.14);
+}
+
+.gs-map-frame .leaflet-container {
+    width: 100%;
+    height: 100%;
+    background: #06111a;
+    font-family: Consolas, "Courier New", monospace;
+}
+
+.gs-map-frame .leaflet-tile {
+    filter: none;
+}
+
+.gs-map-frame .leaflet-control-attribution {
+    padding: 2px 5px;
+    border: 1px solid rgba(0, 216, 255, 0.18);
+    color: rgba(201, 234, 255, 0.62);
+    background: rgba(2, 8, 18, 0.48);
+    font-size: 10px;
+}
+
+.gs-map-frame .leaflet-control-attribution a {
+    color: rgba(201, 234, 255, 0.78);
+}
+
+.gs-map-frame .leaflet-tooltip {
+    border: 1px solid rgba(0, 216, 255, 0.48);
+    border-radius: 2px;
+    color: #c9eaff;
+    background: rgba(8, 22, 36, 0.9);
+    box-shadow: 0 0 10px rgba(0, 216, 255, 0.18);
+    font: 700 10px/1.3 Consolas, "Courier New", monospace;
+}
+
+.gs-cesium-frame {
+    background: #020812;
+}
+
+.gs-cesium-viewer,
+.gs-cesium-viewer .cesium-viewer,
+.gs-cesium-viewer .cesium-viewer-cesiumWidgetContainer,
+.gs-cesium-viewer .cesium-widget,
+.gs-cesium-viewer .cesium-widget canvas {
+    width: 100%;
+    height: 100%;
+}
+
+.gs-cesium-viewer .cesium-viewer-toolbar,
+.gs-cesium-viewer .cesium-viewer-animationContainer,
+.gs-cesium-viewer .cesium-viewer-timelineContainer {
+    display: none;
+}
+
+.gs-cesium-viewer .cesium-widget-credits {
+    color: rgba(201, 234, 255, 0.62);
+    background: rgba(2, 8, 18, 0.44);
+    font: 10px Consolas, "Courier New", monospace;
+}
+
+.gs-map-overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 410;
+    pointer-events: none;
+    background:
+        linear-gradient(90deg, rgba(0, 216, 255, 0.08), transparent 18%, transparent 82%, rgba(0, 216, 255, 0.09)),
+        repeating-linear-gradient(
+            to bottom,
+            rgba(0, 216, 255, 0.025) 0,
+            rgba(0, 216, 255, 0.025) 1px,
+            transparent 1px,
+            transparent 4px
+        );
+    mix-blend-mode: multiply;
+}
+
+.gs-map-crosshair {
+    position: absolute;
+    inset: 0;
+    z-index: 411;
+    pointer-events: none;
+    opacity: 0.18;
+    background:
+        linear-gradient(to right, transparent calc(50% - 1px), rgba(0, 216, 255, 0.7) 50%, transparent calc(50% + 1px)),
+        linear-gradient(to bottom, transparent calc(50% - 1px), rgba(0, 216, 255, 0.56) 50%, transparent calc(50% + 1px));
+}
+
+.gs-right-panel {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    z-index: 620;
+    width: 232px;
+    color: #c9eaff;
+}
+
+.gs-right-panel.compact {
+    width: 190px;
+}
+
+.gs-control-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    margin-bottom: 8px;
+}
+
+.gs-cyan-button {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 232px;
+    height: 26px;
+    border: 1px solid #00d8ff;
+    border-radius: 2px;
+    color: #006784;
+    background: rgba(150, 244, 255, 0.78);
+    box-shadow:
+        inset 0 0 10px rgba(255, 255, 255, 0.22),
+        0 0 9px rgba(0, 216, 255, 0.17);
+    font: 800 10px/1 Consolas, "Courier New", monospace;
+    letter-spacing: 0;
+    cursor: pointer;
+    transition: transform 130ms ease, background 130ms ease, box-shadow 130ms ease;
+}
+
+.gs-right-panel.compact .gs-cyan-button {
+    width: 190px;
+}
+
+.gs-cyan-button.is-on {
+    color: #00354a;
+    background: rgba(150, 244, 255, 0.92);
+}
+
+.gs-cyan-button:not(.is-on) {
+    color: #6f91a8;
+    background: rgba(8, 22, 36, 0.82);
+}
+
+.gs-cyan-button:hover {
+    background: rgba(184, 250, 255, 0.92);
+    box-shadow:
+        inset 0 0 10px rgba(255, 255, 255, 0.35),
+        0 0 14px rgba(0, 216, 255, 0.28);
+    transform: translateY(-1px);
+}
+
+.gs-panel-box {
+    width: 232px;
+    margin-bottom: 14px;
+    padding: 9px 10px;
+    border: 1px solid rgba(0, 216, 255, 0.34);
+    border-radius: 2px;
+    background: rgba(8, 22, 36, 0.88);
+    box-shadow: inset 0 0 18px rgba(0, 216, 255, 0.04);
+}
+
+.gs-legend-box {
+    padding-top: 10px;
+    padding-bottom: 10px;
+}
+
+.gs-legend-row {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    height: 16px;
+    color: #9cb8ca;
+    font-size: 9px;
+    line-height: 1;
+}
+
+.gs-legend-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 999px;
+    box-shadow: 0 0 8px currentColor;
+}
+
+.gs-panel-box h2 {
+    margin: 0 0 8px;
+    color: #00d8ff;
+    font-size: 9px;
+    line-height: 1;
+    letter-spacing: 0;
+}
+
+.gs-rssi-gradient {
+    height: 7px;
+    border-radius: 1px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: linear-gradient(90deg, #1226ff 0%, #00d8ff 28%, #00ff9c 55%, #ffee00 78%, #ff3b3b 100%);
+}
+
+.gs-rssi-labels {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 6px;
+    color: #54768c;
+    font-size: 8px;
+}
+
+.gs-antenna-box {
+    margin-bottom: 0;
+}
+
+.gs-antenna-box p {
+    margin: 0 0 5px;
+    color: #6f91a8;
+    font-size: 8px;
+    line-height: 1.35;
+}
+
+.gs-antenna-box strong {
+    color: #87acc2;
+    font-weight: 800;
+}
+
+.gs-map-status {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    z-index: 630;
+    transform: translate(-50%, -50%);
+    padding: 10px 16px;
+    border: 1px solid rgba(0, 216, 255, 0.45);
+    border-radius: 2px;
+    color: #00d8ff;
+    background: rgba(2, 8, 18, 0.84);
+    box-shadow: 0 0 16px rgba(0, 216, 255, 0.2);
+    font-size: 11px;
+    font-weight: 800;
+}
+
+.gs-timeline {
+    display: flex;
+    align-items: center;
+    flex: 0 0 54px;
+    min-height: 54px;
+    gap: 10px;
+    margin: 12px 8px 8px;
+    padding: 8px 14px;
+    border: 1px solid rgba(0, 216, 255, 0.32);
+    border-radius: 2px;
+    background: rgba(8, 22, 36, 0.88);
+    box-shadow: inset 0 0 18px rgba(0, 216, 255, 0.045);
+}
+
+.gs-analysis {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-auto-rows: minmax(250px, 1fr);
+    flex: 1 1 auto;
+    min-height: 0;
+    gap: 10px;
+    margin: 0 8px 8px;
+    overflow: auto;
+}
+
+.gs-chart-card {
+    min-height: 0;
+    height: 100%;
+    padding: 10px;
+    border: 1px solid rgba(0, 216, 255, 0.36);
+    border-radius: 2px;
+    background: rgba(8, 22, 36, 0.88);
+    box-shadow: inset 0 0 18px rgba(0, 216, 255, 0.045);
+}
+
+.gs-chart-card h2 {
+    height: 24px;
+    margin: 0;
+    color: #c9eaff;
+    font-size: 12px;
+    line-height: 1;
+}
+
+.gs-chart-card .recharts-responsive-container {
+    height: calc(100% - 24px) !important;
+}
+
+.gs-play-button,
+.gs-reset-button,
+.gs-speed-select {
+    height: 28px;
+    border: 1px solid #00d8ff;
+    border-radius: 2px;
+    color: #00d8ff;
+    background: rgba(0, 216, 255, 0.04);
+    font: 800 11px/1 Consolas, "Courier New", monospace;
+    transition: background 130ms ease, box-shadow 130ms ease;
+}
+
+.gs-play-button {
+    width: 70px;
+}
+
+.gs-reset-button {
+    width: 64px;
+}
+
+.gs-play-button:hover,
+.gs-reset-button:hover,
+.gs-speed-select:hover {
+    background: rgba(0, 216, 255, 0.12);
+    box-shadow: 0 0 10px rgba(0, 216, 255, 0.2);
+}
+
+.gs-timecode {
+    flex: 0 0 auto;
+    color: #47758f;
+    font-size: 11px;
+    white-space: nowrap;
+}
+
+.gs-range {
+    flex: 1 1 auto;
+    min-width: 120px;
+    accent-color: #c9eaff;
+}
+
+.gs-range::-webkit-slider-runnable-track {
+    height: 5px;
+    border-radius: 1px;
+    background: #d6e5f0;
+}
+
+.gs-range::-webkit-slider-thumb {
+    width: 18px;
+    height: 18px;
+    margin-top: -7px;
+    border: 2px solid #ffffff;
+    border-radius: 999px;
+    background: #6d7580;
+    box-shadow: 0 0 6px rgba(255, 255, 255, 0.45);
+    appearance: none;
+}
+
+.gs-range::-moz-range-track {
+    height: 5px;
+    border-radius: 1px;
+    background: #d6e5f0;
+}
+
+.gs-range::-moz-range-thumb {
+    width: 18px;
+    height: 18px;
+    border: 2px solid #ffffff;
+    border-radius: 999px;
+    background: #6d7580;
+    box-shadow: 0 0 6px rgba(255, 255, 255, 0.45);
+}
+
+.gs-speed-select {
+    width: 78px;
+    padding: 0 8px;
+    color: #6f91a8;
+    background-color: rgba(13, 34, 52, 0.82);
+}
+
+@media (max-width: 900px) {
+    .gs-nav-tabs {
+        gap: 2px;
+    }
+
+    .gs-nav-tab {
+        padding: 0 8px;
+        font-size: 9px;
+    }
+
+    .gs-right-panel {
+        right: 6px;
+        transform: scale(0.88);
+        transform-origin: top right;
+    }
+
+    .gs-stats-bar {
+        overflow-x: auto;
+    }
+}
+
+@media (max-width: 640px) {
+    .gs-top-nav {
+        padding-left: 8px;
+    }
+
+    .gs-nav-tab:not(.is-active) {
+        display: none;
+    }
+
+    .gs-nav-clock {
+        font-size: 10px;
+    }
+
+    .gs-right-panel {
+        display: none;
+    }
+
+    .gs-analysis {
+        grid-template-columns: 1fr;
+    }
+
+    .gs-timeline {
+        gap: 6px;
+        padding: 7px;
+    }
+
+    .gs-timecode {
+        display: none;
+    }
+}

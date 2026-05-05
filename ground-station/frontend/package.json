@@ -27,6 +27,8 @@
     "@mui/x-data-grid": "^7.28.1",
     "@reduxjs/toolkit": "^2.6.1",
     "@toolpad/core": "^0.15.0",
+    "@zip.js/zip.js": "^2.7.70",
+    "cesium": "^1.132.0",
     "cities.json": "^1.1.47",
     "dagre": "^0.8.5",
     "hls.js": "^1.6.0",
@@ -82,6 +84,7 @@
     "globals": "^15.14.0",
     "jsdom": "^25.0.1",
     "vite": "^6.1.0",
+    "vite-plugin-static-copy": "^4.1.0",
     "vitest": "^2.1.8"
   }
 }
