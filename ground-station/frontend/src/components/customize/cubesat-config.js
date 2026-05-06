@@ -196,7 +196,7 @@ export const CUBESAT_SUBSYSTEMS = [
             anchor: { x: 38.5, y: 68.6 },
             labelOffset: { x: 8, y: 3 },
             polygon: [
-                [25.9, 90.3],
+                [25.9, 89.3],
                 [50.7, 100.8],
                 [47.9, 108.2],
                 [23.1, 95.8],

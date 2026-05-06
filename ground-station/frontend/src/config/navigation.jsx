@@ -31,6 +31,8 @@ import VideocamIcon from '@mui/icons-material/Videocam';
 import FolderIcon from '@mui/icons-material/Folder';
 import TuneIcon from '@mui/icons-material/Tune';
 import SatelliteAltIcon from '@mui/icons-material/SatelliteAlt';
+import InsightsIcon from '@mui/icons-material/Insights';
+import SummarizeIcon from '@mui/icons-material/Summarize';
 import i18n from '../i18n/config.js';
 import { TleIcon } from '../components/common/custom-icons.jsx';
 import { Box, CircularProgress } from '@mui/material';
@@ -338,6 +340,16 @@ export const getNavigation = () => [
         segment: 'cubesat',
         title: 'CubeSat',
         icon: <SatelliteAltIcon />,
+    },
+    {
+        segment: 'analyse',
+        title: 'Analyse',
+        icon: <InsightsIcon />,
+    },
+    {
+        segment: 'rapport',
+        title: 'Rapport',
+        icon: <SummarizeIcon />,
     },
     {
         segment: 'settings/preferences',

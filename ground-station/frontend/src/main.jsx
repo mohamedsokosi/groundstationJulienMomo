@@ -50,6 +50,8 @@ import {WakeLockProvider} from "./components/dashboard/wake-lock-provider.jsx";
 import { AudioProvider, useAudio } from "./components/dashboard/audio-provider.jsx";
 import TelemetryDashboard from "./components/customize/telemetry-dashboard.jsx";
 import CubeSatDashboard from "./components/customize/cubesat-dashboard.jsx";
+import AnalyseDashboard from "./components/customize/analyse-dashboard.jsx";
+import RapportDashboard from "./components/customize/rapport-dashboard.jsx";
 import SatelliteInfoPage from "./components/satellites/satellite-info-page.jsx";
 import FilebrowserMain from "./components/filebrowser/filebrowser-main.jsx";
 import ScheduledObservationsLayout from "./components/scheduler/main-layout.jsx";
@@ -91,6 +93,14 @@ const router = createBrowserRouter([
                     {
                         path: "cubesat",
                         Component: CubeSatDashboard,
+                    },
+                    {
+                        path: "analyse",
+                        Component: AnalyseDashboard,
+                    },
+                    {
+                        path: "rapport",
+                        Component: RapportDashboard,
                     },
                     {
                         path: "satellite/:noradId",
