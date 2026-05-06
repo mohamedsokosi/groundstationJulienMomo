@@ -83,6 +83,7 @@ import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import {getNavigation} from "../../config/navigation.jsx";
 import { useUserTimeSettings } from '../../hooks/useUserTimeSettings.jsx';
 import { formatTime } from '../../utils/date-time.js';
+import { PageActionsProvider, usePageActions } from './page-actions-context.jsx';
 
 // Drawer widths
 const drawerWidthExpanded = 240;
@@ -185,8 +186,10 @@ function DashboardEditor() {
 }
 
 function ToolbarActions() {
+    const { node } = usePageActions();
     return (
-        <Stack direction="row" sx={{padding: "6px 0px 0px 0px"}}>
+        <Stack direction="row" alignItems="center" sx={{padding: "6px 0px 0px 0px"}}>
+            {node}
             <ConnectionStatus />
             <LocationWarningPopover />
             <SatelliteInfoPopover />
@@ -758,6 +761,7 @@ export default function Layout() {
     );
 
     return (
+        <PageActionsProvider>
         <Box sx={{ display: 'flex', minHeight: '100vh', overflow: 'hidden' }}>
             <CssBaseline />
             <CustomAppBar position="fixed" open={open}>
@@ -897,5 +901,6 @@ export default function Layout() {
                 </DialogActions>
             </Dialog>
         </Box>
+        </PageActionsProvider>
     );
 }
