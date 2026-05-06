@@ -155,7 +155,8 @@ export default function AnalyseDashboard() {
     const handleFileUpload = (e) => {
         const file = e.target.files?.[0];
         if (!file) return;
-        void loadFromFile(file, { stream: false });
+        void loadFromFile(file, { stream: true });
+        e.target.value = '';
     };
 
     const addChart = () => {

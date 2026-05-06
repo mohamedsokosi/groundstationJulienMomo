@@ -39,7 +39,8 @@ export default function CubeSatDashboard() {
     const handleFileUpload = (event) => {
         const file = event.target.files?.[0];
         if (!file) return;
-        void loadFromFile(file, { stream: false });
+        void loadFromFile(file, { stream: true });
+        event.target.value = '';
     };
 
     return (
