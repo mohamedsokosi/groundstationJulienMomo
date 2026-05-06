@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
     Box,
     Button,
@@ -20,6 +20,8 @@ import CheckIcon from '@mui/icons-material/Check';
 import DeleteIcon from '@mui/icons-material/Delete';
 import DragIndicatorIcon from '@mui/icons-material/DragIndicator';
 import EditIcon from '@mui/icons-material/Edit';
+import FileDownloadIcon from '@mui/icons-material/FileDownload';
+import FileUploadIcon from '@mui/icons-material/FileUpload';
 import UploadIcon from '@mui/icons-material/Upload';
 import {
     CartesianGrid,
@@ -127,6 +129,21 @@ function TelemetryChart({ data, xKey, yKey, color = '#4cbc74' }) {
     );
 }
 
+const STORAGE_KEY = 'analyse_charts_config';
+
+const loadSavedCharts = () => {
+    try {
+        const saved = localStorage.getItem(STORAGE_KEY);
+        if (saved) {
+            const parsed = JSON.parse(saved);
+            const validKeys = new Set(AVAILABLE_FIELDS.map((f) => f.key));
+            const valid = parsed.filter((c) => validKeys.has(c.x) && validKeys.has(c.y));
+            if (valid.length) return valid;
+        }
+    } catch {}
+    return null;
+};
+
 const DEFAULT_CHARTS = [
     { id: 'default-0', x: 'U_Alt', y: '_bilan',   color: '#4cbc74', cols: 3, ratio: '1/1' },
     { id: 'default-1', x: 'U_Alt', y: '_fspl',    color: '#ee8a22', cols: 3, ratio: '1/1' },
@@ -139,7 +156,11 @@ export default function AnalyseDashboard() {
     const { chartData, hasData, loading, loadFromFile } = useTelemetryStream();
 
     const [editMode, setEditMode] = useState(false);
-    const [charts, setCharts] = useState(DEFAULT_CHARTS);
+    const [charts, setCharts] = useState(() => loadSavedCharts() ?? DEFAULT_CHARTS);
+
+    useEffect(() => {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(charts));
+    }, [charts]);
     const [newX, setNewX] = useState('U_Alt');
     const [newY, setNewY] = useState('Pressure');
 
@@ -172,6 +193,45 @@ export default function AnalyseDashboard() {
 
     const updateChart = (id, patch) =>
         setCharts((prev) => prev.map((c) => c.id === id ? { ...c, ...patch } : c));
+
+    const exportConfig = () => {
+        const config = { version: 1, charts };
+        const blob = new Blob([JSON.stringify(config, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'analyse-graphiques.json';
+        a.click();
+        URL.revokeObjectURL(url);
+    };
+
+    const importConfig = (e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+            try {
+                const parsed = JSON.parse(ev.target.result);
+                const raw = Array.isArray(parsed) ? parsed : (parsed.charts ?? []);
+                const validKeys = new Set(AVAILABLE_FIELDS.map((f) => f.key));
+                const imported = raw
+                    .filter((c) => validKeys.has(c.x) && validKeys.has(c.y))
+                    .map((c) => ({
+                        x: c.x,
+                        y: c.y,
+                        color: c.color ?? CHART_COLORS[0],
+                        cols: c.cols ?? 3,
+                        ratio: c.ratio ?? '1/1',
+                        id: `imported-${Date.now()}-${Math.random()}`,
+                    }));
+                if (imported.length) setCharts(imported);
+            } catch {
+                // fichier JSON invalide — silencieux
+            }
+        };
+        reader.readAsText(file);
+        e.target.value = '';
+    };
 
     const handleDragStart = (e, id) => {
         dragSrcId.current = id;
@@ -234,18 +294,38 @@ export default function AnalyseDashboard() {
             {hasData && (
                 <Box>
                     {/* Section header */}
-                    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 0.5 }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 0.5, flexWrap: 'wrap', gap: 1 }}>
                         <Typography variant="h5" sx={{ fontWeight: 700 }}>
                             Graphiques personnalisés
                         </Typography>
-                        <Button
-                            variant={editMode ? 'contained' : 'outlined'}
-                            startIcon={editMode ? <CheckIcon /> : <EditIcon />}
-                            onClick={() => setEditMode((v) => !v)}
-                            color={editMode ? 'success' : 'primary'}
-                        >
-                            {editMode ? 'Terminer' : 'Modifier'}
-                        </Button>
+                        <Stack direction="row" spacing={1}>
+                            <Button
+                                variant="outlined"
+                                startIcon={<FileUploadIcon />}
+                                onClick={exportConfig}
+                                size="small"
+                            >
+                                Exporter
+                            </Button>
+                            <Button
+                                variant="outlined"
+                                component="label"
+                                startIcon={<FileDownloadIcon />}
+                                size="small"
+                            >
+                                Importer
+                                <input type="file" accept=".json" hidden onChange={importConfig} />
+                            </Button>
+                            <Button
+                                variant={editMode ? 'contained' : 'outlined'}
+                                startIcon={editMode ? <CheckIcon /> : <EditIcon />}
+                                onClick={() => setEditMode((v) => !v)}
+                                color={editMode ? 'success' : 'primary'}
+                                size="small"
+                            >
+                                {editMode ? 'Terminer' : 'Modifier'}
+                            </Button>
+                        </Stack>
                     </Box>
                     <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
                         {editMode
