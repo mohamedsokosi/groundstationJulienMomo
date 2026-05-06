@@ -22,7 +22,6 @@ import DragIndicatorIcon from '@mui/icons-material/DragIndicator';
 import EditIcon from '@mui/icons-material/Edit';
 import FileDownloadIcon from '@mui/icons-material/FileDownload';
 import FileUploadIcon from '@mui/icons-material/FileUpload';
-import UploadIcon from '@mui/icons-material/Upload';
 import {
     CartesianGrid,
     Line,
@@ -153,7 +152,7 @@ const DEFAULT_CHARTS = [
 
 export default function AnalyseDashboard() {
     const theme = useTheme();
-    const { chartData, hasData, loading, loadFromFile } = useTelemetryStream();
+    const { chartData } = useTelemetryStream();
 
     const [editMode, setEditMode] = useState(false);
     const [charts, setCharts] = useState(() => loadSavedCharts() ?? DEFAULT_CHARTS);
@@ -172,13 +171,6 @@ export default function AnalyseDashboard() {
         () => (chartData?.length ? chartData.map(enrich) : []),
         [chartData],
     );
-
-    const handleFileUpload = (e) => {
-        const file = e.target.files?.[0];
-        if (!file) return;
-        void loadFromFile(file, { stream: true });
-        e.target.value = '';
-    };
 
     const addChart = () => {
         if (newX && newY && newX !== newY) {
@@ -275,25 +267,9 @@ export default function AnalyseDashboard() {
                 <Typography variant="body1" color="text.secondary" sx={{ maxWidth: 860 }}>
                     Graphiques de télémétrie personnalisables.
                 </Typography>
-                <Box sx={{ mt: 2.5 }}>
-                    <Button variant="contained" component="label" startIcon={<UploadIcon />}>
-                        Charger un CSV
-                        <input type="file" accept=".csv" hidden onChange={handleFileUpload} />
-                    </Button>
-                </Box>
             </Box>
 
-            {!hasData && !loading && (
-                <Paper sx={{ p: 4, textAlign: 'center', borderRadius: 2 }}>
-                    <Typography variant="h6" sx={{ mb: 1 }}>Aucune donnée chargée</Typography>
-                    <Typography color="text.secondary">
-                        Chargez un fichier CSV de télémétrie pour afficher les graphiques.
-                    </Typography>
-                </Paper>
-            )}
-
-            {hasData && (
-                <Box>
+            <Box>
                     {/* Section header */}
                     <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 0.5, flexWrap: 'wrap', gap: 1 }}>
                         <Typography variant="h5" sx={{ fontWeight: 700 }}>
@@ -491,8 +467,7 @@ export default function AnalyseDashboard() {
                             );
                         })}
                     </Box>
-                </Box>
-            )}
+            </Box>
         </Container>
     );
 }

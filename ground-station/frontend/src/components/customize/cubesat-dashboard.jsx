@@ -10,7 +10,6 @@ import {
     Typography,
 } from '@mui/material';
 import { alpha, useTheme } from '@mui/material/styles';
-import UploadIcon from '@mui/icons-material/Upload';
 import { TelemetrySummary } from './telemetry-components.jsx';
 import { CUBESAT_SUBSYSTEMS } from './cubesat-config.js';
 import CubeSatAnnotatedVisual from './cubesat-annotated-visual.jsx';
@@ -28,20 +27,12 @@ export default function CubeSatDashboard() {
         loading,
         latestPoint,
         hasData,
-        loadFromFile,
     } = useTelemetryStream();
 
     const selectedSubsystem = useMemo(
         () => getSubsystemById(selectedSubsystemId),
         [selectedSubsystemId],
     );
-
-    const handleFileUpload = (event) => {
-        const file = event.target.files?.[0];
-        if (!file) return;
-        void loadFromFile(file, { stream: true });
-        event.target.value = '';
-    };
 
     return (
         <Container maxWidth="xl" sx={{ py: 4 }}>
@@ -54,27 +45,6 @@ export default function CubeSatDashboard() {
                     puis consultez les champs de télémétrie déjà disponibles dans le flux actuel.
                 </Typography>
 
-                <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.25} sx={{ mt: 2.5 }}>
-                    <Button variant="contained" component="label" startIcon={<UploadIcon />}>
-                        Charger un autre CSV
-                        <input type="file" accept=".csv" hidden onChange={handleFileUpload} />
-                    </Button>
-                    <Paper
-                        sx={{
-                            px: 1.5,
-                            py: 1,
-                            borderRadius: 2,
-                            backgroundColor: alpha(theme.palette.info.main, theme.palette.mode === 'dark' ? 0.18 : 0.08),
-                        }}
-                    >
-                        <Typography variant="caption" sx={{ fontWeight: 700, display: 'block' }}>
-                            Visual baseline
-                        </Typography>
-                        <Typography variant="body2" color="text.secondary">
-                            2D traced view based on the provided CubeSat image, with hotspot geometry kept in config.
-                        </Typography>
-                    </Paper>
-                </Stack>
             </Box>
 
             {hasData && (
