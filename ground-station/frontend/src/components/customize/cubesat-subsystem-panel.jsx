@@ -43,6 +43,17 @@ export default function CubeSatSubsystemPanel({
     chartData,
 }) {
     const theme = useTheme();
+
+    if (!subsystem) {
+        return (
+            <Paper sx={{ p: 3, borderRadius: 2, textAlign: 'center' }}>
+                <Typography color="text.secondary">
+                    Cliquez sur un sous-système pour inspecter sa télémétrie.
+                </Typography>
+            </Paper>
+        );
+    }
+
     const status = getSubsystemStatus(subsystem, latestPoint);
     const metrics = getSubsystemMetrics(subsystem, latestPoint);
     const summaryMetrics = getSubsystemSummaryMetrics(subsystem, latestPoint);

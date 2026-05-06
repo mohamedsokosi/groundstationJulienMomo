@@ -1,14 +1,15 @@
-import React from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import { alpha, useTheme } from '@mui/material/styles';
 import {
     Box,
+    Button,
     ButtonBase,
     Chip,
     Paper,
     Tooltip,
     Typography,
 } from '@mui/material';
-import cubesatBaseImage from '../../assets/cubesat-annotated-base.svg';
+import cubesatBaseImage from '../../assets/cubesat.png';
 import { CUBESAT_SUBSYSTEMS, CUBESAT_VIEWBOX } from './cubesat-config.js';
 
 function getPolygonPath(points = []) {
@@ -21,10 +22,88 @@ export default function CubeSatAnnotatedVisual({
     onHoverSubsystem,
     onLeaveSubsystem,
     onSelectSubsystem,
+    editMode = false,
 }) {
     const theme = useTheme();
+    const svgRef = useRef(null);
     const activeSubsystemId = hoveredSubsystemId || selectedSubsystemId;
-    const activeSubsystem = CUBESAT_SUBSYSTEMS.find((subsystem) => subsystem.id === activeSubsystemId) || null;
+    const activeSubsystem = CUBESAT_SUBSYSTEMS.find((s) => s.id === activeSubsystemId) || null;
+
+    const [editPolygons, setEditPolygons] = useState(() =>
+        CUBESAT_SUBSYSTEMS.map((s) => s.hotspot.polygon.map(([x, y]) => [x, y]))
+    );
+    const [editAnchors, setEditAnchors] = useState(() =>
+        CUBESAT_SUBSYSTEMS.map((s) => ({ x: s.hotspot.anchor.x, y: s.hotspot.anchor.y }))
+    );
+    const [dragging, setDragging] = useState(null); // { type: 'vertex'|'anchor', sysIdx, vtxIdx? }
+    const [copied, setCopied] = useState(false);
+
+    const getSvgCoords = useCallback((e) => {
+        const svg = svgRef.current;
+        if (!svg) return { x: 0, y: 0 };
+        const rect = svg.getBoundingClientRect();
+        const x = ((e.clientX - rect.left) / rect.width) * CUBESAT_VIEWBOX.width;
+        const y = ((e.clientY - rect.top) / rect.height) * CUBESAT_VIEWBOX.height;
+        return {
+            x: Math.round(x * 10) / 10,
+            y: Math.round(y * 10) / 10,
+        };
+    }, []);
+
+    const handleVertexMouseDown = useCallback((sysIdx, vtxIdx) => (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setDragging({ type: 'vertex', sysIdx, vtxIdx });
+    }, []);
+
+    const handleAnchorMouseDown = useCallback((sysIdx) => (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setDragging({ type: 'anchor', sysIdx });
+    }, []);
+
+    const handleSvgMouseMove = useCallback((e) => {
+        if (!dragging) return;
+        const { x, y } = getSvgCoords(e);
+
+        if (dragging.type === 'vertex') {
+            setEditPolygons((prev) =>
+                prev.map((poly, i) => {
+                    if (i !== dragging.sysIdx) return poly;
+                    return poly.map((pt, j) => (j === dragging.vtxIdx ? [x, y] : pt));
+                })
+            );
+        } else if (dragging.type === 'anchor') {
+            // anchor.x/y are % of container → anchor.x == svg_x, anchor.y = svg_y * 100 / vh
+            setEditAnchors((prev) =>
+                prev.map((anchor, i) =>
+                    i !== dragging.sysIdx ? anchor : {
+                        x: Math.round(x * 10) / 10,
+                        y: Math.round((y * 100 / CUBESAT_VIEWBOX.height) * 10) / 10,
+                    }
+                )
+            );
+        }
+    }, [dragging, getSvgCoords]);
+
+    const handleSvgMouseUp = useCallback(() => setDragging(null), []);
+
+    const handleCopy = useCallback(() => {
+        const text = CUBESAT_SUBSYSTEMS.map((s, i) => {
+            const pts = editPolygons[i].map(([x, y]) => `    [${x}, ${y}]`).join(',\n');
+            const a = editAnchors[i];
+            return `${s.id}:\npolygon:\n[\n${pts}\n]\nanchor: { x: ${a.x}, y: ${a.y} }`;
+        }).join('\n\n');
+        navigator.clipboard.writeText(text);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+    }, [editPolygons, editAnchors]);
+
+    const getPolygon = (sysIdx) =>
+        editMode ? editPolygons[sysIdx] : CUBESAT_SUBSYSTEMS[sysIdx].hotspot.polygon;
+
+    const getAnchor = (sysIdx) =>
+        editMode ? editAnchors[sysIdx] : CUBESAT_SUBSYSTEMS[sysIdx].hotspot.anchor;
 
     return (
         <Box
@@ -83,39 +162,79 @@ export default function CubeSatAnnotatedVisual({
 
             <Box
                 component="svg"
+                ref={svgRef}
                 viewBox={`0 0 ${CUBESAT_VIEWBOX.width} ${CUBESAT_VIEWBOX.height}`}
+                onMouseMove={editMode ? handleSvgMouseMove : undefined}
+                onMouseUp={editMode ? handleSvgMouseUp : undefined}
+                onMouseLeave={editMode ? handleSvgMouseUp : undefined}
                 sx={{
                     position: 'absolute',
                     inset: 0,
                     width: '100%',
                     height: '100%',
                     zIndex: 2,
+                    cursor: dragging ? 'grabbing' : 'default',
+                    userSelect: 'none',
                 }}
             >
-                {CUBESAT_SUBSYSTEMS.map((subsystem) => {
+                {CUBESAT_SUBSYSTEMS.map((subsystem, sysIdx) => {
+                    const poly = getPolygon(sysIdx);
+                    const anchor = getAnchor(sysIdx);
+                    const anchorSvgY = anchor.y * CUBESAT_VIEWBOX.height / 100;
                     const isActive = subsystem.id === selectedSubsystemId || subsystem.id === hoveredSubsystemId;
                     const fillColor = alpha(subsystem.color, subsystem.id === selectedSubsystemId ? 0.36 : 0.22);
 
                     return (
-                        <polygon
-                            key={subsystem.id}
-                            points={getPolygonPath(subsystem.hotspot.polygon)}
-                            fill={isActive ? fillColor : 'transparent'}
-                            stroke={isActive ? subsystem.color : alpha(subsystem.color, 0.28)}
-                            strokeWidth={isActive ? 1.7 : 1.1}
-                            strokeDasharray={subsystem.id === selectedSubsystemId ? 'none' : '4 4'}
-                            style={{ cursor: 'pointer', transition: 'all 160ms ease' }}
-                            onMouseEnter={() => onHoverSubsystem(subsystem.id)}
-                            onMouseLeave={onLeaveSubsystem}
-                            onClick={() => onSelectSubsystem(subsystem.id)}
-                        />
+                        <g key={subsystem.id}>
+                            <polygon
+                                points={getPolygonPath(poly)}
+                                fill={editMode ? alpha(subsystem.color, 0.12) : (isActive ? fillColor : 'transparent')}
+                                stroke={editMode ? subsystem.color : (isActive ? subsystem.color : alpha(subsystem.color, 0.28))}
+                                strokeWidth={editMode ? 1.2 : (isActive ? 1.7 : 1.1)}
+                                strokeDasharray={(!editMode && subsystem.id !== selectedSubsystemId) ? '4 4' : 'none'}
+                                style={{
+                                    cursor: editMode ? 'default' : 'pointer',
+                                    transition: editMode ? 'none' : 'all 160ms ease',
+                                }}
+                                onMouseEnter={editMode ? undefined : () => onHoverSubsystem(subsystem.id)}
+                                onMouseLeave={editMode ? undefined : onLeaveSubsystem}
+                                onClick={editMode ? undefined : () => onSelectSubsystem(subsystem.id)}
+                            />
+                            {editMode && poly.map(([px, py], vtxIdx) => (
+                                <circle
+                                    key={vtxIdx}
+                                    cx={px}
+                                    cy={py}
+                                    r={2.2}
+                                    fill={subsystem.color}
+                                    stroke="white"
+                                    strokeWidth={0.5}
+                                    style={{ cursor: dragging ? 'grabbing' : 'grab' }}
+                                    onMouseDown={handleVertexMouseDown(sysIdx, vtxIdx)}
+                                />
+                            ))}
+                            {editMode && (
+                                <circle
+                                    cx={anchor.x}
+                                    cy={anchorSvgY}
+                                    r={3.5}
+                                    fill={subsystem.color}
+                                    stroke="white"
+                                    strokeWidth={1}
+                                    strokeDasharray="2 1.5"
+                                    style={{ cursor: dragging ? 'grabbing' : 'grab' }}
+                                    onMouseDown={handleAnchorMouseDown(sysIdx)}
+                                />
+                            )}
+                        </g>
                     );
                 })}
             </Box>
 
-            {CUBESAT_SUBSYSTEMS.map((subsystem) => {
+            {!editMode && CUBESAT_SUBSYSTEMS.map((subsystem, sysIdx) => {
                 const isSelected = subsystem.id === selectedSubsystemId;
                 const isHovered = subsystem.id === hoveredSubsystemId;
+                const anchor = getAnchor(sysIdx);
 
                 return (
                     <Tooltip key={subsystem.id} title={subsystem.name} placement="top">
@@ -125,8 +244,8 @@ export default function CubeSatAnnotatedVisual({
                             onClick={() => onSelectSubsystem(subsystem.id)}
                             sx={{
                                 position: 'absolute',
-                                left: `${subsystem.hotspot.anchor.x}%`,
-                                top: `${subsystem.hotspot.anchor.y}%`,
+                                left: `${anchor.x}%`,
+                                top: `${anchor.y}%`,
                                 transform: 'translate(-50%, -50%)',
                                 width: isSelected ? 22 : 18,
                                 height: isSelected ? 22 : 18,
@@ -152,7 +271,7 @@ export default function CubeSatAnnotatedVisual({
                 );
             })}
 
-            {activeSubsystem && (
+            {!editMode && activeSubsystem && (
                 <Paper
                     elevation={3}
                     sx={{
@@ -178,6 +297,24 @@ export default function CubeSatAnnotatedVisual({
                         {activeSubsystem.name}
                     </Typography>
                 </Paper>
+            )}
+
+            {editMode && (
+                <Box sx={{ position: 'absolute', top: 8, right: 8, zIndex: 10 }}>
+                    <Button
+                        variant="contained"
+                        size="small"
+                        onClick={handleCopy}
+                        sx={{
+                            backgroundColor: copied ? theme.palette.success.main : theme.palette.primary.main,
+                            '&:hover': {
+                                backgroundColor: copied ? theme.palette.success.dark : theme.palette.primary.dark,
+                            },
+                        }}
+                    >
+                        {copied ? '✓ Copied!' : '> Copy <'}
+                    </Button>
+                </Box>
             )}
 
             <Box

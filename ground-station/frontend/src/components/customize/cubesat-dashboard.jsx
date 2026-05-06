@@ -3,6 +3,7 @@ import {
     Box,
     Button,
     Container,
+    Divider,
     Grid,
     Paper,
     Stack,
@@ -11,7 +12,7 @@ import {
 import { alpha, useTheme } from '@mui/material/styles';
 import UploadIcon from '@mui/icons-material/Upload';
 import { TelemetrySummary } from './telemetry-components.jsx';
-import { CUBESAT_SUBSYSTEMS, DEFAULT_CUBESAT_SUBSYSTEM_ID } from './cubesat-config.js';
+import { CUBESAT_SUBSYSTEMS } from './cubesat-config.js';
 import CubeSatAnnotatedVisual from './cubesat-annotated-visual.jsx';
 import CubeSatSubsystemPanel from './cubesat-subsystem-panel.jsx';
 import { getSubsystemById, getSubsystemStatus } from './cubesat-utils.js';
@@ -19,8 +20,9 @@ import { useTelemetryStream } from './use-telemetry-stream.jsx';
 
 export default function CubeSatDashboard() {
     const theme = useTheme();
-    const [selectedSubsystemId, setSelectedSubsystemId] = useState(DEFAULT_CUBESAT_SUBSYSTEM_ID);
+    const [selectedSubsystemId, setSelectedSubsystemId] = useState(null);
     const [hoveredSubsystemId, setHoveredSubsystemId] = useState(null);
+    const [editMode, setEditMode] = useState(false);
     const {
         chartData,
         loading,
@@ -36,11 +38,7 @@ export default function CubeSatDashboard() {
 
     const handleFileUpload = (event) => {
         const file = event.target.files?.[0];
-
-        if (!file) {
-            return;
-        }
-
+        if (!file) return;
         void loadFromFile(file, { stream: false });
     };
 
@@ -56,18 +54,9 @@ export default function CubeSatDashboard() {
                 </Typography>
 
                 <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.25} sx={{ mt: 2.5 }}>
-                    <Button
-                        variant="contained"
-                        component="label"
-                        startIcon={<UploadIcon />}
-                    >
+                    <Button variant="contained" component="label" startIcon={<UploadIcon />}>
                         Charger un autre CSV
-                        <input
-                            type="file"
-                            accept=".csv"
-                            hidden
-                            onChange={handleFileUpload}
-                        />
+                        <input type="file" accept=".csv" hidden onChange={handleFileUpload} />
                     </Button>
                     <Paper
                         sx={{
@@ -93,34 +82,62 @@ export default function CubeSatDashboard() {
                 </Box>
             )}
 
-            <Grid container spacing={3}>
-                <Grid item xs={12} lg={8}>
-                    <Paper sx={{ p: { xs: 2, md: 2.5 }, borderRadius: 2 }}>
-                        <Stack spacing={2}>
+            {/* Single Paper containing both sides */}
+            <Paper sx={{ p: { xs: 2, md: 2.5 }, borderRadius: 2 }}>
+                <Box sx={{ display: 'flex', gap: 3, alignItems: 'flex-start' }}>
+
+                    {/* Left: image */}
+                    <Box sx={{ flex: '0 0 50%', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
+                        <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 2 }}>
                             <Box>
                                 <Typography variant="h6" sx={{ fontWeight: 700 }}>
                                     CubeSat layout map
                                 </Typography>
                                 <Typography variant="body2" color="text.secondary">
-                                    Hover for names, click to lock a subsystem, and inspect the mapped telemetry on the right.
+                                    {editMode
+                                        ? 'Drag the corner handles to reposition each zone. Click > Copy < when done.'
+                                        : 'Hover for names, click to lock a subsystem.'}
                                 </Typography>
                             </Box>
+                            <Button
+                                variant={editMode ? 'contained' : 'outlined'}
+                                size="small"
+                                onClick={() => setEditMode((v) => !v)}
+                                sx={{ flexShrink: 0, mt: 0.5 }}
+                            >
+                                {editMode ? 'DONE' : '> EDIT <'}
+                            </Button>
+                        </Box>
 
+                        <Box sx={{ width: '70%', mx: 'auto' }}>
                             <CubeSatAnnotatedVisual
                                 selectedSubsystemId={selectedSubsystemId}
                                 hoveredSubsystemId={hoveredSubsystemId}
                                 onHoverSubsystem={setHoveredSubsystemId}
                                 onLeaveSubsystem={() => setHoveredSubsystemId(null)}
                                 onSelectSubsystem={setSelectedSubsystemId}
+                                editMode={editMode}
                             />
+                        </Box>
+                    </Box>
 
+                    <Divider orientation="vertical" flexItem />
+
+                    {/* Right: subsystem buttons (top) + telemetry (bottom, scrollable) */}
+                    <Box sx={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
+
+                        {/* Subsystem buttons */}
+                        <Box>
+                            <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1.5, color: 'text.secondary', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                                Subsystems
+                            </Typography>
                             <Grid container spacing={1.5}>
                                 {CUBESAT_SUBSYSTEMS.map((subsystem) => {
                                     const status = getSubsystemStatus(subsystem, latestPoint);
                                     const isSelected = subsystem.id === selectedSubsystemId;
 
                                     return (
-                                        <Grid item xs={12} sm={6} md={4} key={subsystem.id}>
+                                        <Grid item xs={6} key={subsystem.id}>
                                             <Paper
                                                 onMouseEnter={() => setHoveredSubsystemId(subsystem.id)}
                                                 onMouseLeave={() => setHoveredSubsystemId(null)}
@@ -149,18 +166,21 @@ export default function CubeSatDashboard() {
                                     );
                                 })}
                             </Grid>
-                        </Stack>
-                    </Paper>
-                </Grid>
+                        </Box>
 
-                <Grid item xs={12} lg={4}>
-                    <CubeSatSubsystemPanel
-                        subsystem={selectedSubsystem}
-                        latestPoint={latestPoint}
-                        chartData={chartData}
-                    />
-                </Grid>
-            </Grid>
+                        <Divider />
+
+                        {/* Telemetry panel — scrollable */}
+                        <Box sx={{ overflowY: 'auto', maxHeight: '55vh' }}>
+                            <CubeSatSubsystemPanel
+                                subsystem={selectedSubsystem}
+                                latestPoint={latestPoint}
+                                chartData={chartData}
+                            />
+                        </Box>
+                    </Box>
+                </Box>
+            </Paper>
 
             {!hasData && !loading && (
                 <Paper sx={{ p: 4, textAlign: 'center', mt: 3 }}>
