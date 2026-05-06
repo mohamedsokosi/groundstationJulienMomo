@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import {
     Box,
     Button,
@@ -12,9 +12,14 @@ import {
     Stack,
     Typography,
 } from '@mui/material';
+import ToggleButton from '@mui/material/ToggleButton';
+import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
 import { alpha, useTheme } from '@mui/material/styles';
 import AddIcon from '@mui/icons-material/Add';
+import CheckIcon from '@mui/icons-material/Check';
 import DeleteIcon from '@mui/icons-material/Delete';
+import DragIndicatorIcon from '@mui/icons-material/DragIndicator';
+import EditIcon from '@mui/icons-material/Edit';
 import UploadIcon from '@mui/icons-material/Upload';
 import {
     CartesianGrid,
@@ -27,7 +32,6 @@ import {
 } from 'recharts';
 import { useTelemetryStream } from './use-telemetry-stream.jsx';
 
-// Free Space Path Loss: FSPL(dB) = 20·log10(4π·d·f/c)
 const FREQ_MHZ = 437;
 function computeFSPL(altM) {
     if (!altM || altM <= 0) return null;
@@ -67,6 +71,26 @@ function enrich(row) {
 
 const CHART_COLORS = ['#4cbc74', '#ee8a22', '#4fb7d6', '#d2b04c', '#8797ab', '#2e9f69'];
 
+const SIZE_OPTIONS = [
+    { value: 3,  label: '¼' },
+    { value: 4,  label: '⅓' },
+    { value: 6,  label: '½' },
+    { value: 12, label: '1' },
+];
+
+const RATIO_OPTIONS = [
+    { value: '1/1', label: '1:1' },
+    { value: '2/1', label: '2:1' },
+];
+
+function gridCol(cols) {
+    return {
+        xs: '1 / -1',
+        sm: cols >= 6 ? '1 / -1' : 'auto',
+        md: `span ${cols}`,
+    };
+}
+
 function TelemetryChart({ data, xKey, yKey, color = '#4cbc74' }) {
     const theme = useTheme();
     if (!data?.length) return null;
@@ -104,19 +128,24 @@ function TelemetryChart({ data, xKey, yKey, color = '#4cbc74' }) {
 }
 
 const DEFAULT_CHARTS = [
-    { id: 'default-0', x: 'U_Alt', y: '_bilan',   color: '#4cbc74' },
-    { id: 'default-1', x: 'U_Alt', y: '_fspl',    color: '#ee8a22' },
-    { id: 'default-2', x: 'U_Alt', y: 'Pressure', color: '#4fb7d6' },
-    { id: 'default-3', x: 'U_Alt', y: 'Speed',    color: '#d2b04c' },
+    { id: 'default-0', x: 'U_Alt', y: '_bilan',   color: '#4cbc74', cols: 3, ratio: '1/1' },
+    { id: 'default-1', x: 'U_Alt', y: '_fspl',    color: '#ee8a22', cols: 3, ratio: '1/1' },
+    { id: 'default-2', x: 'U_Alt', y: 'Pressure', color: '#4fb7d6', cols: 3, ratio: '1/1' },
+    { id: 'default-3', x: 'U_Alt', y: 'Speed',    color: '#d2b04c', cols: 3, ratio: '1/1' },
 ];
 
 export default function AnalyseDashboard() {
     const theme = useTheme();
     const { chartData, hasData, loading, loadFromFile } = useTelemetryStream();
 
+    const [editMode, setEditMode] = useState(false);
     const [charts, setCharts] = useState(DEFAULT_CHARTS);
     const [newX, setNewX] = useState('U_Alt');
     const [newY, setNewY] = useState('Pressure');
+
+    // Drag state
+    const dragSrcId = useRef(null);
+    const [dragOverId, setDragOverId] = useState(null);
 
     const enrichedData = useMemo(
         () => (chartData?.length ? chartData.map(enrich) : []),
@@ -132,21 +161,58 @@ export default function AnalyseDashboard() {
     const addChart = () => {
         if (newX && newY && newX !== newY) {
             const colorIdx = charts.length % CHART_COLORS.length;
-            setCharts((prev) => [...prev, { id: Date.now(), x: newX, y: newY, color: CHART_COLORS[colorIdx] }]);
+            setCharts((prev) => [
+                ...prev,
+                { id: Date.now(), x: newX, y: newY, color: CHART_COLORS[colorIdx], cols: 3, ratio: '1/1' },
+            ]);
         }
     };
 
     const removeChart = (id) => setCharts((prev) => prev.filter((c) => c.id !== id));
 
+    const updateChart = (id, patch) =>
+        setCharts((prev) => prev.map((c) => c.id === id ? { ...c, ...patch } : c));
+
+    const handleDragStart = (e, id) => {
+        dragSrcId.current = id;
+        e.dataTransfer.effectAllowed = 'move';
+        // ghost image = the element itself, so default is fine
+    };
+
+    const handleDragOver = (e, id) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        if (id !== dragSrcId.current) setDragOverId(id);
+    };
+
+    const handleDrop = (e, targetId) => {
+        e.preventDefault();
+        const srcId = dragSrcId.current;
+        if (!srcId || srcId === targetId) return;
+        setCharts((prev) => {
+            const next = [...prev];
+            const from = next.findIndex((c) => c.id === srcId);
+            const to   = next.findIndex((c) => c.id === targetId);
+            const [moved] = next.splice(from, 1);
+            next.splice(to, 0, moved);
+            return next;
+        });
+        dragSrcId.current = null;
+        setDragOverId(null);
+    };
+
+    const handleDragEnd = () => {
+        dragSrcId.current = null;
+        setDragOverId(null);
+    };
+
     return (
         <Container maxWidth="xl" sx={{ py: 4 }}>
             {/* Header */}
             <Box sx={{ mb: 4 }}>
-                <Typography variant="h4" sx={{ mb: 1.5 }}>
-                    Analyse
-                </Typography>
+                <Typography variant="h4" sx={{ mb: 1.5 }}>Analyse</Typography>
                 <Typography variant="body1" color="text.secondary" sx={{ maxWidth: 860 }}>
-                    Graphiques de télémétrie personnalisables. Créez vos propres graphiques ou supprimez ceux par défaut.
+                    Graphiques de télémétrie personnalisables.
                 </Typography>
                 <Box sx={{ mt: 2.5 }}>
                     <Button variant="contained" component="label" startIcon={<UploadIcon />}>
@@ -156,7 +222,6 @@ export default function AnalyseDashboard() {
                 </Box>
             </Box>
 
-            {/* No data */}
             {!hasData && !loading && (
                 <Paper sx={{ p: 4, textAlign: 'center', borderRadius: 2 }}>
                     <Typography variant="h6" sx={{ mb: 1 }}>Aucune donnée chargée</Typography>
@@ -168,87 +233,182 @@ export default function AnalyseDashboard() {
 
             {hasData && (
                 <Box>
-                    <Typography variant="h5" sx={{ fontWeight: 700, mb: 0.5 }}>
-                        Graphiques personnalisés
-                    </Typography>
+                    {/* Section header */}
+                    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 0.5 }}>
+                        <Typography variant="h5" sx={{ fontWeight: 700 }}>
+                            Graphiques personnalisés
+                        </Typography>
+                        <Button
+                            variant={editMode ? 'contained' : 'outlined'}
+                            startIcon={editMode ? <CheckIcon /> : <EditIcon />}
+                            onClick={() => setEditMode((v) => !v)}
+                            color={editMode ? 'success' : 'primary'}
+                        >
+                            {editMode ? 'Terminer' : 'Modifier'}
+                        </Button>
+                    </Box>
                     <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-                        Sélectionnez deux champs pour créer un graphique. Les champs calculés (FSPL, bilan) sont aussi disponibles.
+                        {editMode
+                            ? 'Glissez pour réordonner, redimensionnez ou supprimez les graphiques.'
+                            : 'Cliquez sur Modifier pour personnaliser les graphiques.'}
                     </Typography>
 
-                    {/* Builder row */}
-                    <Paper sx={{ p: 2.5, borderRadius: 2, mb: 3 }}>
-                        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems={{ sm: 'flex-end' }}>
-                            <FormControl size="small" sx={{ minWidth: 220 }}>
-                                <InputLabel>Axe X</InputLabel>
-                                <Select value={newX} onChange={(e) => setNewX(e.target.value)} label="Axe X">
-                                    {AVAILABLE_FIELDS.map((f) => (
-                                        <MenuItem key={f.key} value={f.key}>{f.label}</MenuItem>
-                                    ))}
-                                </Select>
-                            </FormControl>
-                            <FormControl size="small" sx={{ minWidth: 220 }}>
-                                <InputLabel>Axe Y</InputLabel>
-                                <Select value={newY} onChange={(e) => setNewY(e.target.value)} label="Axe Y">
-                                    {AVAILABLE_FIELDS.map((f) => (
-                                        <MenuItem key={f.key} value={f.key}>{f.label}</MenuItem>
-                                    ))}
-                                </Select>
-                            </FormControl>
-                            <Button
-                                variant="contained"
-                                startIcon={<AddIcon />}
-                                onClick={addChart}
-                                disabled={newX === newY}
-                            >
-                                Ajouter
-                            </Button>
-                        </Stack>
-                    </Paper>
+                    {/* Add chart form — edit mode only */}
+                    {editMode && (
+                        <Paper sx={{ p: 2.5, borderRadius: 2, mb: 3, border: `1px solid ${alpha(theme.palette.primary.main, 0.5)}` }}>
+                            <Typography variant="subtitle2" sx={{ mb: 2, fontWeight: 700 }}>
+                                Ajouter un graphique
+                            </Typography>
+                            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems={{ sm: 'flex-end' }}>
+                                <FormControl size="small" sx={{ minWidth: 220 }}>
+                                    <InputLabel>Axe X</InputLabel>
+                                    <Select value={newX} onChange={(e) => setNewX(e.target.value)} label="Axe X">
+                                        {AVAILABLE_FIELDS.map((f) => (
+                                            <MenuItem key={f.key} value={f.key}>{f.label}</MenuItem>
+                                        ))}
+                                    </Select>
+                                </FormControl>
+                                <FormControl size="small" sx={{ minWidth: 220 }}>
+                                    <InputLabel>Axe Y</InputLabel>
+                                    <Select value={newY} onChange={(e) => setNewY(e.target.value)} label="Axe Y">
+                                        {AVAILABLE_FIELDS.map((f) => (
+                                            <MenuItem key={f.key} value={f.key}>{f.label}</MenuItem>
+                                        ))}
+                                    </Select>
+                                </FormControl>
+                                <Button
+                                    variant="contained"
+                                    startIcon={<AddIcon />}
+                                    onClick={addChart}
+                                    disabled={newX === newY}
+                                >
+                                    Ajouter
+                                </Button>
+                            </Stack>
+                        </Paper>
+                    )}
 
                     {charts.length === 0 && (
                         <Typography color="text.secondary" sx={{ fontStyle: 'italic' }}>
-                            Aucun graphique. Utilisez le formulaire ci-dessus pour en créer.
+                            Aucun graphique. Activez le mode édition pour en créer.
                         </Typography>
                     )}
 
+                    {/* Charts grid — 12 columns on md+ */}
                     <Box sx={{
                         display: 'grid',
-                        gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)', md: 'repeat(4, 1fr)' },
+                        gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)', md: 'repeat(12, 1fr)' },
                         gap: 3,
                     }}>
-                        {charts.map((chart) => (
-                            <Box key={chart.id} sx={{ aspectRatio: '1', minWidth: 0 }}>
-                                <Paper sx={{
-                                    p: 2,
-                                    borderRadius: 2,
-                                    width: '100%',
-                                    height: '100%',
-                                    display: 'flex',
-                                    flexDirection: 'column',
-                                }}>
-                                    <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', mb: 1, flexShrink: 0 }}>
-                                        <Typography variant="subtitle2" sx={{ fontWeight: 700, lineHeight: 1.3 }}>
-                                            {fieldLabel(chart.y)} vs {fieldLabel(chart.x)}
-                                        </Typography>
-                                        <IconButton
-                                            size="small"
-                                            onClick={() => removeChart(chart.id)}
-                                            sx={{ color: theme.palette.error.main, ml: 1, flexShrink: 0 }}
-                                        >
-                                            <DeleteIcon fontSize="small" />
-                                        </IconButton>
-                                    </Box>
-                                    <Box sx={{ flex: 1, minHeight: 0 }}>
-                                        <TelemetryChart
-                                            data={enrichedData}
-                                            xKey={chart.x}
-                                            yKey={chart.y}
-                                            color={chart.color}
-                                        />
-                                    </Box>
-                                </Paper>
-                            </Box>
-                        ))}
+                        {charts.map((chart) => {
+                            const cols  = chart.cols  ?? 3;
+                            const ratio = chart.ratio ?? '1/1';
+                            const isDragging = dragSrcId.current === chart.id;
+                            const isOver    = dragOverId === chart.id;
+
+                            return (
+                                <Box
+                                    key={chart.id}
+                                    draggable={editMode}
+                                    onDragStart={(e) => handleDragStart(e, chart.id)}
+                                    onDragOver={(e) => handleDragOver(e, chart.id)}
+                                    onDrop={(e) => handleDrop(e, chart.id)}
+                                    onDragEnd={handleDragEnd}
+                                    sx={{
+                                        gridColumn: gridCol(cols),
+                                        aspectRatio: ratio,
+                                        minWidth: 0,
+                                        opacity: isDragging ? 0.35 : 1,
+                                        transition: 'opacity 0.15s',
+                                        cursor: editMode ? 'grab' : 'default',
+                                    }}
+                                >
+                                    <Paper sx={{
+                                        p: 2,
+                                        borderRadius: 2,
+                                        width: '100%',
+                                        height: '100%',
+                                        display: 'flex',
+                                        flexDirection: 'column',
+                                        outline: isOver
+                                            ? `2px solid ${theme.palette.primary.main}`
+                                            : editMode
+                                                ? `2px dashed ${alpha(theme.palette.primary.main, 0.4)}`
+                                                : '2px solid transparent',
+                                        transition: 'outline 0.1s',
+                                    }}>
+                                        {/* Edit toolbar */}
+                                        {editMode ? (
+                                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: 1, flexShrink: 0, flexWrap: 'wrap' }}>
+                                                {/* Drag handle */}
+                                                <DragIndicatorIcon
+                                                    fontSize="small"
+                                                    sx={{ color: theme.palette.text.disabled, cursor: 'grab', mr: 0.25 }}
+                                                />
+
+                                                {/* Size */}
+                                                <ToggleButtonGroup
+                                                    value={cols}
+                                                    exclusive
+                                                    onChange={(_, v) => { if (v) updateChart(chart.id, { cols: v }); }}
+                                                    size="small"
+                                                >
+                                                    {SIZE_OPTIONS.map((o) => (
+                                                        <ToggleButton key={o.value} value={o.value} sx={{ px: 1, py: 0.25, fontSize: 11, lineHeight: 1.5, minWidth: 28 }}>
+                                                            {o.label}
+                                                        </ToggleButton>
+                                                    ))}
+                                                </ToggleButtonGroup>
+
+                                                {/* Aspect ratio */}
+                                                <ToggleButtonGroup
+                                                    value={ratio}
+                                                    exclusive
+                                                    onChange={(_, v) => { if (v) updateChart(chart.id, { ratio: v }); }}
+                                                    size="small"
+                                                >
+                                                    {RATIO_OPTIONS.map((o) => (
+                                                        <ToggleButton key={o.value} value={o.value} sx={{ px: 1, py: 0.25, fontSize: 11, lineHeight: 1.5, minWidth: 34 }}>
+                                                            {o.label}
+                                                        </ToggleButton>
+                                                    ))}
+                                                </ToggleButtonGroup>
+
+                                                {/* Delete */}
+                                                <IconButton
+                                                    size="small"
+                                                    onClick={() => removeChart(chart.id)}
+                                                    sx={{ color: theme.palette.error.main, ml: 'auto' }}
+                                                >
+                                                    <DeleteIcon fontSize="small" />
+                                                </IconButton>
+                                            </Box>
+                                        ) : (
+                                            <Box sx={{ mb: 1, flexShrink: 0 }}>
+                                                <Typography variant="subtitle2" sx={{ fontWeight: 700, lineHeight: 1.3 }}>
+                                                    {fieldLabel(chart.y)} vs {fieldLabel(chart.x)}
+                                                </Typography>
+                                            </Box>
+                                        )}
+
+                                        <Box sx={{ flex: 1, minHeight: 0 }}>
+                                            <TelemetryChart
+                                                data={enrichedData}
+                                                xKey={chart.x}
+                                                yKey={chart.y}
+                                                color={chart.color}
+                                            />
+                                        </Box>
+
+                                        {editMode && (
+                                            <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, flexShrink: 0 }}>
+                                                {fieldLabel(chart.y)} vs {fieldLabel(chart.x)}
+                                            </Typography>
+                                        )}
+                                    </Paper>
+                                </Box>
+                            );
+                        })}
                     </Box>
                 </Box>
             )}

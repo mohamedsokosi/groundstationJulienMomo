@@ -762,7 +762,7 @@ export default function Layout() {
             <CssBaseline />
             <CustomAppBar position="fixed" open={open}>
                 <Toolbar>
-                    <IconButton
+                    {/* <IconButton
                         color="inherit"
                         aria-label="toggle drawer"
                         onClick={handleDrawerToggle}
@@ -770,7 +770,7 @@ export default function Layout() {
                         sx={{ mr: 2 }}
                     >
                         {open ? <ChevronLeftIcon /> : <MenuIcon />}
-                    </IconButton>
+                    </IconButton> */}
                     <Box sx={{ flexGrow: 1 }}>
                         <CustomAppTitle />
                     </Box>

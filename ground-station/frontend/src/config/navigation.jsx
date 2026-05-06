@@ -251,6 +251,7 @@ const SchedulerIconWithStatus = () => {
 };
 
 export const getNavigation = () => [
+    /*
     {
         kind: 'header',
         title: i18n.t('tracking', { ns: 'navigation' }),
@@ -279,7 +280,7 @@ export const getNavigation = () => [
         segment: 'scheduler',
         title: 'Scheduled Observations',
         icon: <SchedulerIconWithStatus />,
-        dynamicTooltip: true, // Flag to indicate this item needs dynamic tooltip
+        dynamicTooltip: true,
     },
     {kind: 'divider'},
     {
@@ -296,11 +297,6 @@ export const getNavigation = () => [
         title: i18n.t('rotators', { ns: 'navigation' }),
         icon: <SatelliteIcon/>,
     },
-    // {
-    //     segment: 'hardware/cameras',
-    //     title: i18n.t('cameras', { ns: 'navigation' }),
-    //     icon: <VideocamIcon/>,
-    // },
     {
         segment: 'hardware/sdrs',
         title: i18n.t('sdrs', { ns: 'navigation' }),
@@ -327,14 +323,15 @@ export const getNavigation = () => [
         icon: <GroupWorkIcon/>,
     },
     {kind: 'divider'},
+    */
     {
         kind: 'header',
         title: i18n.t('settings', { ns: 'navigation' }),
     },
     {
         segment: 'customize',
-        title: 'Personnaliser',
-        icon: <TuneIcon/>,
+        title: 'Vue Globe 3D',
+        icon: <PublicIcon/>,
     },
     {
         segment: 'cubesat',
@@ -351,6 +348,7 @@ export const getNavigation = () => [
         title: 'Rapport',
         icon: <SummarizeIcon />,
     },
+    /*
     {
         segment: 'settings/preferences',
         title: i18n.t('preferences', { ns: 'navigation' }),
@@ -361,11 +359,6 @@ export const getNavigation = () => [
         title: i18n.t('location', { ns: 'navigation' }),
         icon: <AddHomeIcon/>,
     },
-    // {
-    //     segment: 'settings/users',
-    //     title: 'Users',
-    //     icon: <PeopleIcon/>,
-    // },
     {
         segment: 'settings/maintenance',
         title: i18n.t('maintenance', { ns: 'navigation' }),
@@ -376,6 +369,7 @@ export const getNavigation = () => [
         title: i18n.t('about', { ns: 'navigation' }),
         icon: <InfoIcon/>,
     },
+    */
 ];
 
 // Keep NAVIGATION for backward compatibility but make it dynamic
