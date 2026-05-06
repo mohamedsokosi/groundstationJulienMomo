@@ -91,11 +91,11 @@ function StatCard({ label, value, unit, color }) {
     );
 }
 
-function SectionHeader({ emoji, title, subtitle }) {
+function SectionHeader({ title, subtitle }) {
     return (
         <Box sx={{ mb: 3 }}>
             <Typography variant="h5" sx={{ fontWeight: 700 }}>
-                {emoji} {title}
+                {title}
             </Typography>
             {subtitle && (
                 <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
@@ -211,14 +211,14 @@ export default function RapportDashboard() {
             </style></head><body>
             <h1>Rapport de Simulation — Ground Station</h1>
             <p style="color:#666;font-size:13px">Généré le ${new Date().toLocaleString('fr-FR')}</p>
-            <h2>📈 Résumé</h2>
+            <h2>Résumé</h2>
             ${stats ? `
             <div class="stat"><div class="stat-val">${stats.nbPoints}</div><div class="stat-lbl">Points</div></div>
             <div class="stat"><div class="stat-val">${stats.fiabilite}%</div><div class="stat-lbl">Fiabilité</div></div>
             <div class="stat"><div class="stat-val">${stats.margeMin}/${stats.margeMax} dB</div><div class="stat-lbl">Marge Min/Max</div></div>
             <div class="stat"><div class="stat-val">${stats.prxMoyen} dBm</div><div class="stat-lbl">Puissance RX Moy.</div></div>
             ` : '<p>Aucune donnée de télémétrie.</p>'}
-            <h2>🛰️ Paramètres</h2>
+            <h2>Paramètres</h2>
             <table>
                 <tr><th>Paramètre</th><th>Valeur</th></tr>
                 <tr><td>Antenne TX</td><td>${params.antenneTx}</td></tr>
@@ -246,9 +246,13 @@ export default function RapportDashboard() {
         <Container maxWidth="xl" sx={{ py: 4 }}>
             <Box sx={{ mb: 5 }}>
                 <Typography variant="h4" sx={{ mb: 1 }}>Rapport</Typography>
-                <Typography variant="body1" color="text.secondary">
+                <Typography variant="body1" color="text.secondary" sx={{ mb: 2.5 }}>
                     Résumé de simulation, paramètres RF, exports et génération de rapport.
                 </Typography>
+                <Button variant="contained" component="label" startIcon={<UploadIcon />}>
+                    Charger un CSV
+                    <input type="file" accept=".csv" hidden onChange={handleTelemetryUpload} />
+                </Button>
             </Box>
 
             <Stack spacing={5}>
@@ -256,7 +260,6 @@ export default function RapportDashboard() {
                 {/* ── Configuration ── */}
                 <Paper sx={{ p: 3, borderRadius: 2 }}>
                     <SectionHeader
-                        emoji="⚙️"
                         title="Configuration"
                         subtitle="Sauvegardez votre configuration actuelle pour la réutiliser ultérieurement, ou importez une configuration existante."
                     />
@@ -272,17 +275,12 @@ export default function RapportDashboard() {
                             Importer config
                         </Button>
                         <input ref={importRef} type="file" accept=".json" hidden onChange={handleImportConfig} />
-                        <Button variant="outlined" component="label" startIcon={<UploadIcon />}>
-                            Charger CSV télémétrie
-                            <input type="file" accept=".csv" hidden onChange={handleTelemetryUpload} />
-                        </Button>
                     </Stack>
                 </Paper>
 
                 {/* ── Générer Rapport ── */}
                 <Paper sx={{ p: 3, borderRadius: 2 }}>
                     <SectionHeader
-                        emoji="📋"
                         title="Générer Rapport"
                         subtitle="Générez un rapport complet de la simulation (PDF), exportez les données (CSV/JSON) pour analyse externe, ou exportez un GIF animé haute résolution de la vue Globe 3D Cesium."
                     />
@@ -372,7 +370,6 @@ export default function RapportDashboard() {
                 {/* ── Résumé de la Simulation ── */}
                 <Paper sx={{ p: 3, borderRadius: 2 }}>
                     <SectionHeader
-                        emoji="📈"
                         title="Résumé de la Simulation"
                         subtitle={hasData ? 'Calculé à partir des données de télémétrie et des paramètres RF ci-dessous.' : 'Chargez un fichier CSV pour voir les statistiques.'}
                     />
@@ -402,7 +399,6 @@ export default function RapportDashboard() {
                 {/* ── Paramètres de Simulation ── */}
                 <Paper sx={{ p: 3, borderRadius: 2 }}>
                     <SectionHeader
-                        emoji="🛰️"
                         title="Paramètres de Simulation"
                         subtitle="Ces valeurs alimentent le calcul du bilan de liaison et les statistiques de fiabilité."
                     />
