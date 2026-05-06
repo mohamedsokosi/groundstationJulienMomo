@@ -70,6 +70,13 @@ const MAP_MIN_CAMERA_HEIGHT = 12000;
 const MAP_MAX_CAMERA_HEIGHT = 2400000;
 const MAP_ZOOM_FACTOR = 0.36;
 const ARCGIS_WORLD_IMAGERY_URL = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer';
+const TELEMETRY_ENDPOINTS = ['/api/telemetry.csv', '/telemetry.csv'];
+const TELEMETRY_POLL_INTERVAL_MS = 2000;
+
+const withTelemetryCacheBuster = (endpoint) => {
+    const separator = endpoint.includes('?') ? '&' : '?';
+    return `${endpoint}${separator}_=${Date.now()}`;
+};
 
 const parseCSV = (text) => {
     const lines = text
@@ -747,30 +754,69 @@ export default function TelemetryDashboard() {
         linkBeam: true,
     });
     const sourceIndexRef = useRef(0);
+    const sourceRowsLengthRef = useRef(0);
     const streamIndexRef = useRef(0);
+    const telemetryEndpointRef = useRef(null);
+    const telemetryTextRef = useRef('');
 
     useEffect(() => {
         let isMounted = true;
+        let pollInterval = null;
 
-        const loadTelemetry = async () => {
-            const endpoints = ['/api/telemetry.csv', '/telemetry.csv'];
+        const loadTelemetry = async ({ initial = false } = {}) => {
+            const activeEndpoint = telemetryEndpointRef.current;
+            const endpoints = activeEndpoint
+                ? [activeEndpoint, ...TELEMETRY_ENDPOINTS.filter(endpoint => endpoint !== activeEndpoint)]
+                : TELEMETRY_ENDPOINTS;
 
             for (const endpoint of endpoints) {
                 try {
-                    const response = await fetch(endpoint);
+                    const response = await fetch(withTelemetryCacheBuster(endpoint), {
+                        cache: 'no-store',
+                    });
 
                     if (!response.ok) {
                         continue;
                     }
 
-                    const parsedData = parseCSV(await response.text());
+                    const csvText = await response.text();
 
-                    if (isMounted) {
-                        setSourceData(parsedData);
-                        setHasData(parsedData.length > 0);
-                        setLoading(false);
+                    if (!isMounted) {
+                        return;
                     }
 
+                    telemetryEndpointRef.current = endpoint;
+
+                    if (csvText === telemetryTextRef.current) {
+                        setLoading(false);
+                        return;
+                    }
+
+                    const previousText = telemetryTextRef.current;
+                    const previousLength = sourceRowsLengthRef.current;
+                    const parsedData = parseCSV(csvText);
+                    const isAppend = Boolean(previousText && csvText.startsWith(previousText) && parsedData.length >= previousLength);
+                    const shouldResetPlayback = initial || Boolean(previousText && !isAppend);
+
+                    telemetryTextRef.current = csvText;
+                    sourceRowsLengthRef.current = parsedData.length;
+
+                    if (shouldResetPlayback) {
+                        sourceIndexRef.current = 0;
+                        streamIndexRef.current = 0;
+                        setData([]);
+                    } else if (isAppend && parsedData.length > previousLength) {
+                        sourceIndexRef.current = previousLength;
+                    } else if (parsedData.length > 0) {
+                        sourceIndexRef.current %= parsedData.length;
+                    } else {
+                        sourceIndexRef.current = 0;
+                        setData([]);
+                    }
+
+                    setSourceData(parsedData);
+                    setHasData(parsedData.length > 0);
+                    setLoading(false);
                     return;
                 } catch (error) {
                     console.log(`Erreur de chargement ${endpoint}:`, error);
@@ -783,10 +829,12 @@ export default function TelemetryDashboard() {
             }
         };
 
-        loadTelemetry();
+        loadTelemetry({ initial: true });
+        pollInterval = setInterval(() => loadTelemetry(), TELEMETRY_POLL_INTERVAL_MS);
 
         return () => {
             isMounted = false;
+            clearInterval(pollInterval);
         };
     }, []);
 

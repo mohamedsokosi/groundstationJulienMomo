@@ -287,7 +287,12 @@ async def get_telemetry_csv():
         csv_path = Path(__file__).parent.parent.parent / "telemetry.csv"
         if not csv_path.exists():
             raise HTTPException(status_code=404, detail="Telemetry file not found")
-        return FileResponse(csv_path, media_type="text/csv", filename="telemetry.csv")
+        return FileResponse(
+            csv_path,
+            media_type="text/csv",
+            filename="telemetry.csv",
+            headers={"Cache-Control": "no-store"},
+        )
     except HTTPException:
         raise
     except Exception as e:
