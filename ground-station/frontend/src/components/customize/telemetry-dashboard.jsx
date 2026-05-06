@@ -19,15 +19,21 @@
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
+    ArcType,
+    ArcGisMapServerImageryProvider,
     Cartesian2,
     Cartesian3,
+    CallbackProperty,
     Color,
     ColorMaterialProperty,
     createWorldImageryAsync,
     Ion,
     IonWorldImageryStyle,
     LabelStyle,
+    HeadingPitchRange,
     Math as CesiumMath,
+    Matrix4,
+    OpenStreetMapImageryProvider,
     PolylineGlowMaterialProperty,
     TileMapServiceImageryProvider,
     VerticalOrigin,
@@ -57,7 +63,13 @@ import {
 import './ground-station-view.css';
 
 const DEFAULT_CENTER = [48.55, -81.35];
-const CESIUM_VIEW_HEIGHT = 120000;
+const MAP_CAMERA_HEIGHT = 180000;
+const MAP_CAMERA_PITCH = -48;
+const MAP_CAMERA_HEADING = 32;
+const MAP_MIN_CAMERA_HEIGHT = 12000;
+const MAP_MAX_CAMERA_HEIGHT = 2400000;
+const MAP_ZOOM_FACTOR = 0.36;
+const ARCGIS_WORLD_IMAGERY_URL = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer';
 
 const parseCSV = (text) => {
     const lines = text
@@ -189,7 +201,7 @@ const TelemetryStatsBar = ({ currentRecord, distance }) => {
     );
 };
 
-const RightControlPanel = ({ options, onToggle }) => {
+const RightControlPanel = ({ onZoomIn, onZoomOut, options, onToggle }) => {
     const controls = [
         { key: 'follow', label: 'Suivre CubeSat' },
         { key: 'trajectory', label: 'Trajectoire' },
@@ -199,6 +211,26 @@ const RightControlPanel = ({ options, onToggle }) => {
     return (
         <aside className="gs-right-panel compact" aria-label="Controles carte">
             <div className="gs-control-stack">
+                <div className="gs-zoom-controls" aria-label="Zoom carte">
+                    <button
+                        className="gs-zoom-button"
+                        onClick={onZoomIn}
+                        title="Zoom avant"
+                        type="button"
+                        aria-label="Zoom avant"
+                    >
+                        +
+                    </button>
+                    <button
+                        className="gs-zoom-button"
+                        onClick={onZoomOut}
+                        title="Zoom arriere"
+                        type="button"
+                        aria-label="Zoom arriere"
+                    >
+                        -
+                    </button>
+                </div>
                 {controls.map(control => (
                     <button
                         className={`gs-cyan-button${options[control.key] ? ' is-on' : ''}`}
@@ -214,7 +246,7 @@ const RightControlPanel = ({ options, onToggle }) => {
     );
 };
 
-const getCesiumRecordPosition = (record) => {
+const getTelemetryRecordGeo = (record) => {
     const lat = toTelemetryNumber(record?.['U_Lat'], null);
     const lon = toTelemetryNumber(record?.['U_Long'], null);
     const alt = getTelemetryNumber(record, ['U_Alt', 'U Alt'], 0);
@@ -223,21 +255,83 @@ const getCesiumRecordPosition = (record) => {
         return null;
     }
 
+    return { lat, lon, alt };
+};
+
+const getCesiumRecordPosition = (record) => {
+    const geo = getTelemetryRecordGeo(record);
+
+    if (!geo) {
+        return null;
+    }
+
+    const { lat, lon, alt } = geo;
     return Cartesian3.fromDegrees(lon, lat, alt);
 };
 
-const createBaseImageryProvider = async (hasIonToken) => {
-    if (hasIonToken) {
+const getCesiumGroundPosition = (record) => {
+    const geo = getTelemetryRecordGeo(record);
+
+    if (!geo) {
+        return null;
+    }
+
+    return Cartesian3.fromDegrees(geo.lon, geo.lat, 0);
+};
+
+const getTrajectoryCameraView = (records) => {
+    const points = records
+        .map(getTelemetryRecordGeo)
+        .filter(Boolean);
+
+    if (points.length === 0) {
+        return {
+            lon: DEFAULT_CENTER[1],
+            lat: DEFAULT_CENTER[0],
+            height: MAP_CAMERA_HEIGHT,
+        };
+    }
+
+    const lats = points.map(point => point.lat);
+    const lons = points.map(point => point.lon);
+    const minLat = Math.min(...lats);
+    const maxLat = Math.max(...lats);
+    const minLon = Math.min(...lons);
+    const maxLon = Math.max(...lons);
+    const span = Math.max(maxLat - minLat, maxLon - minLon);
+
+    return {
+        lon: (minLon + maxLon) / 2,
+        lat: (minLat + maxLat) / 2,
+        height: Math.min(MAP_MAX_CAMERA_HEIGHT, Math.max(MAP_CAMERA_HEIGHT, span * 640000)),
+    };
+};
+
+const createBaseImageryProvider = async () => {
+    if (Ion.defaultAccessToken) {
         try {
             return await createWorldImageryAsync({
-                style: IonWorldImageryStyle.AERIAL_WITH_LABELS,
+                style: IonWorldImageryStyle.ROAD,
             });
         } catch (error) {
-            console.warn('Cesium ion imagery unavailable, falling back to local imagery.', error);
+            console.warn('Cesium ion road map unavailable, falling back to OpenStreetMap.', error);
         }
     }
 
-    return TileMapServiceImageryProvider.fromUrl('/cesiumStatic/Assets/Textures/NaturalEarthII');
+    try {
+        return new OpenStreetMapImageryProvider({
+            url: 'https://tile.openstreetmap.org/',
+        });
+    } catch (error) {
+        console.warn('OpenStreetMap unavailable, falling back to ArcGIS satellite imagery.', error);
+    }
+
+    try {
+        return await ArcGisMapServerImageryProvider.fromUrl(ARCGIS_WORLD_IMAGERY_URL);
+    } catch (error) {
+        console.warn('ArcGIS satellite imagery unavailable, falling back to local Cesium imagery.', error);
+        return TileMapServiceImageryProvider.fromUrl('/cesiumStatic/Assets/Textures/NaturalEarthII');
+    }
 };
 
 const MapViewport = ({
@@ -255,7 +349,46 @@ const MapViewport = ({
     const startEntityRef = useRef(null);
     const trajectoryEntityRef = useRef(null);
     const linkEntityRef = useRef(null);
+    const verticalLineEntityRef = useRef(null);
+    const groundProjectionEntityRef = useRef(null);
+    const trajectoryPositionsRef = useRef([]);
+    const linkPositionsRef = useRef([]);
+    const verticalPositionsRef = useRef([]);
     const initializedRef = useRef(false);
+    const cameraHeightRef = useRef(MAP_CAMERA_HEIGHT);
+
+    const setThreeDCameraView = (viewer, lon, lat, height = cameraHeightRef.current) => {
+        const nextHeight = Math.min(MAP_MAX_CAMERA_HEIGHT, Math.max(MAP_MIN_CAMERA_HEIGHT, height));
+
+        cameraHeightRef.current = nextHeight;
+        viewer.camera.lookAt(
+            Cartesian3.fromDegrees(lon, lat, 0),
+            new HeadingPitchRange(
+                CesiumMath.toRadians(MAP_CAMERA_HEADING),
+                CesiumMath.toRadians(MAP_CAMERA_PITCH),
+                nextHeight,
+            ),
+        );
+        viewer.camera.lookAtTransform(Matrix4.IDENTITY);
+    };
+
+    const handleZoom = (direction) => {
+        const viewer = viewerRef.current;
+        if (!viewer) return;
+
+        const currentHeight = viewer.camera.positionCartographic.height || cameraHeightRef.current;
+        const nextHeight = direction === 'in'
+            ? currentHeight * (1 - MAP_ZOOM_FACTOR)
+            : currentHeight * (1 + MAP_ZOOM_FACTOR);
+
+        cameraHeightRef.current = Math.min(MAP_MAX_CAMERA_HEIGHT, Math.max(MAP_MIN_CAMERA_HEIGHT, nextHeight));
+
+        if (direction === 'in') {
+            viewer.camera.zoomIn(currentHeight - cameraHeightRef.current);
+        } else {
+            viewer.camera.zoomOut(cameraHeightRef.current - currentHeight);
+        }
+    };
 
     useEffect(() => {
         let disposed = false;
@@ -285,26 +418,33 @@ const MapViewport = ({
                 baseLayer: false,
             });
 
-            viewer.scene.globe.enableLighting = true;
+            viewer.scene.globe.enableLighting = false;
             viewer.scene.globe.depthTestAgainstTerrain = false;
-            viewer.scene.skyAtmosphere.show = true;
+            viewer.scene.globe.baseColor = Color.fromCssColorString('#0a141e');
+            viewer.scene.skyAtmosphere.show = false;
+            viewer.scene.skyBox.show = false;
+            viewer.scene.sun.show = false;
+            viewer.scene.moon.show = false;
+            viewer.scene.backgroundColor = Color.fromCssColorString('#050a0f');
             viewer.scene.requestRenderMode = false;
-            viewer.camera.setView({
-                destination: Cartesian3.fromDegrees(DEFAULT_CENTER[1], DEFAULT_CENTER[0], CESIUM_VIEW_HEIGHT * 14),
-                orientation: {
-                    heading: CesiumMath.toRadians(0),
-                    pitch: CesiumMath.toRadians(-62),
-                    roll: 0,
-                },
-            });
+            setThreeDCameraView(viewer, DEFAULT_CENTER[1], DEFAULT_CENTER[0], MAP_CAMERA_HEIGHT);
+            const controls = viewer.scene.screenSpaceCameraController;
+            controls.enableRotate = true;
+            controls.enableZoom = true;
+            controls.enablePan = true;
+            controls.enableTilt = true;
+            controls.enableLook = false;
+            controls.zoomFactor = 3;
+            controls.minimumZoomDistance = MAP_MIN_CAMERA_HEIGHT;
+            controls.maximumZoomDistance = MAP_MAX_CAMERA_HEIGHT;
 
             resizeObserver = new ResizeObserver(() => viewer.resize());
             resizeObserver.observe(containerRef.current);
             viewerRef.current = viewer;
 
-            const maxTextureSize = viewer.scene.context?.maximumTextureSize ?? 0;
-            if (maxTextureSize > 0) {
-                createBaseImageryProvider(Boolean(token)).then((imageryProvider) => {
+            const maxTextureSize = viewer.scene.context?.maximumTextureSize;
+            if (maxTextureSize !== 0) {
+                createBaseImageryProvider().then((imageryProvider) => {
                     if (!disposed && viewerRef.current && !viewerRef.current.isDestroyed()) {
                         viewer.imageryLayers.addImageryProvider(imageryProvider, 0);
                     }
@@ -334,22 +474,28 @@ const MapViewport = ({
             .map(getCesiumRecordPosition)
             .filter(Boolean);
         const currentPosition = getCesiumRecordPosition(currentRecord);
+        const groundPosition = getCesiumGroundPosition(currentRecord);
         const startPosition = getCesiumRecordPosition(firstRecord);
+        const linkPositions = startPosition && currentPosition ? [startPosition, currentPosition] : [];
+        const verticalPositions = groundPosition && currentPosition ? [groundPosition, currentPosition] : [];
+
+        trajectoryPositionsRef.current = positions;
+        linkPositionsRef.current = linkPositions;
+        verticalPositionsRef.current = verticalPositions;
 
         if (!trajectoryEntityRef.current) {
             trajectoryEntityRef.current = viewer.entities.add({
                 name: 'Trajectoire CubeSat',
                 polyline: {
-                    positions,
+                    positions: new CallbackProperty(() => trajectoryPositionsRef.current, false),
                     width: 4,
+                    arcType: ArcType.NONE,
                     material: new PolylineGlowMaterialProperty({
                         glowPower: 0.16,
                         color: Color.CYAN.withAlpha(0.96),
                     }),
                 },
             });
-        } else {
-            trajectoryEntityRef.current.polyline.positions = positions;
         }
         trajectoryEntityRef.current.show = mapOptions.trajectory && positions.length > 1;
 
@@ -397,30 +543,75 @@ const MapViewport = ({
             linkEntityRef.current = viewer.entities.add({
                 name: 'Liaison sol',
                 polyline: {
-                    positions: startPosition && currentPosition ? [startPosition, currentPosition] : [],
+                    positions: new CallbackProperty(() => linkPositionsRef.current, false),
                     width: 2,
+                    arcType: ArcType.NONE,
                     material: new ColorMaterialProperty(Color.LIME.withAlpha(0.78)),
                 },
             });
-        } else {
-            linkEntityRef.current.polyline.positions = startPosition && currentPosition
-                ? [startPosition, currentPosition]
-                : [];
         }
         linkEntityRef.current.show = mapOptions.linkBeam && Boolean(startPosition && currentPosition);
 
-        if (!initializedRef.current && positions.length > 1) {
-            initializedRef.current = true;
-            viewer.zoomTo(trajectoryEntityRef.current);
+        if (!verticalLineEntityRef.current) {
+            verticalLineEntityRef.current = viewer.entities.add({
+                name: 'Axe Z CubeSat',
+                polyline: {
+                    positions: new CallbackProperty(() => verticalPositionsRef.current, false),
+                    width: 3,
+                    arcType: ArcType.NONE,
+                    material: new PolylineGlowMaterialProperty({
+                        glowPower: 0.24,
+                        color: Color.YELLOW.withAlpha(0.92),
+                    }),
+                },
+            });
+        }
+        verticalLineEntityRef.current.show = Boolean(groundPosition && currentPosition);
+
+        if (groundPosition && !groundProjectionEntityRef.current) {
+            groundProjectionEntityRef.current = viewer.entities.add({
+                name: 'Projection sol CubeSat',
+                position: groundPosition,
+                point: {
+                    pixelSize: 9,
+                    color: Color.YELLOW.withAlpha(0.85),
+                    outlineColor: Color.BLACK,
+                    outlineWidth: 1,
+                },
+            });
+        } else if (groundPosition) {
+            groundProjectionEntityRef.current.position = groundPosition;
+        }
+        if (groundProjectionEntityRef.current) {
+            groundProjectionEntityRef.current.show = Boolean(groundPosition);
         }
 
-        viewer.trackedEntity = mapOptions.follow ? satelliteEntityRef.current : undefined;
+        if (!initializedRef.current && positions.length > 1) {
+            initializedRef.current = true;
+            const cameraView = getTrajectoryCameraView(trajectoryRecords);
+            setThreeDCameraView(viewer, cameraView.lon, cameraView.lat, cameraView.height);
+        }
+
+        viewer.trackedEntity = undefined;
+
+        if (mapOptions.follow && currentRecord) {
+            const currentGeo = getTelemetryRecordGeo(currentRecord);
+
+            if (currentGeo) {
+                setThreeDCameraView(viewer, currentGeo.lon, currentGeo.lat, cameraHeightRef.current);
+            }
+        }
     }, [currentRecord, firstRecord, mapOptions.follow, mapOptions.linkBeam, mapOptions.trajectory, trajectoryRecords]);
 
     return (
         <section className="gs-map-frame gs-cesium-frame" aria-label="Globe Cesium de suivi CubeSat">
             <div ref={containerRef} className="gs-cesium-viewer" />
-            <RightControlPanel options={mapOptions} onToggle={onToggleMapOption} />
+            <RightControlPanel
+                onToggle={onToggleMapOption}
+                onZoomIn={() => handleZoom('in')}
+                onZoomOut={() => handleZoom('out')}
+                options={mapOptions}
+            />
             {(loading || !hasData) && (
                 <div className="gs-map-status">
                     {loading ? 'CHARGEMENT CSV...' : 'AUCUNE TELEMETRIE'}
@@ -551,7 +742,7 @@ export default function TelemetryDashboard() {
     const [loading, setLoading] = useState(true);
     const [speedMs, setSpeedMs] = useState(500);
     const [mapOptions, setMapOptions] = useState({
-        follow: true,
+        follow: false,
         trajectory: true,
         linkBeam: true,
     });

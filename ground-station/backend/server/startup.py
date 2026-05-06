@@ -213,9 +213,19 @@ app.add_middleware(
 )
 
 process_manager.set_sio(sio)
+FRONTEND_DIST_DIR = os.environ.get("STATIC_FILES_DIR", "../../frontend/dist")
 
 # Mount static directories
 app.mount("/satimages", StaticFiles(directory="satimages"), name="satimages")
+app.mount(
+    "/cesiumStatic",
+    StaticFiles(
+        directory=os.path.join(FRONTEND_DIST_DIR, "cesiumStatic"),
+        html=False,
+        check_dir=False,
+    ),
+    name="cesiumStatic",
+)
 
 # Mount data directories for recordings, snapshots, decoded data (SSTV, AFSK, Morse, etc.), and audio
 # Ensure these directories exist before mounting
@@ -325,10 +335,9 @@ async def download_decoded_folder(foldername: str, background_tasks: BackgroundT
 # This catch-all route comes AFTER specific API routes
 @app.get("/{full_path:path}")
 async def serve_spa(request: Request, full_path: str):
-    static_files_dir = os.environ.get("STATIC_FILES_DIR", "../../frontend/dist")
-    if full_path.startswith(("static/", "assets/", "favicon.ico")):
-        return FileResponse(os.path.join(static_files_dir, full_path))
-    return FileResponse(os.path.join(static_files_dir, "index.html"))
+    if full_path.startswith(("static/", "assets/", "cesiumStatic/", "favicon.ico")):
+        return FileResponse(os.path.join(FRONTEND_DIST_DIR, full_path))
+    return FileResponse(os.path.join(FRONTEND_DIST_DIR, "index.html"))
 
 
 async def init_db():
