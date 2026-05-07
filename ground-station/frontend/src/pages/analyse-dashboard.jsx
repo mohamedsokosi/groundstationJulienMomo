@@ -64,6 +64,15 @@ const AVAILABLE_FIELDS = [
     { key: '_fspl',        label: 'FSPL (dB)',              step: 100   },
     { key: '_bilan',       label: 'Bilan de liaison (dBm)', step: 100   },
     { key: '_distance',    label: 'Distance verticale (m)', step: 10000 },
+    { key: 'MIU',          label: 'MIU (V)',                step: 1     },
+    { key: 'T1',           label: 'Temp. 1 (°C)',           step: 10    },
+    { key: 'T2',           label: 'Temp. 2 (°C)',           step: 10    },
+    { key: 'T3',           label: 'Temp. 3 (°C)',           step: 10    },
+    { key: 'T4',           label: 'Temp. 4 (°C)',           step: 10    },
+    { key: 'T5',           label: 'Temp. 5 (°C)',           step: 10    },
+    { key: 'T6',           label: 'Temp. 6 (°C)',           step: 10    },
+    { key: 'T7',           label: 'Temp. 7 (°C)',           step: 10    },
+    { key: 'T8',           label: 'Temp. 8 (°C)',           step: 10    },
 ];
 
 function fieldLabel(key) {
@@ -103,8 +112,8 @@ function fieldStep(key) {
 }
 
 function pagedDomain(maxVal, minVal, step) {
-    const hi = (Math.floor(maxVal / step + 0.25) + 1) * step;
-    const lo = minVal < 0 ? -(Math.floor(-minVal / step + 0.25) + 1) * step : 0;
+    const hi = (Math.floor(maxVal / step + 0.5) + 1) * step;
+    const lo = minVal < 0 ? -(Math.floor(-minVal / step + 0.5) + 1) * step : 0;
     return [lo, hi];
 }
 
@@ -138,9 +147,20 @@ function useAnimatedDomain(target, duration = 500) {
 function TelemetryChart({ data, xKey, lines, tracking, onTrackingChange }) {
     const theme = useTheme();
     const scrollRef = useRef(null);
-    const isAutoScrollRef = useRef(false);
-    const autoScrollTimerRef = useRef(null);
+    const isPointerDownRef = useRef(false);
     const hasData = !!data?.length && !!lines?.length;
+
+    // Track pointer state globally so we can tell a scrollbar drag from programmatic scrollTo
+    useEffect(() => {
+        const onDown = () => { isPointerDownRef.current = true; };
+        const onUp   = () => { isPointerDownRef.current = false; };
+        window.addEventListener('pointerdown', onDown);
+        window.addEventListener('pointerup',   onUp);
+        return () => {
+            window.removeEventListener('pointerdown', onDown);
+            window.removeEventListener('pointerup',   onUp);
+        };
+    }, []);
     const labelFs = theme.typography.caption.fontSize;
 
     const { maxX, minY, maxY } = useMemo(() => {
@@ -168,27 +188,43 @@ function TelemetryChart({ data, xKey, lines, tracking, onTrackingChange }) {
     const animYMin = useAnimatedDomain(yDomainMin);
     const animYMax = useAnimatedDomain(yDomainMax);
 
+    // Build explicit X tick array so 0 is always shown and density is ~10 ticks/page.
+    // Snap the interval to a "nice" power-of-10 multiple so labels are round numbers.
+    const xTicks = useMemo(() => {
+        if (!xDomainMax) return [0];
+        const raw = stepX / 10;
+        const mag = Math.pow(10, Math.floor(Math.log10(raw)));
+        const n = raw / mag;
+        const nice = n < 1.5 ? mag : n < 3.5 ? 2 * mag : n < 7.5 ? 5 * mag : 10 * mag;
+        const count = Math.round(xDomainMax / nice);
+        return Array.from({ length: Math.min(count, 500) + 1 }, (_, i) =>
+            Math.round(i * nice * 1e9) / 1e9
+        );
+    }, [xDomainMax, stepX]);
+
     const pagesX = animXMax / stepX;
 
-    // Auto-scroll to the page containing the latest X value
+    // Auto-scroll to keep the latest X value near the right edge of the viewport
     useEffect(() => {
         if (!tracking || !hasData) return;
         const el = scrollRef.current;
         if (!el) return;
-        const targetLeft = Math.floor(maxX / stepX) * el.clientWidth;
+        // Map maxX to its pixel position inside the inner box, then place it at 50% across the viewport
+        const dataPixel = (maxX / stepX) * el.clientWidth;
+        const targetLeft = Math.max(0, dataPixel - el.clientWidth * 0.5);
         if (Math.abs(el.scrollLeft - targetLeft) < 2) return;
-        isAutoScrollRef.current = true;
-        clearTimeout(autoScrollTimerRef.current);
         el.scrollTo({ left: targetLeft, behavior: 'smooth' });
-        // Keep flag true for the duration of the smooth scroll, then clear it
-        autoScrollTimerRef.current = setTimeout(() => {
-            isAutoScrollRef.current = false;
-        }, 700);
     }, [tracking, maxX, stepX, hasData]);
 
-    // Detect manual scroll → disable tracking
+    // scrollTo never presses a pointer button, so isPointerDownRef stays false
+    // during auto-scroll. Only an actual user drag raises the flag.
     const handleScroll = useCallback(() => {
-        if (isAutoScrollRef.current) return;
+        if (!isPointerDownRef.current) return;
+        onTrackingChange(false);
+    }, [onTrackingChange]);
+
+    // Mouse wheel / trackpad — always user-initiated, no pointer-down needed
+    const handleWheel = useCallback(() => {
         onTrackingChange(false);
     }, [onTrackingChange]);
 
@@ -214,6 +250,7 @@ function TelemetryChart({ data, xKey, lines, tracking, onTrackingChange }) {
             <Box
                 ref={scrollRef}
                 onScroll={handleScroll}
+                onWheel={handleWheel}
                 sx={{ flex: 1, minWidth: 0, height: '100%', overflowX: 'auto', overflowY: 'hidden' }}
             >
                 <Box sx={{ width: `${pagesX * 100}%`, height: '100%' }}>
@@ -224,6 +261,7 @@ function TelemetryChart({ data, xKey, lines, tracking, onTrackingChange }) {
                                 dataKey={xKey}
                                 type="number"
                                 domain={[0, animXMax]}
+                                ticks={xTicks}
                                 height={30}
                                 tick={{ fontSize: labelFs, fill: theme.palette.text.secondary }}
                                 stroke={theme.palette.divider}

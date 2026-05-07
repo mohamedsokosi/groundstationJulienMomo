@@ -3,7 +3,9 @@ export function normalizeTelemetryHeader(header = '') {
 }
 
 export function isTelemetryNumericHeader(header = '') {
-    return /(lat|long|alt|speed|pressure|sat)/i.test(header);
+    const h = header.trim();
+    if (/^(T[1-8]|MIU)$/i.test(h)) return true;
+    return /(lat|long|alt|speed|pressure|sat)/i.test(h);
 }
 
 export function toTelemetryNumber(value, fallback = 0) {

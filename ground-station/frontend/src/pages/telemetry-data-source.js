@@ -87,6 +87,15 @@ export function buildTelemetryChartData(data = []) {
             'U_Lat': getTelemetryNumber(item, ['U_Lat', 'U Lat']),
             'U_Long': getTelemetryNumber(item, ['U_Long', 'U Long']),
             '#_Sat': getTelemetryNumber(item, ['#_Sat', '#Sat']),
+            'MIU': getTelemetryNumber(item, 'MIU'),
+            'T1': getTelemetryNumber(item, 'T1'),
+            'T2': getTelemetryNumber(item, 'T2'),
+            'T3': getTelemetryNumber(item, 'T3'),
+            'T4': getTelemetryNumber(item, 'T4'),
+            'T5': getTelemetryNumber(item, 'T5'),
+            'T6': getTelemetryNumber(item, 'T6'),
+            'T7': getTelemetryNumber(item, 'T7'),
+            'T8': getTelemetryNumber(item, 'T8'),
         };
     });
 }
