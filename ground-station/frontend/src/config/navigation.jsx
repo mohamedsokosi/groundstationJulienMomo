@@ -34,7 +34,7 @@ import SatelliteAltIcon from '@mui/icons-material/SatelliteAlt';
 import InsightsIcon from '@mui/icons-material/Insights';
 import SummarizeIcon from '@mui/icons-material/Summarize';
 import i18n from '../i18n/config.js';
-import { TleIcon } from '../components/common/custom-icons.jsx';
+import { TleIcon } from '../shared/custom-icons.jsx';
 import { Box, CircularProgress } from '@mui/material';
 import SyncIcon from '@mui/icons-material/Sync';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
