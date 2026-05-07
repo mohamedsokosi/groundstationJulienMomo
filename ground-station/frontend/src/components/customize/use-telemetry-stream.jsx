@@ -16,7 +16,9 @@ import {
     createTelemetryStreamPoint,
     getTelemetryStreamLimit,
     parseTelemetryCsv,
+    parseTelemetryProtobuf,
     readTextFile,
+    TELEMETRY_PROTOBUF_SOURCE_URL,
     TELEMETRY_SOURCE_URL,
     TELEMETRY_STREAM_INTERVAL_MS,
 } from './telemetry-data-source.js';
@@ -126,22 +128,42 @@ export function useTelemetryStream({
     const loadFromUrl = useCallback(async (url = sourceUrl, options = {}) => {
         dispatch(setLoading(true));
 
-        try {
-            const response = await fetch(url);
+        const sources = url === TELEMETRY_SOURCE_URL
+            ? [
+                { url: TELEMETRY_PROTOBUF_SOURCE_URL, format: 'protobuf' },
+                { url: TELEMETRY_SOURCE_URL, format: 'csv' },
+            ]
+            : [
+                {
+                    url,
+                    format: url.toLowerCase().split('?')[0].endsWith('.pb') ? 'protobuf' : 'csv',
+                },
+            ];
+        let lastError = null;
 
-            if (!response.ok) {
-                throw new Error(`Telemetry source unavailable (${response.status}).`);
+        for (const source of sources) {
+            try {
+                const response = await fetch(source.url, { cache: 'no-store' });
+
+                if (!response.ok) {
+                    throw new Error(`Telemetry source unavailable (${response.status}).`);
+                }
+
+                const rows = source.format === 'protobuf'
+                    ? parseTelemetryProtobuf(await response.arrayBuffer())
+                    : parseTelemetryCsv(await response.text());
+
+                loadRows(rows, options);
+                return;
+            } catch (error) {
+                lastError = error;
             }
-
-            const text = await response.text();
-            const rows = parseTelemetryCsv(text);
-            loadRows(rows, options);
-        } catch (error) {
-            stopStream();
-            dispatch(clearTelemetryData());
-            dispatch(setLoading(false));
-            dispatch(setError(error.message || 'Failed to load telemetry data.'));
         }
+
+        stopStream();
+        dispatch(clearTelemetryData());
+        dispatch(setLoading(false));
+        dispatch(setError(lastError?.message || 'Failed to load telemetry data.'));
     }, [dispatch, loadRows, sourceUrl, stopStream]);
 
     const loadFromFile = useCallback(async (file, options = {}) => {
