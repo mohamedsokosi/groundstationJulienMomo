@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
     Box,
     Button,
+    Checkbox,
     Chip,
     Container,
     FormControl,
@@ -49,17 +50,20 @@ function computeLinkBudget(fspl) {
     return +(TX_DBM + TX_GAIN_DBI - fspl + RX_GAIN_DBI).toFixed(2);
 }
 
+// step = fixed page size for X-axis windowing (threshold to expand = 75% of step)
 const AVAILABLE_FIELDS = [
-    { key: 'U_Alt',      label: 'Altitude (m)' },
-    { key: 'Speed',      label: 'Speed (m/s)' },
-    { key: 'Vert_speed', label: 'Vertical Speed (m/s)' },
-    { key: 'Pressure',   label: 'Pressure (hPa)' },
-    { key: '#_Sat',      label: 'Satellites' },
-    { key: 'U_Lat',      label: 'Latitude (°)' },
-    { key: 'U_Long',     label: 'Longitude (°)' },
-    { key: '_fspl',      label: 'FSPL (dB)' },
-    { key: '_bilan',     label: 'Bilan de liaison (dBm)' },
-    { key: '_distance',  label: 'Distance verticale (m)' },
+    { key: '_elapsed_s',   label: 'Temps écoulé (s)',       step: 1000  },
+    { key: '_elapsed_min', label: 'Temps écoulé (min)',     step: 100   },
+    { key: 'U_Alt',        label: 'Altitude (m)',           step: 10000 },
+    { key: 'Speed',        label: 'Speed (m/s)',            step: 100   },
+    { key: 'Vert_speed',   label: 'Vertical Speed (m/s)',   step: 10    },
+    { key: 'Pressure',     label: 'Pressure (hPa)',         step: 100   },
+    { key: '#_Sat',        label: 'Satellites',             step: 10    },
+    { key: 'U_Lat',        label: 'Latitude (°)',           step: 1     },
+    { key: 'U_Long',       label: 'Longitude (°)',          step: 1     },
+    { key: '_fspl',        label: 'FSPL (dB)',              step: 100   },
+    { key: '_bilan',       label: 'Bilan de liaison (dBm)', step: 100   },
+    { key: '_distance',    label: 'Distance verticale (m)', step: 10000 },
 ];
 
 function fieldLabel(key) {
@@ -94,50 +98,163 @@ function gridCol(cols) {
     };
 }
 
+function fieldStep(key) {
+    return AVAILABLE_FIELDS.find(f => f.key === key)?.step ?? 100;
+}
+
+function pagedDomain(maxVal, minVal, step) {
+    const hi = (Math.floor(maxVal / step + 0.25) + 1) * step;
+    const lo = minVal < 0 ? -(Math.floor(-minVal / step + 0.25) + 1) * step : 0;
+    return [lo, hi];
+}
+
+// Smoothly animate a domain boundary whenever it changes (ease-out cubic, 500 ms)
+function useAnimatedDomain(target, duration = 500) {
+    const valueRef = useRef(target);
+    const [displayed, setDisplayed] = useState(target);
+    const rafRef = useRef(null);
+
+    useEffect(() => {
+        if (target === valueRef.current) return;
+        cancelAnimationFrame(rafRef.current);
+        const from = valueRef.current;
+        const t0 = performance.now();
+        const tick = (now) => {
+            const p = Math.min((now - t0) / duration, 1);
+            const e = 1 - (1 - p) ** 3;
+            const v = Math.round(from + (target - from) * e);
+            valueRef.current = v;
+            setDisplayed(v);
+            if (p < 1) rafRef.current = requestAnimationFrame(tick);
+        };
+        rafRef.current = requestAnimationFrame(tick);
+        return () => cancelAnimationFrame(rafRef.current);
+    }, [target, duration]);
+
+    return displayed;
+}
+
 // chart = { id, xKey, lines: [{key, color}], cols, ratio }
-function TelemetryChart({ data, xKey, lines }) {
+function TelemetryChart({ data, xKey, lines, tracking, onTrackingChange }) {
     const theme = useTheme();
-    if (!data?.length || !lines?.length) return null;
+    const scrollRef = useRef(null);
+    const isAutoScrollRef = useRef(false);
+    const autoScrollTimerRef = useRef(null);
+    const hasData = !!data?.length && !!lines?.length;
+    const labelFs = theme.typography.caption.fontSize;
+
+    const { maxX, minY, maxY } = useMemo(() => {
+        if (!data?.length) return { maxX: 0, minY: 0, maxY: 0 };
+        let mx = 0, mn = 0, my = 0;
+        for (const d of data) {
+            const x = Number(d[xKey]) || 0;
+            if (x > mx) mx = x;
+            for (const { key } of lines) {
+                const v = Number(d[key]) || 0;
+                if (v > my) my = v;
+                if (v < mn) mn = v;
+            }
+        }
+        return { maxX: mx, minY: mn, maxY: my };
+    }, [data, xKey, lines]);
+
+    const stepX = fieldStep(xKey);
+    const stepY = lines.reduce((m, { key }) => Math.max(m, fieldStep(key)), 0) || 100;
+
+    const [, xDomainMax] = pagedDomain(maxX, 0, stepX);
+    const [yDomainMin, yDomainMax] = pagedDomain(maxY, minY, stepY);
+
+    const animXMax = useAnimatedDomain(xDomainMax);
+    const animYMin = useAnimatedDomain(yDomainMin);
+    const animYMax = useAnimatedDomain(yDomainMax);
+
+    const pagesX = animXMax / stepX;
+
+    // Auto-scroll to the page containing the latest X value
+    useEffect(() => {
+        if (!tracking || !hasData) return;
+        const el = scrollRef.current;
+        if (!el) return;
+        const targetLeft = Math.floor(maxX / stepX) * el.clientWidth;
+        if (Math.abs(el.scrollLeft - targetLeft) < 2) return;
+        isAutoScrollRef.current = true;
+        clearTimeout(autoScrollTimerRef.current);
+        el.scrollTo({ left: targetLeft, behavior: 'smooth' });
+        // Keep flag true for the duration of the smooth scroll, then clear it
+        autoScrollTimerRef.current = setTimeout(() => {
+            isAutoScrollRef.current = false;
+        }, 700);
+    }, [tracking, maxX, stepX, hasData]);
+
+    // Detect manual scroll → disable tracking
+    const handleScroll = useCallback(() => {
+        if (isAutoScrollRef.current) return;
+        onTrackingChange(false);
+    }, [onTrackingChange]);
+
+    if (!hasData) return null;
+
     return (
-        <Box sx={{ width: '100%', height: '100%' }}>
-            <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={data} margin={{ top: 4, right: 8, left: 8, bottom: 4 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke={alpha(theme.palette.divider, 0.4)} />
-                    <XAxis
-                        dataKey={xKey}
-                        tick={{ fontSize: 9, fill: theme.palette.text.secondary }}
-                        stroke={theme.palette.divider}
-                        label={{ value: fieldLabel(xKey), position: 'insideBottom', offset: 2, fontSize: 9, fill: theme.palette.text.secondary }}
-                    />
-                    <YAxis
-                        tick={{ fontSize: 9, fill: theme.palette.text.secondary }}
-                        stroke={theme.palette.divider}
-                        width={38}
-                        label={{ value: lines.length === 1 ? fieldLabel(lines[0].key) : '', angle: -90, position: 'insideLeft', offset: 10, fontSize: 9, fill: theme.palette.text.secondary }}
-                    />
-                    <Tooltip
-                        contentStyle={{
-                            backgroundColor: theme.palette.background.paper,
-                            border: `1px solid ${theme.palette.divider}`,
-                            borderRadius: 8,
-                            fontSize: 11,
-                        }}
-                        formatter={(v, name) => [typeof v === 'number' ? v.toFixed(2) : v, fieldLabel(name)]}
-                        labelFormatter={(v) => `${fieldLabel(xKey)}: ${typeof v === 'number' ? v.toFixed(1) : v}`}
-                    />
-                    {lines.map(({ key, color }) => (
-                        <Line
-                            key={key}
-                            type="monotone"
-                            dataKey={key}
-                            stroke={color}
-                            dot={false}
-                            strokeWidth={2}
-                            isAnimationActive={false}
+        <Box sx={{ width: '100%', height: '100%', display: 'flex' }}>
+            {/* Fixed Y-axis panel — does not scroll */}
+            <Box sx={{ width: 50, flexShrink: 0, height: '100%' }}>
+                <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={data} margin={{ top: 4, right: 0, left: 8, bottom: 34 }}>
+                        <YAxis
+                            domain={[animYMin, animYMax]}
+                            tick={{ fontSize: labelFs, fill: theme.palette.text.secondary }}
+                            stroke={theme.palette.divider}
+                            width={38}
                         />
-                    ))}
-                </LineChart>
-            </ResponsiveContainer>
+                    </LineChart>
+                </ResponsiveContainer>
+            </Box>
+
+            {/* Scrollable chart body */}
+            <Box
+                ref={scrollRef}
+                onScroll={handleScroll}
+                sx={{ flex: 1, minWidth: 0, height: '100%', overflowX: 'auto', overflowY: 'hidden' }}
+            >
+                <Box sx={{ width: `${pagesX * 100}%`, height: '100%' }}>
+                    <ResponsiveContainer width="100%" height="100%">
+                        <LineChart data={data} margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
+                            <CartesianGrid strokeDasharray="3 3" stroke={alpha(theme.palette.divider, 0.4)} />
+                            <XAxis
+                                dataKey={xKey}
+                                type="number"
+                                domain={[0, animXMax]}
+                                height={30}
+                                tick={{ fontSize: labelFs, fill: theme.palette.text.secondary }}
+                                stroke={theme.palette.divider}
+                                label={{ value: fieldLabel(xKey), position: 'insideBottom', offset: 2, fontSize: labelFs, fill: theme.palette.text.secondary }}
+                            />
+                            <YAxis domain={[animYMin, animYMax]} hide width={0} />
+                            <Tooltip
+                                contentStyle={{
+                                    backgroundColor: theme.palette.background.paper,
+                                    border: `1px solid ${theme.palette.divider}`,
+                                    borderRadius: 8,
+                                    fontSize: 11,
+                                }}
+                                formatter={(v, name) => [typeof v === 'number' ? v.toFixed(2) : v, fieldLabel(name)]}
+                                labelFormatter={(v) => `${fieldLabel(xKey)}: ${typeof v === 'number' ? v.toFixed(1) : v}`}
+                            />
+                            {lines.map(({ key, color }) => (
+                                <Line
+                                    key={key}
+                                    type="monotone"
+                                    dataKey={key}
+                                    stroke={color}
+                                    dot={false}
+                                    strokeWidth={2}
+                                    isAnimationActive={false}
+                                />
+                            ))}
+                        </LineChart>
+                    </ResponsiveContainer>
+                </Box>
+            </Box>
         </Box>
     );
 }
@@ -172,10 +289,20 @@ const DEFAULT_CHARTS = [
     { id: 'default-3', xKey: 'U_Alt', lines: [{ key: 'Speed',    color: '#d2b04c' }], cols: 3, ratio: '1/1' },
 ];
 
-function chartTitle(chart) {
+function ChartTitle({ chart, sx }) {
     const x = fieldLabel(chart.xKey);
-    if (chart.lines.length === 1) return `${fieldLabel(chart.lines[0].key)} vs ${x}`;
-    return `${chart.lines.map((l) => fieldLabel(l.key)).join(', ')} vs ${x}`;
+    return (
+        <Typography variant="caption" sx={{ fontWeight: 600, lineHeight: 1.2, ...sx }}>
+            {chart.lines.map((l, i) => (
+                <React.Fragment key={l.key}>
+                    {i > 0 && <span style={{ color: 'inherit' }}>, </span>}
+                    <span style={{ color: l.color }}>{fieldLabel(l.key)}</span>
+                </React.Fragment>
+            ))}
+            {' vs '}
+            {x}
+        </Typography>
+    );
 }
 
 export default function AnalyseDashboard() {
@@ -185,15 +312,18 @@ export default function AnalyseDashboard() {
 
     const [editMode, setEditMode] = useState(false);
     const [charts, setCharts] = useState(() => loadSavedCharts() ?? DEFAULT_CHARTS);
+    const [trackingMap, setTrackingMap] = useState({});
+    const isTracking = useCallback((id) => trackingMap[id] !== false, [trackingMap]);
+    const setChartTracking = useCallback((id, val) => setTrackingMap(prev => ({ ...prev, [id]: val })), []);
 
     useEffect(() => {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(charts));
     }, [charts]);
 
     // Add-chart form state
-    const [newX, setNewX] = useState('U_Alt');
-    const [newLines, setNewLines] = useState([{ key: 'Pressure', color: CHART_COLORS[0] }]);
-    const [pendingY, setPendingY] = useState('Speed');
+    const [newX, setNewX] = useState('_elapsed_min');
+    const [newLines, setNewLines] = useState([]);
+    const [pendingY, setPendingY] = useState('U_Alt');
 
     const chartsRef = useRef(charts);
     chartsRef.current = charts;
@@ -208,19 +338,23 @@ export default function AnalyseDashboard() {
 
     const addLineToForm = () => {
         if (!pendingY || newLines.find((l) => l.key === pendingY)) return;
-        const color = CHART_COLORS[newLines.length % CHART_COLORS.length];
+        const usedColors = new Set(newLines.map((l) => l.color));
+        const color = CHART_COLORS.find((c) => !usedColors.has(c)) ?? CHART_COLORS[newLines.length % CHART_COLORS.length];
         setNewLines((prev) => [...prev, { key: pendingY, color }]);
     };
 
     const removeLineFromForm = (key) => setNewLines((prev) => prev.filter((l) => l.key !== key));
 
     const addChart = () => {
-        if (!newX || newLines.length === 0) return;
+        if (!newX || !pendingY) return;
+        const effectiveLines = newLines.length > 0
+            ? newLines
+            : [{ key: pendingY, color: CHART_COLORS[0] }];
         setCharts((prev) => [
             ...prev,
-            { id: Date.now(), xKey: newX, lines: newLines, cols: 3, ratio: '1/1' },
+            { id: Date.now(), xKey: newX, lines: effectiveLines, cols: 3, ratio: '1/1' },
         ]);
-        setNewLines([{ key: pendingY, color: CHART_COLORS[0] }]);
+        setNewLines([]);
     };
 
     const removeChart = (id) => setCharts((prev) => prev.filter((c) => c.id !== id));
@@ -345,16 +479,15 @@ export default function AnalyseDashboard() {
                                 disabled={!!newLines.find((l) => l.key === pendingY)}>
                                 Série
                             </Button>
-                            <Button size="small" variant="contained" startIcon={<AddIcon />} onClick={addChart}
-                                disabled={newLines.length === 0}>
+                            <Button size="small" variant="contained" startIcon={<AddIcon />} onClick={addChart}>
                                 Créer graphique
                             </Button>
                         </Stack>
 
-                        {/* Selected lines chips */}
-                        {newLines.length > 0 && (
-                            <Stack direction="row" spacing={0.5} flexWrap="wrap">
-                                {newLines.map((l) => (
+                        {/* Series chips — show explicit lines or implicit pendingY preview */}
+                        <Stack direction="row" spacing={0.5} flexWrap="wrap">
+                            {newLines.length > 0 ? (
+                                newLines.map((l) => (
                                     <Chip
                                         key={l.key}
                                         label={fieldLabel(l.key)}
@@ -362,9 +495,15 @@ export default function AnalyseDashboard() {
                                         onDelete={() => removeLineFromForm(l.key)}
                                         sx={{ backgroundColor: alpha(l.color, 0.2), borderColor: l.color, border: '1px solid' }}
                                     />
-                                ))}
-                            </Stack>
-                        )}
+                                ))
+                            ) : (
+                                <Chip
+                                    label={fieldLabel(pendingY)}
+                                    size="small"
+                                    sx={{ backgroundColor: alpha(CHART_COLORS[0], 0.1), borderColor: alpha(CHART_COLORS[0], 0.4), border: '1px dashed', color: 'text.secondary' }}
+                                />
+                            )}
+                        </Stack>
                     </Stack>
                 </Paper>
             )}
@@ -438,10 +577,24 @@ export default function AnalyseDashboard() {
                                         </IconButton>
                                     </Box>
                                 ) : (
-                                    <Box sx={{ flexShrink: 0, textAlign: 'center' }}>
-                                        <Typography variant="caption" sx={{ fontWeight: 600, lineHeight: 1.2 }}>
-                                            {chartTitle(chart)}
-                                        </Typography>
+                                    <Box sx={{ flexShrink: 0, display: 'flex', alignItems: 'center', px: 0.5, pt: 0.25 }}>
+                                        <Box sx={{ flex: 1, textAlign: 'center' }}>
+                                            <ChartTitle chart={chart} />
+                                        </Box>
+                                        <Box sx={{ display: 'flex', alignItems: 'center', flexShrink: 0 }}>
+                                            <Checkbox
+                                                size="small"
+                                                checked={isTracking(chart.id)}
+                                                onChange={(e) => setChartTracking(chart.id, e.target.checked)}
+                                                sx={{ p: 0.25, color: alpha(theme.palette.text.secondary, 0.5) }}
+                                            />
+                                            <Typography variant="caption" sx={{
+                                                fontSize: 10, lineHeight: 1, userSelect: 'none',
+                                                color: isTracking(chart.id) ? 'text.secondary' : alpha(theme.palette.text.secondary, 0.4),
+                                            }}>
+                                                Track
+                                            </Typography>
+                                        </Box>
                                     </Box>
                                 )}
 
@@ -450,13 +603,15 @@ export default function AnalyseDashboard() {
                                         data={enrichedData}
                                         xKey={chart.xKey}
                                         lines={chart.lines}
+                                        tracking={isTracking(chart.id)}
+                                        onTrackingChange={(val) => setChartTracking(chart.id, val)}
                                     />
                                 </Box>
 
                                 {editMode && (
-                                    <Typography variant="caption" color="text.secondary" sx={{ px: 0.5, pb: 0.25, flexShrink: 0, textAlign: 'center' }}>
-                                        {chartTitle(chart)}
-                                    </Typography>
+                                    <Box sx={{ px: 0.5, pb: 0.25, flexShrink: 0, textAlign: 'center' }}>
+                                        <ChartTitle chart={chart} />
+                                    </Box>
                                 )}
                             </Paper>
                         </Box>

@@ -65,6 +65,11 @@ export function useTelemetryStream({
         const maxPoints = getTelemetryStreamLimit(rows.length);
 
         const emitNextPoint = () => {
+            if (currentIndex >= rows.length) {
+                stopStream();
+                return;
+            }
+
             const point = createTelemetryStreamPoint(rows, currentIndex, currentStreamIndex);
 
             if (!point) {
@@ -73,7 +78,7 @@ export function useTelemetryStream({
 
             dispatch(appendTelemetryPoint({ point, maxPoints }));
 
-            currentIndex = (currentIndex + 1) % rows.length;
+            currentIndex += 1;
             currentStreamIndex += 1;
 
             dispatch(setPlaybackState({

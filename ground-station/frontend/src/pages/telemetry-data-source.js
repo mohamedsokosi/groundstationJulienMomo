@@ -40,19 +40,49 @@ export function parseTelemetryCsv(text) {
     });
 }
 
+function parseFlightTimeMs(item) {
+    const raw = item?.['m-time'] || item?.['Ublox UTC'] || item?.['m_time'] || item?.['Ublox_UTC'];
+    if (!raw) return null;
+    const d = new Date(String(raw).trim());
+    return Number.isFinite(d.getTime()) ? d.getTime() : null;
+}
+
 export function buildTelemetryChartData(data = []) {
-    return data.map((item, index) => ({
-        ...item,
-        index,
-        'Time Index': item.streamIndex ?? index,
-        'U_Alt': getTelemetryNumber(item, ['U_Alt', 'U Alt']),
-        'Speed': getTelemetryNumber(item, 'Speed'),
-        'Vert_speed': getTelemetryNumber(item, ['Vert_speed', 'Vert speed']),
-        'Pressure': getTelemetryNumber(item, 'Pressure'),
-        'U_Lat': getTelemetryNumber(item, ['U_Lat', 'U Lat']),
-        'U_Long': getTelemetryNumber(item, ['U_Long', 'U Long']),
-        '#_Sat': getTelemetryNumber(item, ['#_Sat', '#Sat']),
-    }));
+    const t0 = data.length > 0 ? parseFlightTimeMs(data[0]) : null;
+
+    // Track offset to keep elapsed time monotonically increasing across stream loops
+    let elapsedOffset = 0;
+    let prevRawElapsed = null;
+
+    return data.map((item, index) => {
+        const tMs = parseFlightTimeMs(item);
+        const rawElapsedMs = (tMs !== null && t0 !== null) ? tMs - t0 : null;
+
+        if (rawElapsedMs !== null) {
+            // CSV looped back to start: add the last elapsed value as running offset
+            if (prevRawElapsed !== null && rawElapsedMs < prevRawElapsed) {
+                elapsedOffset += prevRawElapsed;
+            }
+            prevRawElapsed = rawElapsedMs;
+        }
+
+        const elapsedMs = rawElapsedMs !== null ? rawElapsedMs + elapsedOffset : null;
+
+        return {
+            ...item,
+            index,
+            'Time Index': item.streamIndex ?? index,
+            '_elapsed_s':   elapsedMs !== null ? Math.round(elapsedMs / 1000)      : index,
+            '_elapsed_min': elapsedMs !== null ? +((elapsedMs / 60000).toFixed(2)) : +(index / 120).toFixed(2),
+            'U_Alt': getTelemetryNumber(item, ['U_Alt', 'U Alt']),
+            'Speed': getTelemetryNumber(item, 'Speed'),
+            'Vert_speed': getTelemetryNumber(item, ['Vert_speed', 'Vert speed']),
+            'Pressure': getTelemetryNumber(item, 'Pressure'),
+            'U_Lat': getTelemetryNumber(item, ['U_Lat', 'U Lat']),
+            'U_Long': getTelemetryNumber(item, ['U_Long', 'U Long']),
+            '#_Sat': getTelemetryNumber(item, ['#_Sat', '#Sat']),
+        };
+    });
 }
 
 export function createTelemetryStreamPoint(rows = [], currentIndex = 0, streamIndex = 0) {
