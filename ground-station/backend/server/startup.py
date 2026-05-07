@@ -1,7 +1,9 @@
 import asyncio
 import concurrent.futures
+import csv
 import os
 import queue
+import struct
 import tempfile
 import zipfile
 from contextlib import asynccontextmanager
@@ -12,7 +14,7 @@ import socketio
 from engineio.payload import Payload
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from audio.audiobroadcaster import AudioBroadcaster
@@ -280,11 +282,110 @@ async def update_check():
         )
 
 
+TELEMETRY_PROTOBUF_MEDIA_TYPE = "application/x-protobuf"
+TELEMETRY_PROTOBUF_SCHEMA = "groundstation.telemetry.v1.TelemetryBatch"
+
+
+def _get_telemetry_csv_path() -> Path:
+    return Path(__file__).parent.parent.parent / "telemetry.csv"
+
+
+def _protobuf_varint(value: int) -> bytes:
+    value = max(0, int(value))
+    encoded = bytearray()
+
+    while value > 0x7F:
+        encoded.append((value & 0x7F) | 0x80)
+        value >>= 7
+
+    encoded.append(value)
+    return bytes(encoded)
+
+
+def _protobuf_key(field_number: int, wire_type: int) -> bytes:
+    return _protobuf_varint((field_number << 3) | wire_type)
+
+
+def _protobuf_uint32(field_number: int, value: int) -> bytes:
+    return _protobuf_key(field_number, 0) + _protobuf_varint(value)
+
+
+def _protobuf_double(field_number: int, value: float) -> bytes:
+    return _protobuf_key(field_number, 1) + struct.pack("<d", float(value))
+
+
+def _protobuf_string(field_number: int, value: str) -> bytes:
+    if value is None:
+        return b""
+
+    encoded = str(value).strip().encode("utf-8")
+    if not encoded:
+        return b""
+
+    return _protobuf_key(field_number, 2) + _protobuf_varint(len(encoded)) + encoded
+
+
+def _telemetry_float(row: dict, key: str, fallback: float = 0.0) -> float:
+    try:
+        return float(row.get(key, fallback) or fallback)
+    except (TypeError, ValueError):
+        return fallback
+
+
+def _telemetry_uint32(row: dict, key: str, fallback: int = 0) -> int:
+    try:
+        return max(0, int(float(row.get(key, fallback) or fallback)))
+    except (TypeError, ValueError):
+        return fallback
+
+
+def _read_telemetry_csv_rows(csv_path: Path) -> list[dict]:
+    with csv_path.open("r", encoding="utf-8", newline="") as telemetry_file:
+        reader = csv.DictReader(telemetry_file)
+        return [
+            {
+                key.strip(): (value.strip() if isinstance(value, str) else value)
+                for key, value in row.items()
+                if key
+            }
+            for row in reader
+        ]
+
+
+def _encode_telemetry_frame(row: dict, sequence_number: int) -> bytes:
+    frame = bytearray()
+    frame += _protobuf_uint32(1, sequence_number)
+    frame += _protobuf_string(2, row.get("m-time", ""))
+    frame += _protobuf_string(3, row.get("Flight ID", ""))
+    frame += _protobuf_string(4, row.get("Ublox UTC", ""))
+    frame += _protobuf_double(5, _telemetry_float(row, "U Lat"))
+    frame += _protobuf_double(6, _telemetry_float(row, "U Long"))
+    frame += _protobuf_double(7, _telemetry_float(row, "U Alt"))
+    frame += _protobuf_double(8, _telemetry_float(row, "Speed"))
+    frame += _protobuf_double(9, _telemetry_float(row, "Vert speed"))
+    frame += _protobuf_uint32(10, _telemetry_uint32(row, "#Sat"))
+    frame += _protobuf_double(11, _telemetry_float(row, "Pressure"))
+    return bytes(frame)
+
+
+def _encode_telemetry_batch(rows: list[dict]) -> bytes:
+    batch = bytearray()
+    batch += _protobuf_uint32(1, 1)
+
+    for index, row in enumerate(rows):
+        frame = _encode_telemetry_frame(row, index)
+        batch += _protobuf_key(2, 2)
+        batch += _protobuf_varint(len(frame))
+        batch += frame
+
+    return bytes(batch)
+
+
 @app.get("/api/telemetry.csv")
 async def get_telemetry_csv():
     """Serve the telemetry CSV file for the customize dashboard."""
     try:
-        csv_path = Path(__file__).parent.parent.parent / "telemetry.csv"
+        csv_path = _get_telemetry_csv_path()
         if not csv_path.exists():
             raise HTTPException(status_code=404, detail="Telemetry file not found")
         return FileResponse(
@@ -298,6 +399,30 @@ async def get_telemetry_csv():
     except Exception as e:
         logger.error(f"Error serving telemetry file: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to serve telemetry file: {str(e)}")
+
+
+@app.get("/api/telemetry.pb")
+async def get_telemetry_protobuf():
+    """Serve the current telemetry CSV data as a Protocol Buffers batch."""
+    try:
+        csv_path = _get_telemetry_csv_path()
+        if not csv_path.exists():
+            raise HTTPException(status_code=404, detail="Telemetry file not found")
+
+        rows = _read_telemetry_csv_rows(csv_path)
+        return Response(
+            content=_encode_telemetry_batch(rows),
+            media_type=TELEMETRY_PROTOBUF_MEDIA_TYPE,
+            headers={
+                "Cache-Control": "no-store",
+                "X-Protobuf-Schema": TELEMETRY_PROTOBUF_SCHEMA,
+            },
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error serving telemetry protobuf: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to serve telemetry protobuf: {str(e)}")
 
 
 def _resolve_decoded_folder(decoded_root: Path, foldername: str) -> Path:

@@ -4,8 +4,10 @@ import {
     normalizeTelemetryHeader,
     toTelemetryNumber,
 } from './telemetry-utils.js';
+import { decodeTelemetryRowsFromProtobuf } from './telemetry-protobuf.js';
 
 export const TELEMETRY_SOURCE_URL = '/api/telemetry.csv';
+export const TELEMETRY_PROTOBUF_SOURCE_URL = '/api/telemetry.pb';
 export const TELEMETRY_STREAM_INTERVAL_MS = 500;
 export const TELEMETRY_MIN_STREAM_POINTS = 500;
 
@@ -38,6 +40,10 @@ export function parseTelemetryCsv(text) {
 
         return record;
     });
+}
+
+export function parseTelemetryProtobuf(buffer) {
+    return decodeTelemetryRowsFromProtobuf(buffer);
 }
 
 function parseFlightTimeMs(item) {

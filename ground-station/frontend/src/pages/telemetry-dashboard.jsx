@@ -60,6 +60,11 @@ import {
     normalizeTelemetryHeader,
     toTelemetryNumber,
 } from './telemetry-utils.js';
+import {
+    parseTelemetryProtobuf,
+    TELEMETRY_PROTOBUF_SOURCE_URL,
+    TELEMETRY_SOURCE_URL,
+} from './telemetry-data-source.js';
 import './ground-station-view.css';
 
 const DEFAULT_CENTER = [48.55, -81.35];
@@ -70,13 +75,41 @@ const MAP_MIN_CAMERA_HEIGHT = 12000;
 const MAP_MAX_CAMERA_HEIGHT = 2400000;
 const MAP_ZOOM_FACTOR = 0.36;
 const ARCGIS_WORLD_IMAGERY_URL = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer';
-const TELEMETRY_ENDPOINTS = ['/api/telemetry.csv', '/telemetry.csv'];
+const TELEMETRY_ENDPOINTS = [
+    { url: TELEMETRY_PROTOBUF_SOURCE_URL, format: 'protobuf' },
+    { url: TELEMETRY_SOURCE_URL, format: 'csv' },
+    { url: '/telemetry.csv', format: 'csv' },
+];
 const TELEMETRY_POLL_INTERVAL_MS = 2000;
 
 const withTelemetryCacheBuster = (endpoint) => {
     const separator = endpoint.includes('?') ? '&' : '?';
     return `${endpoint}${separator}_=${Date.now()}`;
 };
+
+const getTelemetryPayloadSignature = (payload, format) => {
+    if (format !== 'protobuf') {
+        return `${format}:${payload}`;
+    }
+
+    const bytes = new Uint8Array(payload);
+    let hash = 2166136261;
+
+    for (let index = 0; index < bytes.length; index += 1) {
+        hash ^= bytes[index];
+        hash = Math.imul(hash, 16777619);
+    }
+
+    return `${format}:${bytes.byteLength}:${hash >>> 0}`;
+};
+
+const getTelemetryRowIdentity = (record = {}) => [
+    record.sequenceNumber ?? record.sequence_number ?? '',
+    record['m-time'] ?? record.m_time ?? '',
+    record.U_Lat ?? record['U Lat'] ?? '',
+    record.U_Long ?? record['U Long'] ?? '',
+    record.U_Alt ?? record['U Alt'] ?? '',
+].join('|');
 
 const parseCSV = (text) => {
     const lines = text
@@ -757,7 +790,11 @@ export default function TelemetryDashboard() {
     const sourceRowsLengthRef = useRef(0);
     const streamIndexRef = useRef(0);
     const telemetryEndpointRef = useRef(null);
-    const telemetryTextRef = useRef('');
+    const telemetryPayloadRef = useRef({
+        signature: '',
+        text: '',
+        lastRowIdentity: '',
+    });
 
     useEffect(() => {
         let isMounted = true;
@@ -766,12 +803,12 @@ export default function TelemetryDashboard() {
         const loadTelemetry = async ({ initial = false } = {}) => {
             const activeEndpoint = telemetryEndpointRef.current;
             const endpoints = activeEndpoint
-                ? [activeEndpoint, ...TELEMETRY_ENDPOINTS.filter(endpoint => endpoint !== activeEndpoint)]
+                ? [activeEndpoint, ...TELEMETRY_ENDPOINTS.filter(endpoint => endpoint.url !== activeEndpoint.url)]
                 : TELEMETRY_ENDPOINTS;
 
             for (const endpoint of endpoints) {
                 try {
-                    const response = await fetch(withTelemetryCacheBuster(endpoint), {
+                    const response = await fetch(withTelemetryCacheBuster(endpoint.url), {
                         cache: 'no-store',
                     });
 
@@ -779,7 +816,9 @@ export default function TelemetryDashboard() {
                         continue;
                     }
 
-                    const csvText = await response.text();
+                    const payload = endpoint.format === 'protobuf'
+                        ? await response.arrayBuffer()
+                        : await response.text();
 
                     if (!isMounted) {
                         return;
@@ -787,18 +826,35 @@ export default function TelemetryDashboard() {
 
                     telemetryEndpointRef.current = endpoint;
 
-                    if (csvText === telemetryTextRef.current) {
+                    const payloadSignature = getTelemetryPayloadSignature(payload, endpoint.format);
+                    const previousPayload = telemetryPayloadRef.current;
+
+                    if (payloadSignature === previousPayload.signature) {
                         setLoading(false);
                         return;
                     }
 
-                    const previousText = telemetryTextRef.current;
                     const previousLength = sourceRowsLengthRef.current;
-                    const parsedData = parseCSV(csvText);
-                    const isAppend = Boolean(previousText && csvText.startsWith(previousText) && parsedData.length >= previousLength);
-                    const shouldResetPlayback = initial || Boolean(previousText && !isAppend);
+                    const parsedData = endpoint.format === 'protobuf'
+                        ? parseTelemetryProtobuf(payload)
+                        : parseCSV(payload);
+                    const isCsvAppend = endpoint.format === 'csv'
+                        && previousPayload.text
+                        && payload.startsWith(previousPayload.text)
+                        && parsedData.length >= previousLength;
+                    const isProtobufAppend = endpoint.format === 'protobuf'
+                        && previousPayload.signature
+                        && previousLength > 0
+                        && parsedData.length > previousLength
+                        && getTelemetryRowIdentity(parsedData[previousLength - 1]) === previousPayload.lastRowIdentity;
+                    const isAppend = isCsvAppend || isProtobufAppend;
+                    const shouldResetPlayback = initial || Boolean(previousPayload.signature && !isAppend);
 
-                    telemetryTextRef.current = csvText;
+                    telemetryPayloadRef.current = {
+                        signature: payloadSignature,
+                        text: endpoint.format === 'csv' ? payload : '',
+                        lastRowIdentity: getTelemetryRowIdentity(parsedData[parsedData.length - 1]),
+                    };
                     sourceRowsLengthRef.current = parsedData.length;
 
                     if (shouldResetPlayback) {
@@ -819,7 +875,7 @@ export default function TelemetryDashboard() {
                     setLoading(false);
                     return;
                 } catch (error) {
-                    console.log(`Erreur de chargement ${endpoint}:`, error);
+                    console.log(`Erreur de chargement ${endpoint.url}:`, error);
                 }
             }
 
