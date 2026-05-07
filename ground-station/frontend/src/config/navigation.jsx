@@ -329,7 +329,7 @@ export const getNavigation = () => [
         title: i18n.t('settings', { ns: 'navigation' }),
     },
     {
-        segment: 'customize',
+        segment: 'vueGlobe3d',
         title: 'Vue Globe 3D',
         icon: <PublicIcon/>,
     },

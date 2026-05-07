@@ -21,7 +21,7 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './i18n/config.js'
-import {BrowserRouter, createBrowserRouter, Route, RouterProvider, Routes} from "react-router";
+import {BrowserRouter, createBrowserRouter, Navigate, Route, RouterProvider, Routes} from "react-router";
 import {
     SettingsTabLocation,
     SettingsTabRotator,
@@ -66,9 +66,8 @@ const router = createBrowserRouter([
                 Component: Layout,
                 children: [
                     {
-                        path: "",
-                        errorElement: <ErrorPage />,
-                        Component: GlobalSatelliteTrackLayout,
+                        index: true,
+                        element: <Navigate to="/vueGlobe3d" replace />,
                     },
                     {
                         path: "track",
@@ -87,7 +86,7 @@ const router = createBrowserRouter([
                         Component: ScheduledObservationsLayout,
                     },
                     {
-                        path: "customize",
+                        path: "vueGlobe3d",
                         Component: TelemetryDashboard,
                     },
                     {
