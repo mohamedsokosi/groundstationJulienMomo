@@ -191,6 +191,87 @@ function decodeTelemetryFrame(bytes) {
                 }
                 offset = skipField(bytes, offset, wireType);
                 break;
+            case 12:
+                if (wireType === WIRE_64BIT) {
+                    const result = readDouble(bytes, offset);
+                    frame.miuV = result.value;
+                    offset = result.offset;
+                    break;
+                }
+                offset = skipField(bytes, offset, wireType);
+                break;
+            case 13:
+                if (wireType === WIRE_64BIT) {
+                    const result = readDouble(bytes, offset);
+                    frame.temperature1C = result.value;
+                    offset = result.offset;
+                    break;
+                }
+                offset = skipField(bytes, offset, wireType);
+                break;
+            case 14:
+                if (wireType === WIRE_64BIT) {
+                    const result = readDouble(bytes, offset);
+                    frame.temperature2C = result.value;
+                    offset = result.offset;
+                    break;
+                }
+                offset = skipField(bytes, offset, wireType);
+                break;
+            case 15:
+                if (wireType === WIRE_64BIT) {
+                    const result = readDouble(bytes, offset);
+                    frame.temperature3C = result.value;
+                    offset = result.offset;
+                    break;
+                }
+                offset = skipField(bytes, offset, wireType);
+                break;
+            case 16:
+                if (wireType === WIRE_64BIT) {
+                    const result = readDouble(bytes, offset);
+                    frame.temperature4C = result.value;
+                    offset = result.offset;
+                    break;
+                }
+                offset = skipField(bytes, offset, wireType);
+                break;
+            case 17:
+                if (wireType === WIRE_64BIT) {
+                    const result = readDouble(bytes, offset);
+                    frame.temperature5C = result.value;
+                    offset = result.offset;
+                    break;
+                }
+                offset = skipField(bytes, offset, wireType);
+                break;
+            case 18:
+                if (wireType === WIRE_64BIT) {
+                    const result = readDouble(bytes, offset);
+                    frame.temperature6C = result.value;
+                    offset = result.offset;
+                    break;
+                }
+                offset = skipField(bytes, offset, wireType);
+                break;
+            case 19:
+                if (wireType === WIRE_64BIT) {
+                    const result = readDouble(bytes, offset);
+                    frame.temperature7C = result.value;
+                    offset = result.offset;
+                    break;
+                }
+                offset = skipField(bytes, offset, wireType);
+                break;
+            case 20:
+                if (wireType === WIRE_64BIT) {
+                    const result = readDouble(bytes, offset);
+                    frame.temperature8C = result.value;
+                    offset = result.offset;
+                    break;
+                }
+                offset = skipField(bytes, offset, wireType);
+                break;
             default:
                 offset = skipField(bytes, offset, wireType);
                 break;
@@ -212,6 +293,15 @@ function frameToTelemetryRow(frame, index) {
     const verticalSpeed = frame.verticalSpeedMps ?? 0;
     const satelliteCount = frame.satelliteCount ?? 0;
     const pressure = frame.pressureHpa ?? 0;
+    const miu = frame.miuV ?? 0;
+    const temperature1 = frame.temperature1C ?? 0;
+    const temperature2 = frame.temperature2C ?? 0;
+    const temperature3 = frame.temperature3C ?? 0;
+    const temperature4 = frame.temperature4C ?? 0;
+    const temperature5 = frame.temperature5C ?? 0;
+    const temperature6 = frame.temperature6C ?? 0;
+    const temperature7 = frame.temperature7C ?? 0;
+    const temperature8 = frame.temperature8C ?? 0;
 
     return {
         sequenceNumber,
@@ -236,6 +326,15 @@ function frameToTelemetryRow(frame, index) {
         '#Sat': satelliteCount,
         '#_Sat': satelliteCount,
         Pressure: pressure,
+        MIU: miu,
+        T1: temperature1,
+        T2: temperature2,
+        T3: temperature3,
+        T4: temperature4,
+        T5: temperature5,
+        T6: temperature6,
+        T7: temperature7,
+        T8: temperature8,
     };
 }
 

@@ -12,7 +12,7 @@ export default defineConfig(({ mode }) => {
   const cesiumIonToken = env.VITE_CESIUM_ION_TOKEN || env['Cesium.Ion.defaultAccessToken'] || '';
 
   const backendPort = process.env.GS_BACKEND_PORT || '5000';
-  const backendHost = process.env.GS_BACKEND_HOST || 'localhost';
+  const backendHost = process.env.GS_BACKEND_HOST || '127.0.0.1';
 
   return {
     plugins: [
@@ -34,7 +34,7 @@ export default defineConfig(({ mode }) => {
       'import.meta.env.VITE_CESIUM_ION_TOKEN': JSON.stringify(cesiumIonToken),
       // Allow using GS_BACKEND_PORT directly without VITE_ prefix
       'import.meta.env.GS_BACKEND_PORT': JSON.stringify(process.env.GS_BACKEND_PORT || '5000'),
-      'import.meta.env.GS_BACKEND_HOST': JSON.stringify(process.env.GS_BACKEND_HOST || 'localhost'),
+      'import.meta.env.GS_BACKEND_HOST': JSON.stringify(process.env.GS_BACKEND_HOST || '127.0.0.1'),
     },
 
     // Explicitly set the public directory

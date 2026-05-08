@@ -86,12 +86,23 @@ def publish_rows(client, rows: list[dict], args: argparse.Namespace) -> None:
 
             print(
                 "sequence_number={sequence} bytes={size} altitude={altitude:.2f} "
-                "speed={speed:.2f} satellite_count={satellites}".format(
+                "speed={speed:.2f} satellite_count={satellites} miu={miu:.3f} "
+                "temperatures=[{t1:.2f},{t2:.2f},{t3:.2f},{t4:.2f},"
+                "{t5:.2f},{t6:.2f},{t7:.2f},{t8:.2f}]".format(
                     sequence=frame["sequence_number"],
                     size=len(payload),
                     altitude=frame["altitude_m"],
                     speed=frame["speed_mps"],
                     satellites=frame["satellite_count"],
+                    miu=frame["miu_v"],
+                    t1=frame["temperature_1_c"],
+                    t2=frame["temperature_2_c"],
+                    t3=frame["temperature_3_c"],
+                    t4=frame["temperature_4_c"],
+                    t5=frame["temperature_5_c"],
+                    t6=frame["temperature_6_c"],
+                    t7=frame["temperature_7_c"],
+                    t8=frame["temperature_8_c"],
                 )
             )
 

@@ -14,6 +14,15 @@ message TelemetryFrame {
   double vertical_speed_mps = 9;
   uint32 satellite_count = 10;
   double pressure_hpa = 11;
+  double miu_v = 12;
+  double temperature_1_c = 13;
+  double temperature_2_c = 14;
+  double temperature_3_c = 15;
+  double temperature_4_c = 16;
+  double temperature_5_c = 17;
+  double temperature_6_c = 18;
+  double temperature_7_c = 19;
+  double temperature_8_c = 20;
 }
 
 message TelemetryBatch {

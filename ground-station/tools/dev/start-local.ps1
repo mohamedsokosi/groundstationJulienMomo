@@ -1,7 +1,9 @@
 param(
     [switch]$Mqtt,
     [switch]$Simulator,
-    [int]$BackendPort = 5000
+    [switch]$Restart,
+    [int]$BackendPort = 5000,
+    [int]$FrontendPort = 5173
 )
 
 $ErrorActionPreference = "Stop"
@@ -32,10 +34,30 @@ function ConvertTo-EncodedCommand {
     return [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($Command))
 }
 
+function Stop-ListenersOnPort {
+    param([int]$Port)
+
+    $connections = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue
+    $processIds = $connections | Select-Object -ExpandProperty OwningProcess -Unique
+
+    foreach ($processId in $processIds) {
+        if ($processId -and $processId -ne $PID) {
+            Write-Host "Stopping process $processId listening on port $Port..."
+            Stop-Process -Id $processId -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
+
+if ($Restart) {
+    Stop-ListenersOnPort -Port $BackendPort
+    Stop-ListenersOnPort -Port $FrontendPort
+    Start-Sleep -Seconds 1
+}
+
 $mqttReady = $false
 
 if ($Mqtt) {
-    $mqttIsOpen = Test-PortOpen -HostName "localhost" -Port 1883
+    $mqttIsOpen = Test-PortOpen -HostName "127.0.0.1" -Port 1883
 
     if (-not $mqttIsOpen) {
         $mosquitto = Get-Command mosquitto -ErrorAction SilentlyContinue
@@ -53,44 +75,55 @@ if ($Mqtt) {
         }
     }
 
-    $mqttReady = Test-PortOpen -HostName "localhost" -Port 1883
+    $mqttReady = Test-PortOpen -HostName "127.0.0.1" -Port 1883
     if (-not $mqttReady) {
         Write-Warning "MQTT broker is not available on localhost:1883. Backend will use CSV fallback."
     }
 }
 
 $mqttEnabled = if ($Mqtt -and $mqttReady) { "1" } else { "0" }
+$backendIsOpen = Test-PortOpen -HostName "127.0.0.1" -Port $BackendPort
+$frontendIsOpen = Test-PortOpen -HostName "127.0.0.1" -Port $FrontendPort
+
+if ($backendIsOpen) {
+    Write-Warning "Backend port $BackendPort is already in use. Use -Restart to stop the old backend first."
+} else {
 $backendCommand = @"
 cd "$BackendDir"
 `$env:MQTT_TELEMETRY_ENABLED="$mqttEnabled"
-`$env:MQTT_BROKER_HOST="localhost"
+`$env:MQTT_BROKER_HOST="127.0.0.1"
 `$env:MQTT_BROKER_PORT="1883"
 & "$PythonExe" app.py --host 0.0.0.0 --port $BackendPort
 "@
 
-Start-Process powershell -ArgumentList @(
-    "-NoExit",
-    "-EncodedCommand",
-    (ConvertTo-EncodedCommand $backendCommand)
-)
+    Start-Process powershell -ArgumentList @(
+        "-NoExit",
+        "-EncodedCommand",
+        (ConvertTo-EncodedCommand $backendCommand)
+    )
+}
 
+if ($frontendIsOpen) {
+    Write-Warning "Frontend port $FrontendPort is already in use. Use -Restart to stop the old frontend first."
+} else {
 $frontendCommand = @"
 cd "$FrontendDir"
-`$env:GS_BACKEND_HOST="localhost"
+`$env:GS_BACKEND_HOST="127.0.0.1"
 `$env:GS_BACKEND_PORT="$BackendPort"
-npm run dev
+npm run dev -- --port $FrontendPort
 "@
 
-Start-Process powershell -ArgumentList @(
-    "-NoExit",
-    "-EncodedCommand",
-    (ConvertTo-EncodedCommand $frontendCommand)
-)
+    Start-Process powershell -ArgumentList @(
+        "-NoExit",
+        "-EncodedCommand",
+        (ConvertTo-EncodedCommand $frontendCommand)
+    )
+}
 
 if ($Mqtt -and $Simulator -and $mqttReady) {
     $simulatorCommand = @"
 cd "$RepoRoot"
-& "$PythonExe" tools\simulators\mqtt_cubesat_simulator.py --csv telemetry.csv --broker localhost --delay 0.2 --loop
+& "$PythonExe" tools\simulators\mqtt_cubesat_simulator.py --csv telemetry.csv --broker 127.0.0.1 --delay 0.2 --loop
 "@
 
     Start-Process powershell -ArgumentList @(
@@ -103,7 +136,7 @@ cd "$RepoRoot"
 }
 
 Write-Host "Local Ground Station started."
-Write-Host "Frontend: http://localhost:5173/vueGlobe3d"
+Write-Host "Frontend: http://localhost:$FrontendPort/vueGlobe3d"
 Write-Host "Backend:  http://localhost:$BackendPort"
 if ($Mqtt) {
     Write-Host "MQTT status: http://localhost:$BackendPort/api/telemetry/mqtt/status"

@@ -17,6 +17,15 @@ TELEMETRY_FRAME_DEFAULTS = {
     "vertical_speed_mps": 0.0,
     "satellite_count": 0,
     "pressure_hpa": 0.0,
+    "miu_v": 0.0,
+    "temperature_1_c": 0.0,
+    "temperature_2_c": 0.0,
+    "temperature_3_c": 0.0,
+    "temperature_4_c": 0.0,
+    "temperature_5_c": 0.0,
+    "temperature_6_c": 0.0,
+    "temperature_7_c": 0.0,
+    "temperature_8_c": 0.0,
 }
 
 
@@ -63,6 +72,15 @@ def csv_row_to_telemetry_frame(row: dict, sequence_number: int = 0) -> dict:
         "vertical_speed_mps": _to_float(clean.get("Vert speed")),
         "satellite_count": _to_uint32(clean.get("#Sat")),
         "pressure_hpa": _to_float(clean.get("Pressure")),
+        "miu_v": _to_float(clean.get("MIU")),
+        "temperature_1_c": _to_float(clean.get("T1")),
+        "temperature_2_c": _to_float(clean.get("T2")),
+        "temperature_3_c": _to_float(clean.get("T3")),
+        "temperature_4_c": _to_float(clean.get("T4")),
+        "temperature_5_c": _to_float(clean.get("T5")),
+        "temperature_6_c": _to_float(clean.get("T6")),
+        "temperature_7_c": _to_float(clean.get("T7")),
+        "temperature_8_c": _to_float(clean.get("T8")),
     }
 
 
@@ -90,6 +108,31 @@ def normalize_telemetry_frame(frame: dict, sequence_number: int | None = None) -
             source.get("satellite_count", source.get("satelliteCount", 0))
         ),
         "pressure_hpa": _to_float(source.get("pressure_hpa", source.get("pressureHpa", 0.0))),
+        "miu_v": _to_float(source.get("miu_v", source.get("miuV", source.get("MIU", 0.0)))),
+        "temperature_1_c": _to_float(
+            source.get("temperature_1_c", source.get("temperature1C", source.get("T1", 0.0)))
+        ),
+        "temperature_2_c": _to_float(
+            source.get("temperature_2_c", source.get("temperature2C", source.get("T2", 0.0)))
+        ),
+        "temperature_3_c": _to_float(
+            source.get("temperature_3_c", source.get("temperature3C", source.get("T3", 0.0)))
+        ),
+        "temperature_4_c": _to_float(
+            source.get("temperature_4_c", source.get("temperature4C", source.get("T4", 0.0)))
+        ),
+        "temperature_5_c": _to_float(
+            source.get("temperature_5_c", source.get("temperature5C", source.get("T5", 0.0)))
+        ),
+        "temperature_6_c": _to_float(
+            source.get("temperature_6_c", source.get("temperature6C", source.get("T6", 0.0)))
+        ),
+        "temperature_7_c": _to_float(
+            source.get("temperature_7_c", source.get("temperature7C", source.get("T7", 0.0)))
+        ),
+        "temperature_8_c": _to_float(
+            source.get("temperature_8_c", source.get("temperature8C", source.get("T8", 0.0)))
+        ),
     }
 
 
@@ -138,10 +181,19 @@ def encode_telemetry_frame(frame: dict) -> bytes:
     payload += encode_double(9, normalized["vertical_speed_mps"])
     payload += encode_uint32(10, normalized["satellite_count"])
     payload += encode_double(11, normalized["pressure_hpa"])
+    payload += encode_double(12, normalized["miu_v"])
+    payload += encode_double(13, normalized["temperature_1_c"])
+    payload += encode_double(14, normalized["temperature_2_c"])
+    payload += encode_double(15, normalized["temperature_3_c"])
+    payload += encode_double(16, normalized["temperature_4_c"])
+    payload += encode_double(17, normalized["temperature_5_c"])
+    payload += encode_double(18, normalized["temperature_6_c"])
+    payload += encode_double(19, normalized["temperature_7_c"])
+    payload += encode_double(20, normalized["temperature_8_c"])
     return bytes(payload)
 
 
-def encode_telemetry_batch(frames: list[dict], schema_version: int = 1) -> bytes:
+def encode_telemetry_batch(frames: list[dict], schema_version: int = 2) -> bytes:
     payload = bytearray()
     payload += encode_uint32(1, schema_version)
 
@@ -243,6 +295,24 @@ def decode_telemetry_frame(data: bytes) -> dict:
             frame["satellite_count"], offset = decode_varint(data, offset)
         elif field_number == 11 and wire_type == WIRE_64BIT:
             frame["pressure_hpa"], offset = _read_double(data, offset)
+        elif field_number == 12 and wire_type == WIRE_64BIT:
+            frame["miu_v"], offset = _read_double(data, offset)
+        elif field_number == 13 and wire_type == WIRE_64BIT:
+            frame["temperature_1_c"], offset = _read_double(data, offset)
+        elif field_number == 14 and wire_type == WIRE_64BIT:
+            frame["temperature_2_c"], offset = _read_double(data, offset)
+        elif field_number == 15 and wire_type == WIRE_64BIT:
+            frame["temperature_3_c"], offset = _read_double(data, offset)
+        elif field_number == 16 and wire_type == WIRE_64BIT:
+            frame["temperature_4_c"], offset = _read_double(data, offset)
+        elif field_number == 17 and wire_type == WIRE_64BIT:
+            frame["temperature_5_c"], offset = _read_double(data, offset)
+        elif field_number == 18 and wire_type == WIRE_64BIT:
+            frame["temperature_6_c"], offset = _read_double(data, offset)
+        elif field_number == 19 and wire_type == WIRE_64BIT:
+            frame["temperature_7_c"], offset = _read_double(data, offset)
+        elif field_number == 20 and wire_type == WIRE_64BIT:
+            frame["temperature_8_c"], offset = _read_double(data, offset)
         else:
             offset = _skip_field(data, offset, wire_type)
 

@@ -19,6 +19,15 @@ def test_encode_then_decode_telemetry_frame():
         "vertical_speed_mps": 0.07,
         "satellite_count": 12,
         "pressure_hpa": 985.29,
+        "miu_v": 3.286,
+        "temperature_1_c": 15.55,
+        "temperature_2_c": 11.87,
+        "temperature_3_c": 17.07,
+        "temperature_4_c": 12.91,
+        "temperature_5_c": 14.26,
+        "temperature_6_c": 10.16,
+        "temperature_7_c": 17.87,
+        "temperature_8_c": 14.22,
     }
 
     decoded = decode_telemetry_frame(encode_telemetry_frame(frame))
@@ -34,6 +43,15 @@ def test_encode_then_decode_telemetry_frame():
     assert decoded["vertical_speed_mps"] == 0.07
     assert decoded["satellite_count"] == 12
     assert decoded["pressure_hpa"] == 985.29
+    assert decoded["miu_v"] == 3.286
+    assert decoded["temperature_1_c"] == 15.55
+    assert decoded["temperature_2_c"] == 11.87
+    assert decoded["temperature_3_c"] == 17.07
+    assert decoded["temperature_4_c"] == 12.91
+    assert decoded["temperature_5_c"] == 14.26
+    assert decoded["temperature_6_c"] == 10.16
+    assert decoded["temperature_7_c"] == 17.87
+    assert decoded["temperature_8_c"] == 14.22
 
 
 def test_encode_telemetry_batch_with_multiple_frames():
@@ -44,7 +62,7 @@ def test_encode_telemetry_batch_with_multiple_frames():
 
     decoded = decode_telemetry_batch(encode_telemetry_batch(frames))
 
-    assert decoded["schema_version"] == 1
+    assert decoded["schema_version"] == 2
     assert len(decoded["frames"]) == 2
     assert decoded["frames"][0]["sequence_number"] == 1
     assert decoded["frames"][0]["altitude_m"] == 100.0

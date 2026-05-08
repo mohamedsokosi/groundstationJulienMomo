@@ -148,7 +148,7 @@ La source de donnees actuelle reste `telemetry.csv` a la racine du depot. Ce fic
 les colonnes suivantes:
 
 ```text
-m-time, Flight ID, Ublox UTC, U Lat, U Long, U Alt, Speed, Vert speed, #Sat, Pressure
+m-time, Flight ID, Ublox UTC, U Lat, U Long, U Alt, Speed, Vert speed, #Sat, Pressure, MIU, T1, T2, T3, T4, T5, T6, T7, T8
 ```
 
 ### Schema partage
@@ -178,6 +178,15 @@ Mapping principal:
 | `Vert speed` | `vertical_speed_mps` | `Vert speed`, `Vert_speed` |
 | `#Sat` | `satellite_count` | `#Sat`, `#_Sat` |
 | `Pressure` | `pressure_hpa` | `Pressure` |
+| `MIU` | `miu_v` | `MIU` |
+| `T1` | `temperature_1_c` | `T1` |
+| `T2` | `temperature_2_c` | `T2` |
+| `T3` | `temperature_3_c` | `T3` |
+| `T4` | `temperature_4_c` | `T4` |
+| `T5` | `temperature_5_c` | `T5` |
+| `T6` | `temperature_6_c` | `T6` |
+| `T7` | `temperature_7_c` | `T7` |
+| `T8` | `temperature_8_c` | `T8` |
 
 ### Encodage backend
 
