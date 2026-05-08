@@ -52,7 +52,7 @@ function computeLinkBudget(fspl) {
 
 // step = fixed page size for X-axis windowing (threshold to expand = 75% of step)
 const AVAILABLE_FIELDS = [
-    { key: '_elapsed_s',   label: 'Temps écoulé (s)',       step: 1000  },
+    { key: '_elapsed_s',   label: 'Temps écoulé (s)',       step: 10000 },
     { key: '_elapsed_min', label: 'Temps écoulé (min)',     step: 100   },
     { key: 'U_Alt',        label: 'Altitude (m)',           step: 10000 },
     { key: 'Speed',        label: 'Speed (m/s)',            step: 100   },
@@ -117,8 +117,8 @@ function pagedDomain(maxVal, minVal, step) {
     return [lo, hi];
 }
 
-// Smoothly animate a domain boundary whenever it changes (ease-out cubic, 500 ms)
-function useAnimatedDomain(target, duration = 500) {
+// Smoothly animate a domain boundary whenever it changes (ease-in-out cubic, 700 ms)
+function useAnimatedDomain(target, duration = 700) {
     const valueRef = useRef(target);
     const [displayed, setDisplayed] = useState(target);
     const rafRef = useRef(null);
@@ -130,8 +130,8 @@ function useAnimatedDomain(target, duration = 500) {
         const t0 = performance.now();
         const tick = (now) => {
             const p = Math.min((now - t0) / duration, 1);
-            const e = 1 - (1 - p) ** 3;
-            const v = Math.round(from + (target - from) * e);
+            const e = p < 0.5 ? 4 * p * p * p : 1 - (-2 * p + 2) ** 3 / 2;
+            const v = from + (target - from) * e;
             valueRef.current = v;
             setDisplayed(v);
             if (p < 1) rafRef.current = requestAnimationFrame(tick);
@@ -147,20 +147,53 @@ function useAnimatedDomain(target, duration = 500) {
 function TelemetryChart({ data, xKey, lines, tracking, onTrackingChange }) {
     const theme = useTheme();
     const scrollRef = useRef(null);
-    const isPointerDownRef = useRef(false);
+    const isAutoScrollLockRef = useRef(false);
+    const autoScrollRafRef = useRef(null);
+    const wheelTargetRef = useRef(0);
+    const wheelRafRef = useRef(null);
+    const onTrackingChangeRef = useRef(onTrackingChange);
+    onTrackingChangeRef.current = onTrackingChange;
     const hasData = !!data?.length && !!lines?.length;
 
-    // Track pointer state globally so we can tell a scrollbar drag from programmatic scrollTo
+    // Non-passive wheel listener: redirects vertical wheel into smooth horizontal scroll.
+    // onTrackingChange is accessed via a ref so this effect runs only once (no re-mount on
+    // re-render), which prevents the cleanup from cancelling an in-flight wheel animation.
     useEffect(() => {
-        const onDown = () => { isPointerDownRef.current = true; };
-        const onUp   = () => { isPointerDownRef.current = false; };
-        window.addEventListener('pointerdown', onDown);
-        window.addEventListener('pointerup',   onUp);
-        return () => {
-            window.removeEventListener('pointerdown', onDown);
-            window.removeEventListener('pointerup',   onUp);
+        const el = scrollRef.current;
+        if (!el) return;
+        const onWheel = (e) => {
+            e.preventDefault();
+            // Kill auto-scroll immediately so it doesn't fight the wheel animation.
+            cancelAnimationFrame(autoScrollRafRef.current);
+            autoScrollRafRef.current = null;
+            if (!wheelRafRef.current) wheelTargetRef.current = el.scrollLeft;
+            const raw = e.deltaY !== 0 ? e.deltaY : e.deltaX;
+            wheelTargetRef.current = Math.max(
+                0,
+                Math.min(el.scrollWidth - el.clientWidth, wheelTargetRef.current + raw * 0.4),
+            );
+            onTrackingChangeRef.current(false);
+            if (wheelRafRef.current) return;
+            const animate = () => {
+                const diff = wheelTargetRef.current - el.scrollLeft;
+                isAutoScrollLockRef.current = true;
+                if (Math.abs(diff) < 0.5) {
+                    el.scrollLeft = wheelTargetRef.current;
+                    wheelRafRef.current = null;
+                    return;
+                }
+                el.scrollLeft += diff * 0.12;
+                wheelRafRef.current = requestAnimationFrame(animate);
+            };
+            wheelRafRef.current = requestAnimationFrame(animate);
         };
-    }, []);
+        el.addEventListener('wheel', onWheel, { passive: false });
+        return () => {
+            el.removeEventListener('wheel', onWheel);
+            cancelAnimationFrame(wheelRafRef.current);
+            wheelRafRef.current = null;
+        };
+    }, [hasData]); // re-runs when the DOM element first appears (hasData: false→true)
     const labelFs = theme.typography.caption.fontSize;
 
     const { maxX, minY, maxY } = useMemo(() => {
@@ -189,44 +222,75 @@ function TelemetryChart({ data, xKey, lines, tracking, onTrackingChange }) {
     const animYMax = useAnimatedDomain(yDomainMax);
 
     // Build explicit X tick array so 0 is always shown and density is ~10 ticks/page.
-    // Snap the interval to a "nice" power-of-10 multiple so labels are round numbers.
+    // Derived from animXMax (the animated value) so ticks stay within the current domain
+    // during expansion and never appear ahead of the visible chart area.
     const xTicks = useMemo(() => {
-        if (!xDomainMax) return [0];
+        if (!animXMax) return [0];
         const raw = stepX / 10;
         const mag = Math.pow(10, Math.floor(Math.log10(raw)));
         const n = raw / mag;
         const nice = n < 1.5 ? mag : n < 3.5 ? 2 * mag : n < 7.5 ? 5 * mag : 10 * mag;
-        const count = Math.round(xDomainMax / nice);
+        const count = Math.round(animXMax / nice);
         return Array.from({ length: Math.min(count, 500) + 1 }, (_, i) =>
             Math.round(i * nice * 1e9) / 1e9
         );
-    }, [xDomainMax, stepX]);
+    }, [animXMax, stepX]);
 
     const pagesX = animXMax / stepX;
 
-    // Auto-scroll to keep the latest X value near the right edge of the viewport
+    // Explicit Y ticks: ~8 ticks across the animated domain, snapped to a nice interval.
+    // Providing explicit ticks prevents Recharts from auto-generating values from a
+    // float domain, which causes the brief huge-number glitch during domain transitions.
+    const yTicks = useMemo(() => {
+        const range = animYMax - animYMin;
+        if (range <= 0) return [Math.round(animYMin)];
+        const raw = range / 8;
+        const mag = Math.pow(10, Math.floor(Math.log10(raw)));
+        const n = raw / mag;
+        const nice = n < 1.5 ? mag : n < 3.5 ? 2 * mag : n < 7.5 ? 5 * mag : 10 * mag;
+        const lo = Math.ceil(animYMin / nice) * nice;
+        const result = [];
+        for (let v = lo; v <= animYMax + nice * 0.0001; v += nice) {
+            result.push(Math.round(v * 1e9) / 1e9);
+        }
+        return result;
+    }, [animYMin, animYMax]);
+
+    // rAF-based smooth auto-scroll. We set isAutoScrollLockRef=true before every
+    // el.scrollLeft write so handleScroll can tell our updates apart from user scroll.
     useEffect(() => {
         if (!tracking || !hasData) return;
         const el = scrollRef.current;
         if (!el) return;
-        // Map maxX to its pixel position inside the inner box, then place it at 50% across the viewport
-        const dataPixel = (maxX / stepX) * el.clientWidth;
-        const targetLeft = Math.max(0, dataPixel - el.clientWidth * 0.5);
-        if (Math.abs(el.scrollLeft - targetLeft) < 2) return;
-        el.scrollTo({ left: targetLeft, behavior: 'smooth' });
+        // Kill any in-flight wheel animation so the two rAFs don't fight each other.
+        cancelAnimationFrame(wheelRafRef.current);
+        wheelRafRef.current = null;
+        const targetLeft = Math.max(0, (maxX / stepX) * el.clientWidth - el.clientWidth * 0.5);
+        const start = el.scrollLeft;
+        const distance = targetLeft - start;
+        if (Math.abs(distance) < 1) return;
+        const duration = 300;
+        const t0 = performance.now();
+        const tick = (now) => {
+            const p = Math.min((now - t0) / duration, 1);
+            const e = 1 - (1 - p) ** 3;
+            isAutoScrollLockRef.current = true;
+            el.scrollLeft = start + distance * e;
+            if (p < 1) autoScrollRafRef.current = requestAnimationFrame(tick);
+        };
+        autoScrollRafRef.current = requestAnimationFrame(tick);
+        return () => cancelAnimationFrame(autoScrollRafRef.current);
     }, [tracking, maxX, stepX, hasData]);
 
-    // scrollTo never presses a pointer button, so isPointerDownRef stays false
-    // during auto-scroll. Only an actual user drag raises the flag.
+    // Any scroll event without the lock is user-initiated (wheel, scrollbar drag, touch).
     const handleScroll = useCallback(() => {
-        if (!isPointerDownRef.current) return;
+        if (isAutoScrollLockRef.current) {
+            isAutoScrollLockRef.current = false;
+            return;
+        }
         onTrackingChange(false);
     }, [onTrackingChange]);
 
-    // Mouse wheel / trackpad — always user-initiated, no pointer-down needed
-    const handleWheel = useCallback(() => {
-        onTrackingChange(false);
-    }, [onTrackingChange]);
 
     if (!hasData) return null;
 
@@ -238,6 +302,7 @@ function TelemetryChart({ data, xKey, lines, tracking, onTrackingChange }) {
                     <LineChart data={data} margin={{ top: 4, right: 0, left: 8, bottom: 34 }}>
                         <YAxis
                             domain={[animYMin, animYMax]}
+                            ticks={yTicks}
                             tick={{ fontSize: labelFs, fill: theme.palette.text.secondary }}
                             stroke={theme.palette.divider}
                             width={38}
@@ -250,7 +315,6 @@ function TelemetryChart({ data, xKey, lines, tracking, onTrackingChange }) {
             <Box
                 ref={scrollRef}
                 onScroll={handleScroll}
-                onWheel={handleWheel}
                 sx={{ flex: 1, minWidth: 0, height: '100%', overflowX: 'auto', overflowY: 'hidden' }}
             >
                 <Box sx={{ width: `${pagesX * 100}%`, height: '100%' }}>
@@ -321,10 +385,10 @@ const loadSavedCharts = () => {
 };
 
 const DEFAULT_CHARTS = [
-    { id: 'default-0', xKey: 'U_Alt', lines: [{ key: '_bilan',   color: '#4cbc74' }], cols: 3, ratio: '1/1' },
-    { id: 'default-1', xKey: 'U_Alt', lines: [{ key: '_fspl',    color: '#ee8a22' }], cols: 3, ratio: '1/1' },
-    { id: 'default-2', xKey: 'U_Alt', lines: [{ key: 'Pressure', color: '#4fb7d6' }], cols: 3, ratio: '1/1' },
-    { id: 'default-3', xKey: 'U_Alt', lines: [{ key: 'Speed',    color: '#d2b04c' }], cols: 3, ratio: '1/1' },
+    { id: 'default-0', xKey: 'U_Alt', lines: [{ key: '_bilan',   color: '#4cbc74' }], cols: 3, ratio: '1/1', track: true },
+    { id: 'default-1', xKey: 'U_Alt', lines: [{ key: '_fspl',    color: '#ee8a22' }], cols: 3, ratio: '1/1', track: true },
+    { id: 'default-2', xKey: 'U_Alt', lines: [{ key: 'Pressure', color: '#4fb7d6' }], cols: 3, ratio: '1/1', track: true },
+    { id: 'default-3', xKey: 'U_Alt', lines: [{ key: 'Speed',    color: '#d2b04c' }], cols: 3, ratio: '1/1', track: true },
 ];
 
 function ChartTitle({ chart, sx }) {
@@ -350,9 +414,6 @@ export default function AnalyseDashboard() {
 
     const [editMode, setEditMode] = useState(false);
     const [charts, setCharts] = useState(() => loadSavedCharts() ?? DEFAULT_CHARTS);
-    const [trackingMap, setTrackingMap] = useState({});
-    const isTracking = useCallback((id) => trackingMap[id] !== false, [trackingMap]);
-    const setChartTracking = useCallback((id, val) => setTrackingMap(prev => ({ ...prev, [id]: val })), []);
 
     useEffect(() => {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(charts));
@@ -390,7 +451,7 @@ export default function AnalyseDashboard() {
             : [{ key: pendingY, color: CHART_COLORS[0] }];
         setCharts((prev) => [
             ...prev,
-            { id: Date.now(), xKey: newX, lines: effectiveLines, cols: 3, ratio: '1/1' },
+            { id: Date.now(), xKey: newX, lines: effectiveLines, cols: 3, ratio: '1/1', track: true },
         ]);
         setNewLines([]);
     };
@@ -622,13 +683,13 @@ export default function AnalyseDashboard() {
                                         <Box sx={{ display: 'flex', alignItems: 'center', flexShrink: 0 }}>
                                             <Checkbox
                                                 size="small"
-                                                checked={isTracking(chart.id)}
-                                                onChange={(e) => setChartTracking(chart.id, e.target.checked)}
+                                                checked={chart.track !== false}
+                                                onChange={(e) => updateChart(chart.id, { track: e.target.checked })}
                                                 sx={{ p: 0.25, color: alpha(theme.palette.text.secondary, 0.5) }}
                                             />
                                             <Typography variant="caption" sx={{
                                                 fontSize: 10, lineHeight: 1, userSelect: 'none',
-                                                color: isTracking(chart.id) ? 'text.secondary' : alpha(theme.palette.text.secondary, 0.4),
+                                                color: chart.track !== false ? 'text.secondary' : alpha(theme.palette.text.secondary, 0.4),
                                             }}>
                                                 Track
                                             </Typography>
@@ -641,8 +702,8 @@ export default function AnalyseDashboard() {
                                         data={enrichedData}
                                         xKey={chart.xKey}
                                         lines={chart.lines}
-                                        tracking={isTracking(chart.id)}
-                                        onTrackingChange={(val) => setChartTracking(chart.id, val)}
+                                        tracking={chart.track !== false}
+                                        onTrackingChange={(val) => updateChart(chart.id, { track: val })}
                                     />
                                 </Box>
 
