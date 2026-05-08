@@ -107,6 +107,7 @@
 
 .gs-stat-card:nth-child(5),
 .gs-stat-card:nth-child(6),
+.gs-stat-card:nth-child(7),
 .gs-stat-status {
     min-width: 96px;
 }
@@ -142,6 +143,49 @@
     background: color-mix(in srgb, var(--mui-palette-success-main, #59d98b) 12%, transparent);
     box-shadow: none;
     text-shadow: none;
+}
+
+.gs-stat-source {
+    min-width: 116px;
+}
+
+.gs-stat-source .gs-stat-value {
+    display: inline-flex;
+    align-items: center;
+    width: fit-content;
+    min-height: 18px;
+    padding: 0 7px;
+    border: 1px solid var(--mui-palette-border-main, #293241);
+    border-radius: 2px;
+    font-size: 10px;
+}
+
+.gs-stat-source.is-live .gs-stat-value {
+    border-color: var(--mui-palette-success-main, #59d98b);
+    color: var(--mui-palette-success-main, #59d98b);
+    background: color-mix(in srgb, var(--mui-palette-success-main, #59d98b) 12%, transparent);
+}
+
+.gs-stat-source.is-waiting .gs-stat-value {
+    border-color: var(--mui-palette-warning-main, #ffcc66);
+    color: var(--mui-palette-warning-main, #ffcc66);
+    background: color-mix(in srgb, var(--mui-palette-warning-main, #ffcc66) 12%, transparent);
+}
+
+.gs-stat-source.is-fallback .gs-stat-value,
+.gs-stat-source.is-unknown .gs-stat-value {
+    color: var(--mui-palette-text-secondary, #a8b3c4);
+    background: var(--mui-palette-background-elevated, #1d2430);
+}
+
+.gs-stat-detail {
+    margin-top: 4px;
+    color: var(--mui-palette-text-secondary, #a8b3c4);
+    font-size: 8px;
+    font-weight: 700;
+    line-height: 1;
+    white-space: nowrap;
+    font-family: Consolas, "Courier New", monospace;
 }
 
 .gs-map-frame {

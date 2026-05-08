@@ -14,18 +14,32 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 
+import importlib
+import logging
 from dataclasses import dataclass
 from typing import List, Optional, Type
 
-# Import decoder classes
-from demodulators.afskdecoder import AFSKDecoder
-from demodulators.bpskdecoder import BPSKDecoder
-from demodulators.fskdecoder import FSKDecoder
-from demodulators.gfskdecoder import GFSKDecoder
-from demodulators.gmskdecoder import GMSKDecoder
-from demodulators.loradecoder import LoRaDecoder
-from demodulators.morsedecoder import MorseDecoder
-from demodulators.sstvdecoder import SSTVDecoder
+logger = logging.getLogger("decoder-registry")
+
+
+def _load_decoder(module_name: str, class_name: str) -> Optional[Type]:
+    """Load a decoder class without making optional SDR stacks mandatory."""
+    try:
+        module = importlib.import_module(module_name)
+        return getattr(module, class_name)
+    except (AttributeError, ImportError, ModuleNotFoundError) as exc:
+        logger.warning("Decoder %s unavailable: %s", class_name, exc)
+        return None
+
+
+AFSKDecoder = _load_decoder("demodulators.afskdecoder", "AFSKDecoder")
+BPSKDecoder = _load_decoder("demodulators.bpskdecoder", "BPSKDecoder")
+FSKDecoder = _load_decoder("demodulators.fskdecoder", "FSKDecoder")
+GFSKDecoder = _load_decoder("demodulators.gfskdecoder", "GFSKDecoder")
+GMSKDecoder = _load_decoder("demodulators.gmskdecoder", "GMSKDecoder")
+LoRaDecoder = _load_decoder("demodulators.loradecoder", "LoRaDecoder")
+MorseDecoder = _load_decoder("demodulators.morsedecoder", "MorseDecoder")
+SSTVDecoder = _load_decoder("demodulators.sstvdecoder", "SSTVDecoder")
 
 
 @dataclass
@@ -73,97 +87,105 @@ class DecoderRegistry:
         if self._initialized:
             return
 
-        # Define capabilities for each decoder
-        self._decoders = {
-            "afsk": DecoderCapabilities(
-                name="afsk",
-                decoder_class=AFSKDecoder,
-                needs_raw_iq=False,
-                required_demodulator="fm",  # Needs internal FM demodulator
-                demodulator_mode=None,
-                default_bandwidth=12500,  # 12.5 kHz for AFSK
-                supports_transmitter_config=True,
-                restart_on_params=["baudrate", "af_carrier", "deviation", "framing"],
-                description="Audio Frequency Shift Keying decoder (APRS, packet radio)",
-            ),
-            "sstv": DecoderCapabilities(
-                name="sstv",
-                decoder_class=SSTVDecoder,
-                needs_raw_iq=True,  # Receives IQ directly (integrated FM demod)
-                required_demodulator=None,  # Has integrated FM demodulator
-                demodulator_mode=None,
-                default_bandwidth=12500,  # 12.5 kHz for SSTV
-                supports_transmitter_config=True,  # SSTV now accepts satellite/transmitter metadata
-                restart_on_params=[],
-                description="Slow-scan television image decoder (process-based with integrated FM demod)",
-            ),
-            "morse": DecoderCapabilities(
-                name="morse",
-                decoder_class=MorseDecoder,
-                needs_raw_iq=False,
-                required_demodulator="ssb",  # Needs internal SSB demodulator
-                demodulator_mode="cw",  # CW mode specifically
-                default_bandwidth=2500,  # 2.5 kHz for CW
-                supports_transmitter_config=False,
-                restart_on_params=[],  # TODO: Add Morse-specific parameters
-                description="Morse code (CW) decoder",
-            ),
-            "fsk": DecoderCapabilities(
-                name="fsk",
-                decoder_class=FSKDecoder,
-                needs_raw_iq=True,  # Works on raw IQ samples
-                required_demodulator=None,  # No demodulator needed
-                demodulator_mode=None,
-                default_bandwidth=20000,  # 20 kHz typical
-                supports_transmitter_config=True,
-                restart_on_params=["baudrate", "deviation", "framing", "framing_params"],
-                description="Frequency Shift Keying decoder (FSK/GFSK/GMSK)",
-            ),
-            "gmsk": DecoderCapabilities(
-                name="gmsk",
-                decoder_class=GMSKDecoder,  # Alias to FSKDecoder
-                needs_raw_iq=True,  # Works on raw IQ samples
-                required_demodulator=None,  # No demodulator needed
-                demodulator_mode=None,
-                default_bandwidth=20000,  # 20 kHz typical
-                supports_transmitter_config=True,
-                restart_on_params=["baudrate", "deviation", "framing", "framing_params"],
-                description="Gaussian Minimum Shift Keying decoder (alias to FSK)",
-            ),
-            "gfsk": DecoderCapabilities(
-                name="gfsk",
-                decoder_class=GFSKDecoder,  # Extends FSKDecoder with modulation_subtype="GFSK"
-                needs_raw_iq=True,  # Works on raw IQ samples
-                required_demodulator=None,  # No demodulator needed
-                demodulator_mode=None,
-                default_bandwidth=20000,  # 20 kHz typical
-                supports_transmitter_config=True,
-                restart_on_params=["baudrate", "deviation", "framing", "framing_params"],
-                description="Gaussian Frequency Shift Keying decoder",
-            ),
-            "bpsk": DecoderCapabilities(
-                name="bpsk",
-                decoder_class=BPSKDecoder,
-                needs_raw_iq=True,  # Works on raw IQ samples
-                required_demodulator=None,  # No demodulator needed
-                demodulator_mode=None,
-                default_bandwidth=20000,  # 20 kHz typical
-                supports_transmitter_config=True,
-                restart_on_params=["baudrate", "differential", "framing", "framing_params"],
-                description="Binary Phase Shift Keying decoder",
-            ),
-            "lora": DecoderCapabilities(
-                name="lora",
-                decoder_class=LoRaDecoder,
-                needs_raw_iq=True,  # Works on raw IQ samples
-                required_demodulator=None,  # No demodulator needed
-                demodulator_mode=None,
-                default_bandwidth=125000,  # 125 kHz typical
-                supports_transmitter_config=False,
-                restart_on_params=["sf", "bw", "cr", "sync_word", "preamble_len", "fldro"],
-                description="LoRa chirp spread spectrum decoder",
-            ),
-        }
+        self._decoders = {}
+
+        def add_decoder(decoder_class: Optional[Type], **kwargs):
+            if decoder_class is None:
+                return
+            self._decoders[kwargs["name"]] = DecoderCapabilities(
+                decoder_class=decoder_class,
+                **kwargs,
+            )
+
+        # Define capabilities for each available decoder.
+        add_decoder(
+            AFSKDecoder,
+            name="afsk",
+            needs_raw_iq=False,
+            required_demodulator="fm",  # Needs internal FM demodulator
+            demodulator_mode=None,
+            default_bandwidth=12500,  # 12.5 kHz for AFSK
+            supports_transmitter_config=True,
+            restart_on_params=["baudrate", "af_carrier", "deviation", "framing"],
+            description="Audio Frequency Shift Keying decoder (APRS, packet radio)",
+        )
+        add_decoder(
+            SSTVDecoder,
+            name="sstv",
+            needs_raw_iq=True,  # Receives IQ directly (integrated FM demod)
+            required_demodulator=None,  # Has integrated FM demodulator
+            demodulator_mode=None,
+            default_bandwidth=12500,  # 12.5 kHz for SSTV
+            supports_transmitter_config=True,  # SSTV now accepts satellite/transmitter metadata
+            restart_on_params=[],
+            description="Slow-scan television image decoder (process-based with integrated FM demod)",
+        )
+        add_decoder(
+            MorseDecoder,
+            name="morse",
+            needs_raw_iq=False,
+            required_demodulator="ssb",  # Needs internal SSB demodulator
+            demodulator_mode="cw",  # CW mode specifically
+            default_bandwidth=2500,  # 2.5 kHz for CW
+            supports_transmitter_config=False,
+            restart_on_params=[],  # TODO: Add Morse-specific parameters
+            description="Morse code (CW) decoder",
+        )
+        add_decoder(
+            FSKDecoder,
+            name="fsk",
+            needs_raw_iq=True,  # Works on raw IQ samples
+            required_demodulator=None,  # No demodulator needed
+            demodulator_mode=None,
+            default_bandwidth=20000,  # 20 kHz typical
+            supports_transmitter_config=True,
+            restart_on_params=["baudrate", "deviation", "framing", "framing_params"],
+            description="Frequency Shift Keying decoder (FSK/GFSK/GMSK)",
+        )
+        add_decoder(
+            GMSKDecoder,
+            name="gmsk",
+            needs_raw_iq=True,  # Works on raw IQ samples
+            required_demodulator=None,  # No demodulator needed
+            demodulator_mode=None,
+            default_bandwidth=20000,  # 20 kHz typical
+            supports_transmitter_config=True,
+            restart_on_params=["baudrate", "deviation", "framing", "framing_params"],
+            description="Gaussian Minimum Shift Keying decoder (alias to FSK)",
+        )
+        add_decoder(
+            GFSKDecoder,
+            name="gfsk",
+            needs_raw_iq=True,  # Works on raw IQ samples
+            required_demodulator=None,  # No demodulator needed
+            demodulator_mode=None,
+            default_bandwidth=20000,  # 20 kHz typical
+            supports_transmitter_config=True,
+            restart_on_params=["baudrate", "deviation", "framing", "framing_params"],
+            description="Gaussian Frequency Shift Keying decoder",
+        )
+        add_decoder(
+            BPSKDecoder,
+            name="bpsk",
+            needs_raw_iq=True,  # Works on raw IQ samples
+            required_demodulator=None,  # No demodulator needed
+            demodulator_mode=None,
+            default_bandwidth=20000,  # 20 kHz typical
+            supports_transmitter_config=True,
+            restart_on_params=["baudrate", "differential", "framing", "framing_params"],
+            description="Binary Phase Shift Keying decoder",
+        )
+        add_decoder(
+            LoRaDecoder,
+            name="lora",
+            needs_raw_iq=True,  # Works on raw IQ samples
+            required_demodulator=None,  # No demodulator needed
+            demodulator_mode=None,
+            default_bandwidth=125000,  # 125 kHz typical
+            supports_transmitter_config=False,
+            restart_on_params=["sf", "bw", "cr", "sync_word", "preamble_len", "fldro"],
+            description="LoRa chirp spread spectrum decoder",
+        )
 
         self._initialized = True
 

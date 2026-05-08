@@ -81,6 +81,8 @@ const TELEMETRY_ENDPOINTS = [
     { url: '/telemetry.csv', format: 'csv' },
 ];
 const TELEMETRY_POLL_INTERVAL_MS = 2000;
+const MQTT_STATUS_URL = '/api/telemetry/mqtt/status';
+const MQTT_STATUS_POLL_INTERVAL_MS = 2000;
 
 const withTelemetryCacheBuster = (endpoint) => {
     const separator = endpoint.includes('?') ? '&' : '?';
@@ -215,7 +217,43 @@ const TopNav = ({ activeTab, onTabChange }) => {
     );
 };
 
-const TelemetryStatsBar = ({ currentRecord, distance }) => {
+const getMqttSourceStat = (mqttStatus) => {
+    if (!mqttStatus) {
+        return {
+            label: 'SOURCE',
+            value: 'UNKNOWN',
+            detail: 'status indisponible',
+            sourceState: 'unknown',
+        };
+    }
+
+    if (mqttStatus.using_mqtt_store) {
+        return {
+            label: 'SOURCE',
+            value: 'MQTT LIVE',
+            detail: `${mqttStatus.stored_frames ?? 0} frames`,
+            sourceState: 'live',
+        };
+    }
+
+    if (mqttStatus.enabled) {
+        return {
+            label: 'SOURCE',
+            value: 'MQTT WAIT',
+            detail: '0 frame',
+            sourceState: 'waiting',
+        };
+    }
+
+    return {
+        label: 'SOURCE',
+        value: 'CSV FALLBACK',
+        detail: 'mqtt off',
+        sourceState: 'fallback',
+    };
+};
+
+const TelemetryStatsBar = ({ currentRecord, distance, mqttStatus }) => {
     const altitude = getTelemetryNumber(currentRecord, ['U_Alt', 'U Alt'], 0);
     const speed = getTelemetryNumber(currentRecord, 'Speed', 0);
     const satellites = getTelemetryNumber(currentRecord, ['#_Sat', '#Sat'], 0);
@@ -227,14 +265,23 @@ const TelemetryStatsBar = ({ currentRecord, distance }) => {
         { label: 'GPS SAT', value: satellites.toFixed(0) },
         { label: 'PRESSION', value: `${pressure.toFixed(1)} hPa` },
         { label: 'STATUS', value: 'NOMINAL', status: true },
+        getMqttSourceStat(mqttStatus),
     ];
 
     return (
         <section className="gs-stats-bar" aria-label="Resume telemetrie">
             {stats.map(stat => (
-                <article className={`gs-stat-card${stat.status ? ' gs-stat-status' : ''}`} key={stat.label}>
+                <article
+                    className={[
+                        'gs-stat-card',
+                        stat.status ? 'gs-stat-status' : '',
+                        stat.sourceState ? `gs-stat-source is-${stat.sourceState}` : '',
+                    ].filter(Boolean).join(' ')}
+                    key={stat.label}
+                >
                     <span className="gs-stat-label">{stat.label}</span>
                     <span className="gs-stat-value">{stat.value}</span>
+                    {stat.detail && <span className="gs-stat-detail">{stat.detail}</span>}
                 </article>
             ))}
         </section>
@@ -780,6 +827,7 @@ export default function TelemetryDashboard() {
     const [hasData, setHasData] = useState(false);
     const [isPlaying, setIsPlaying] = useState(true);
     const [loading, setLoading] = useState(true);
+    const [mqttStatus, setMqttStatus] = useState(null);
     const [speedMs, setSpeedMs] = useState(500);
     const [mapOptions, setMapOptions] = useState({
         follow: false,
@@ -895,6 +943,40 @@ export default function TelemetryDashboard() {
     }, []);
 
     useEffect(() => {
+        let isMounted = true;
+
+        const loadMqttStatus = async () => {
+            try {
+                const response = await fetch(withTelemetryCacheBuster(MQTT_STATUS_URL), {
+                    cache: 'no-store',
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+
+                const status = await response.json();
+
+                if (isMounted) {
+                    setMqttStatus(status);
+                }
+            } catch (error) {
+                if (isMounted) {
+                    setMqttStatus(null);
+                }
+            }
+        };
+
+        loadMqttStatus();
+        const interval = setInterval(loadMqttStatus, MQTT_STATUS_POLL_INTERVAL_MS);
+
+        return () => {
+            isMounted = false;
+            clearInterval(interval);
+        };
+    }, []);
+
+    useEffect(() => {
         if (!isPlaying || sourceData.length === 0) return undefined;
 
         const interval = setInterval(() => {
@@ -998,7 +1080,11 @@ export default function TelemetryDashboard() {
     return (
         <main className="ground-station-shell">
             <TopNav activeTab={activeTab} onTabChange={setActiveTab} />
-            <TelemetryStatsBar currentRecord={currentRecord} distance={distance} />
+            <TelemetryStatsBar
+                currentRecord={currentRecord}
+                distance={distance}
+                mqttStatus={mqttStatus}
+            />
             {activeTab === 'analyse' ? (
                 <AnalysisView data={chartData} />
             ) : (

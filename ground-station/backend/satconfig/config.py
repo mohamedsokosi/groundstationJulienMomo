@@ -14,7 +14,10 @@ import logging
 import pathlib
 from typing import Any, Dict, Optional
 
-from satellites.satyaml.satyaml import SatYAML
+try:
+    from satellites.satyaml.satyaml import SatYAML
+except ImportError:
+    SatYAML = None
 
 logger = logging.getLogger("satellite-config")
 
@@ -45,6 +48,11 @@ class SatelliteConfigService:
         self.overrides = self._load_overrides()
 
         # Initialize gr-satellites YAML parser
+        if SatYAML is None:
+            logger.warning("gr-satellites SatYAML module not available; using smart defaults")
+            self.satyaml = None
+            return
+
         try:
             self.satyaml = SatYAML()
             logger.info(

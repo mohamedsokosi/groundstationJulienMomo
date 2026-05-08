@@ -1,0 +1,122 @@
+#!/usr/bin/env python3
+import argparse
+import csv
+import sys
+import time
+from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+BACKEND_DIR = REPO_ROOT / "backend"
+if str(BACKEND_DIR) not in sys.path:
+    sys.path.insert(0, str(BACKEND_DIR))
+
+from server.telemetry_protobuf import csv_row_to_telemetry_frame, encode_telemetry_frame  # noqa: E402
+
+DEFAULT_TOPIC = "icarus2/telemetry/frame.pb"
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Publish CubeSat telemetry.csv rows as binary protobuf MQTT frames."
+    )
+    parser.add_argument("--csv", default="telemetry.csv", help="CSV file path.")
+    parser.add_argument("--broker", default="localhost", help="MQTT broker host.")
+    parser.add_argument("--port", default=1883, type=int, help="MQTT broker port.")
+    parser.add_argument("--topic", default=DEFAULT_TOPIC, help="MQTT topic.")
+    parser.add_argument("--delay", default=0.2, type=float, help="Delay between frames in seconds.")
+    parser.add_argument("--loop", action="store_true", help="Replay the CSV continuously.")
+    parser.add_argument("--qos", default=1, type=int, choices=(0, 1, 2), help="MQTT QoS level.")
+    return parser.parse_args()
+
+
+def read_csv_rows(csv_path: Path) -> list[dict]:
+    with csv_path.open("r", encoding="utf-8-sig", newline="") as csv_file:
+        reader = csv.DictReader(csv_file)
+        return [
+            {
+                key.strip(): (value.strip() if isinstance(value, str) else value)
+                for key, value in row.items()
+                if key
+            }
+            for row in reader
+        ]
+
+
+def connect_client(args: argparse.Namespace):
+    try:
+        import paho.mqtt.client as mqtt
+    except ImportError:
+        print("paho-mqtt is required. Install it with: pip install paho-mqtt", file=sys.stderr)
+        raise SystemExit(1)
+
+    def on_connect(client, userdata, flags, reason_code, properties):
+        is_success = reason_code == 0 or getattr(reason_code, "value", None) == 0
+        if is_success or str(reason_code).lower() == "success":
+            print(f"Connected to MQTT broker {args.broker}:{args.port}")
+        else:
+            print(f"MQTT connection returned: {reason_code}", file=sys.stderr)
+
+    client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
+    client.on_connect = on_connect
+    client.connect(args.broker, args.port, keepalive=60)
+    client.loop_start()
+    return client
+
+
+def publish_rows(client, rows: list[dict], args: argparse.Namespace) -> None:
+    sequence_number = 0
+
+    while True:
+        for row in rows:
+            frame = csv_row_to_telemetry_frame(row, sequence_number=sequence_number)
+            payload = encode_telemetry_frame(frame)
+            publish_info = client.publish(args.topic, payload=payload, qos=args.qos)
+            publish_info.wait_for_publish()
+
+            print(
+                "sequence_number={sequence} bytes={size} altitude={altitude:.2f} "
+                "speed={speed:.2f} satellite_count={satellites}".format(
+                    sequence=frame["sequence_number"],
+                    size=len(payload),
+                    altitude=frame["altitude_m"],
+                    speed=frame["speed_mps"],
+                    satellites=frame["satellite_count"],
+                )
+            )
+
+            sequence_number += 1
+            time.sleep(max(0.0, args.delay))
+
+        if not args.loop:
+            break
+
+
+def main() -> int:
+    args = parse_args()
+    csv_path = Path(args.csv)
+    if not csv_path.is_absolute():
+        csv_path = REPO_ROOT / csv_path
+
+    if not csv_path.exists():
+        print(f"CSV file not found: {csv_path}", file=sys.stderr)
+        return 1
+
+    rows = read_csv_rows(csv_path)
+    if not rows:
+        print(f"No telemetry rows found in {csv_path}", file=sys.stderr)
+        return 1
+
+    client = connect_client(args)
+    try:
+        publish_rows(client, rows, args)
+    except KeyboardInterrupt:
+        print("\nStopping MQTT CubeSat simulator...")
+    finally:
+        client.loop_stop()
+        client.disconnect()
+
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
