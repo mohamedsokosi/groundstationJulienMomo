@@ -438,6 +438,40 @@ Le backend local ecoute par defaut sur:
 http://localhost:5000
 ```
 
+## Mode Local Sans Docker
+
+Pour tester l'application sans rebuild Docker, lancez le backend Python et le frontend Vite en
+local. Les dependances SDR natives lourdes (`gnuradio`, `librtlsdr`, `SoapySDR`, `uhd`) ne sont
+plus necessaires au demarrage du backend; elles ne sont chargees que si un vrai SDR est lance.
+
+Demarrage local simple, avec fallback CSV:
+
+```powershell
+.\tools\dev\start-local.ps1
+```
+
+Demarrage local avec MQTT active et simulateur CubeSat:
+
+```powershell
+.\tools\dev\start-local.ps1 -Mqtt -Simulator
+```
+
+Ce script ouvre des terminaux separes pour:
+
+- le backend FastAPI sur `http://localhost:5000`;
+- le frontend Vite sur `http://localhost:5173`;
+- le simulateur MQTT si `-Simulator` est utilise.
+
+Pour MQTT sans Docker, un broker Mosquitto local doit ecouter sur `localhost:1883`. Si
+`mosquitto.exe` est disponible dans le `PATH`, le script tente de le lancer automatiquement.
+Sinon, lancez Mosquitto vous-meme ou demarrez sans `-Mqtt` pour utiliser le fallback CSV.
+
+Verifier le statut MQTT local:
+
+```powershell
+Invoke-RestMethod http://localhost:5000/api/telemetry/mqtt/status
+```
+
 ## Commandes Utiles
 
 Backend:

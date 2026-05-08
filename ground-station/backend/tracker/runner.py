@@ -37,6 +37,33 @@ tracker_stop_event = multiprocessing.Event()
 _tracker_manager: Optional[TrackerManager] = None
 
 
+def run_tracking_task(
+    queue_from_tracker: Queue,
+    queue_to_tracker: Queue,
+    tracker_stop_event: multiprocessing.Event,
+):
+    # Set the process title for system monitoring tools
+    setproctitle.setproctitle("Ground Station - SatelliteTracker")
+
+    # Set the multiprocessing process name
+    multiprocessing.current_process().name = "Ground Station - SatelliteTracker"
+
+    # Create a new event loop for this process
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+
+    try:
+        # Create and run the SatelliteTracker instance
+        tracker = SatelliteTracker(queue_from_tracker, queue_to_tracker, tracker_stop_event)
+        loop.run_until_complete(tracker.run())
+
+    except Exception as e:
+        logger.error(f"Error in tracker process: {e}")
+        logger.exception(e)
+    finally:
+        loop.close()
+
+
 def start_tracker_process():
     """
     Starts the satellite tracking task in a separate process using multiprocessing.
@@ -50,32 +77,11 @@ def start_tracker_process():
 
     global tracker_process, queue_to_tracker, queue_from_tracker, tracker_stop_event
 
-    # Define the process target function that will run the async tracking task
-    def run_tracking_task():
-        # Set the process title for system monitoring tools
-        setproctitle.setproctitle("Ground Station - SatelliteTracker")
-
-        # Set the multiprocessing process name
-        multiprocessing.current_process().name = "Ground Station - SatelliteTracker"
-
-        # Create a new event loop for this process
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-
-        try:
-            # Create and run the SatelliteTracker instance
-            tracker = SatelliteTracker(queue_from_tracker, queue_to_tracker, tracker_stop_event)
-            loop.run_until_complete(tracker.run())
-
-        except Exception as e:
-            logger.error(f"Error in tracker process: {e}")
-            logger.exception(e)
-        finally:
-            loop.close()
-
     # Create and start the process
     tracker_process = multiprocessing.Process(
-        target=run_tracking_task, name="Ground Station - SatelliteTracker"
+        target=run_tracking_task,
+        args=(queue_from_tracker, queue_to_tracker, tracker_stop_event),
+        name="Ground Station - SatelliteTracker",
     )
 
     # Start the process (not daemon - we want proper cleanup)

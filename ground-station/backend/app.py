@@ -29,8 +29,7 @@ except ImportError:
 def print_banner():
     """Print ASCII art banner with version."""
     version = get_version_base()
-    print(
-        f"""
+    banner = f"""
    ██████╗ ██████╗  ██████╗ ██╗   ██╗███╗   ██╗██████╗
   ██╔════╝ ██╔══██╗██╔═══██╗██║   ██║████╗  ██║██╔══██╗
   ██║  ███╗██████╔╝██║   ██║██║   ██║██╔██╗ ██║██║  ██║
@@ -47,7 +46,11 @@ def print_banner():
 
                             v{version}
     """
-    )
+    try:
+        print(banner)
+    except UnicodeEncodeError:
+        encoding = sys.stdout.encoding or "utf-8"
+        print(banner.encode(encoding, errors="replace").decode(encoding))
 
 
 # Set process and thread names

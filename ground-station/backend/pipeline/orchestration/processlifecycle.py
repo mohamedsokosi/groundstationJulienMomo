@@ -27,11 +27,7 @@ from fft.processor import fft_processor_process
 from handlers.entities.filebrowser import emit_file_browser_state
 from pipeline.streaming.iqbroadcaster import IQBroadcaster
 from vfos.state import VFOManager
-from workers.rtlsdrworker import rtlsdr_worker_process
 from workers.sigmfplaybackworker import sigmf_playback_worker_process
-from workers.soapysdrlocalworker import soapysdr_local_worker_process
-from workers.soapysdrremoteworker import soapysdr_remote_worker_process
-from workers.uhdworker import uhd_worker_process
 
 # Add setproctitle import for process naming
 try:
@@ -40,6 +36,22 @@ try:
     _HAS_SETPROCTITLE = True
 except ImportError:
     _HAS_SETPROCTITLE = False
+
+
+def _load_worker(import_path, function_name):
+    """
+    Load SDR worker functions only when a device is started.
+
+    Local web/MQTT development should not require native SDR stacks such as
+    librtlsdr, SoapySDR, UHD, or GNU Radio just to boot the backend.
+    """
+    try:
+        module = __import__(import_path, fromlist=[function_name])
+        return getattr(module, function_name)
+    except Exception as exc:
+        raise RuntimeError(
+            f"Worker {function_name} is unavailable. Missing optional SDR dependency: {exc}"
+        ) from exc
 
 
 def _create_named_worker_process(worker_func, process_name, *args):
@@ -200,7 +212,7 @@ class ProcessLifecycleManager:
         if sdr_device["type"] == "rtlsdrusbv3":
             connection_type = "usb"
             driver = None
-            worker_process = rtlsdr_worker_process
+            worker_process = _load_worker("workers.rtlsdrworker", "rtlsdr_worker_process")
             process_name = f"Ground Station - RTL-SDR-USB-v3-{sdr_id}"
 
         elif sdr_device["type"] == "rtlsdrtcpv3":
@@ -208,13 +220,13 @@ class ProcessLifecycleManager:
             port = sdr_device["port"]
             connection_type = "tcp"
             driver = None
-            worker_process = rtlsdr_worker_process
+            worker_process = _load_worker("workers.rtlsdrworker", "rtlsdr_worker_process")
             process_name = f"Ground Station - RTL-SDR-TCP-v3-{sdr_id}"
 
         elif sdr_device["type"] == "rtlsdrusbv4":
             connection_type = "usb"
             driver = None
-            worker_process = rtlsdr_worker_process
+            worker_process = _load_worker("workers.rtlsdrworker", "rtlsdr_worker_process")
             process_name = f"Ground Station - RTL-SDR-USB-v4-{sdr_id}"
 
         elif sdr_device["type"] == "rtlsdrtcpv4":
@@ -222,7 +234,7 @@ class ProcessLifecycleManager:
             port = sdr_device["port"]
             connection_type = "tcp"
             driver = None
-            worker_process = rtlsdr_worker_process
+            worker_process = _load_worker("workers.rtlsdrworker", "rtlsdr_worker_process")
             process_name = f"Ground Station - RTL-SDR-TCP-v4-{sdr_id}"
 
         elif sdr_device["type"] == "soapysdrremote":
@@ -230,19 +242,23 @@ class ProcessLifecycleManager:
             port = sdr_device["port"]
             connection_type = "soapysdrremote"
             driver = sdr_device["driver"]
-            worker_process = soapysdr_remote_worker_process
+            worker_process = _load_worker(
+                "workers.soapysdrremoteworker", "soapysdr_remote_worker_process"
+            )
             process_name = f"Ground Station - SoapySDR-Remote-{sdr_id}"
 
         elif sdr_device["type"] == "soapysdrlocal":
             connection_type = "soapysdrlocal"
             driver = sdr_device["driver"]
-            worker_process = soapysdr_local_worker_process
+            worker_process = _load_worker(
+                "workers.soapysdrlocalworker", "soapysdr_local_worker_process"
+            )
             process_name = f"Ground Station - SoapySDR-Local-{sdr_id}"
 
         elif sdr_device["type"] == "uhd":
             connection_type = "uhd"
             driver = "uhd"
-            worker_process = uhd_worker_process
+            worker_process = _load_worker("workers.uhdworker", "uhd_worker_process")
             process_name = f"Ground Station - UHD-Worker-{sdr_id}"
 
         elif sdr_device["type"] == "sigmfplayback":

@@ -58,7 +58,18 @@ def connect_client(args: argparse.Namespace):
 
     client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
     client.on_connect = on_connect
-    client.connect(args.broker, args.port, keepalive=60)
+    try:
+        client.connect(args.broker, args.port, keepalive=60)
+    except OSError as exc:
+        print(
+            f"Cannot connect to MQTT broker {args.broker}:{args.port}: {exc}",
+            file=sys.stderr,
+        )
+        print(
+            "Start a local Mosquitto broker first, or run the app without MQTT.",
+            file=sys.stderr,
+        )
+        raise SystemExit(1) from exc
     client.loop_start()
     return client
 
