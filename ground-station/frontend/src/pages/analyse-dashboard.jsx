@@ -79,6 +79,11 @@ function fieldLabel(key) {
     return AVAILABLE_FIELDS.find((f) => f.key === key)?.label || key;
 }
 
+function fieldUnit(key) {
+    const m = fieldLabel(key).match(/\(([^)]+)\)$/);
+    return m ? m[1] : '';
+}
+
 function enrich(row) {
     const alt = parseFloat(row['U_Alt'] ?? row['U Alt']) || 0;
     const fspl = computeFSPL(alt);
@@ -294,8 +299,10 @@ function TelemetryChart({ data, xKey, lines, tracking, onTrackingChange }) {
 
     if (!hasData) return null;
 
+    const latestPoint = data[data.length - 1];
+
     return (
-        <Box sx={{ width: '100%', height: '100%', display: 'flex' }}>
+        <Box sx={{ width: '100%', height: '100%', display: 'flex', position: 'relative' }}>
             {/* Fixed Y-axis panel — does not scroll */}
             <Box sx={{ width: 50, flexShrink: 0, height: '100%' }}>
                 <ResponsiveContainer width="100%" height="100%">
@@ -357,6 +364,36 @@ function TelemetryChart({ data, xKey, lines, tracking, onTrackingChange }) {
                     </ResponsiveContainer>
                 </Box>
             </Box>
+
+            {/* Latest-value overlay — top-left of the chart body */}
+            {latestPoint && (
+                <Box sx={{
+                    position: 'absolute',
+                    top: 6,
+                    left: 58,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'flex-start',
+                    pointerEvents: 'none',
+                    zIndex: 10,
+                }}>
+                    <Box sx={{ display: 'flex', gap: 0.75, flexWrap: 'wrap', alignItems: 'baseline' }}>
+                        {lines.map(({ key, color }) => {
+                            const unit = fieldUnit(key);
+                            const val = typeof latestPoint[key] === 'number' ? latestPoint[key].toFixed(2) : (latestPoint[key] ?? '—');
+                            return (
+                                <Typography key={key} variant="caption" sx={{ fontWeight: 700, color, fontSize: 13, lineHeight: 1.2 }}>
+                                    {val}{unit && <span style={{ fontWeight: 400, fontSize: 10, opacity: 0.85 }}> {unit}</span>}
+                                </Typography>
+                            );
+                        })}
+                    </Box>
+                    <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: 11, lineHeight: 1.3 }}>
+                        {typeof latestPoint[xKey] === 'number' ? latestPoint[xKey].toFixed(1) : (latestPoint[xKey] ?? '—')}
+                        {fieldUnit(xKey) && <span style={{ fontSize: 10, opacity: 0.75 }}> {fieldUnit(xKey)}</span>}
+                    </Typography>
+                </Box>
+            )}
         </Box>
     );
 }

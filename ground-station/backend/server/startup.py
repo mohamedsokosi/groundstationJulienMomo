@@ -222,7 +222,11 @@ app.add_middleware(
 )
 
 process_manager.set_sio(sio)
-FRONTEND_DIST_DIR = os.environ.get("STATIC_FILES_DIR", "../../frontend/dist")
+_HERE = os.path.dirname(os.path.abspath(__file__))  # backend/server/
+FRONTEND_DIST_DIR = os.environ.get(
+    "STATIC_FILES_DIR",
+    os.path.normpath(os.path.join(_HERE, "..", "..", "frontend", "dist")),
+)
 
 # Mount static directories
 app.mount("/satimages", StaticFiles(directory="satimages"), name="satimages")
