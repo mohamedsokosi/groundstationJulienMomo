@@ -24,6 +24,8 @@ import DragIndicatorIcon from '@mui/icons-material/DragIndicator';
 import EditIcon from '@mui/icons-material/Edit';
 import FileDownloadIcon from '@mui/icons-material/FileDownload';
 import FileUploadIcon from '@mui/icons-material/FileUpload';
+import StarIcon from '@mui/icons-material/Star';
+import StarBorderOutlinedIcon from '@mui/icons-material/StarBorderOutlined';
 import {
     CartesianGrid,
     Line,
@@ -154,51 +156,8 @@ function TelemetryChart({ data, xKey, lines, tracking, onTrackingChange }) {
     const scrollRef = useRef(null);
     const isAutoScrollLockRef = useRef(false);
     const autoScrollRafRef = useRef(null);
-    const wheelTargetRef = useRef(0);
-    const wheelRafRef = useRef(null);
-    const onTrackingChangeRef = useRef(onTrackingChange);
-    onTrackingChangeRef.current = onTrackingChange;
     const hasData = !!data?.length && !!lines?.length;
 
-    // Non-passive wheel listener: redirects vertical wheel into smooth horizontal scroll.
-    // onTrackingChange is accessed via a ref so this effect runs only once (no re-mount on
-    // re-render), which prevents the cleanup from cancelling an in-flight wheel animation.
-    useEffect(() => {
-        const el = scrollRef.current;
-        if (!el) return;
-        const onWheel = (e) => {
-            e.preventDefault();
-            // Kill auto-scroll immediately so it doesn't fight the wheel animation.
-            cancelAnimationFrame(autoScrollRafRef.current);
-            autoScrollRafRef.current = null;
-            if (!wheelRafRef.current) wheelTargetRef.current = el.scrollLeft;
-            const raw = e.deltaY !== 0 ? e.deltaY : e.deltaX;
-            wheelTargetRef.current = Math.max(
-                0,
-                Math.min(el.scrollWidth - el.clientWidth, wheelTargetRef.current + raw * 0.4),
-            );
-            onTrackingChangeRef.current(false);
-            if (wheelRafRef.current) return;
-            const animate = () => {
-                const diff = wheelTargetRef.current - el.scrollLeft;
-                isAutoScrollLockRef.current = true;
-                if (Math.abs(diff) < 0.5) {
-                    el.scrollLeft = wheelTargetRef.current;
-                    wheelRafRef.current = null;
-                    return;
-                }
-                el.scrollLeft += diff * 0.12;
-                wheelRafRef.current = requestAnimationFrame(animate);
-            };
-            wheelRafRef.current = requestAnimationFrame(animate);
-        };
-        el.addEventListener('wheel', onWheel, { passive: false });
-        return () => {
-            el.removeEventListener('wheel', onWheel);
-            cancelAnimationFrame(wheelRafRef.current);
-            wheelRafRef.current = null;
-        };
-    }, [hasData]); // re-runs when the DOM element first appears (hasData: false→true)
     const labelFs = theme.typography.caption.fontSize;
 
     const { maxX, minY, maxY } = useMemo(() => {
@@ -261,15 +220,10 @@ function TelemetryChart({ data, xKey, lines, tracking, onTrackingChange }) {
         return result;
     }, [animYMin, animYMax]);
 
-    // rAF-based smooth auto-scroll. We set isAutoScrollLockRef=true before every
-    // el.scrollLeft write so handleScroll can tell our updates apart from user scroll.
     useEffect(() => {
         if (!tracking || !hasData) return;
         const el = scrollRef.current;
         if (!el) return;
-        // Kill any in-flight wheel animation so the two rAFs don't fight each other.
-        cancelAnimationFrame(wheelRafRef.current);
-        wheelRafRef.current = null;
         const targetLeft = Math.max(0, (maxX / stepX) * el.clientWidth - el.clientWidth * 0.5);
         const start = el.scrollLeft;
         const distance = targetLeft - start;
@@ -287,7 +241,6 @@ function TelemetryChart({ data, xKey, lines, tracking, onTrackingChange }) {
         return () => cancelAnimationFrame(autoScrollRafRef.current);
     }, [tracking, maxX, stepX, hasData]);
 
-    // Any scroll event without the lock is user-initiated (wheel, scrollbar drag, touch).
     const handleScroll = useCallback(() => {
         if (isAutoScrollLockRef.current) {
             isAutoScrollLockRef.current = false;
@@ -422,10 +375,10 @@ const loadSavedCharts = () => {
 };
 
 const DEFAULT_CHARTS = [
-    { id: 'default-0', xKey: 'U_Alt', lines: [{ key: '_bilan',   color: '#4cbc74' }], cols: 3, ratio: '1/1', track: true },
-    { id: 'default-1', xKey: 'U_Alt', lines: [{ key: '_fspl',    color: '#ee8a22' }], cols: 3, ratio: '1/1', track: true },
-    { id: 'default-2', xKey: 'U_Alt', lines: [{ key: 'Pressure', color: '#4fb7d6' }], cols: 3, ratio: '1/1', track: true },
-    { id: 'default-3', xKey: 'U_Alt', lines: [{ key: 'Speed',    color: '#d2b04c' }], cols: 3, ratio: '1/1', track: true },
+    { id: 'default-0', xKey: '_elapsed_min', lines: [{ key: '_bilan',   color: '#4cbc74' }], cols: 3, ratio: '1/1', track: true, favorite: false },
+    { id: 'default-1', xKey: '_elapsed_min', lines: [{ key: '_fspl',    color: '#ee8a22' }], cols: 3, ratio: '1/1', track: true, favorite: false },
+    { id: 'default-2', xKey: '_elapsed_min', lines: [{ key: 'Pressure', color: '#4fb7d6' }], cols: 3, ratio: '1/1', track: true, favorite: false },
+    { id: 'default-3', xKey: '_elapsed_min', lines: [{ key: 'Speed',    color: '#d2b04c' }], cols: 3, ratio: '1/1', track: true, favorite: false },
 ];
 
 function ChartTitle({ chart, sx }) {
@@ -718,6 +671,15 @@ export default function AnalyseDashboard() {
                                             <ChartTitle chart={chart} />
                                         </Box>
                                         <Box sx={{ display: 'flex', alignItems: 'center', flexShrink: 0 }}>
+                                            <IconButton
+                                                size="small"
+                                                onClick={() => updateChart(chart.id, { favorite: !chart.favorite })}
+                                                sx={{ p: 0.25, color: chart.favorite ? '#fbbf24' : alpha(theme.palette.text.secondary, 0.3) }}
+                                            >
+                                                {chart.favorite
+                                                    ? <StarIcon sx={{ fontSize: 14 }} />
+                                                    : <StarBorderOutlinedIcon sx={{ fontSize: 14 }} />}
+                                            </IconButton>
                                             <Checkbox
                                                 size="small"
                                                 checked={chart.track !== false}
