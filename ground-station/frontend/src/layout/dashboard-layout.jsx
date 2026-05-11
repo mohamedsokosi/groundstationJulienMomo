@@ -24,7 +24,6 @@ import {
     styled,
 } from "@mui/material";
 import { Account, AccountPopoverFooter, AccountPreview, SignOutButton } from "@toolpad/core";
-import { GroundStationLogoGreenBlue } from "../shared/dataurl-icons.jsx";
 import { stringAvatar } from "../shared/common.jsx";
 import Grid from "@mui/material/Grid";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -32,18 +31,19 @@ import CheckIcon from '@mui/icons-material/Check';
 import { useSocket } from "../shared/socket.jsx";
 import { useDispatch, useSelector } from "react-redux";
 import { useTranslation } from 'react-i18next';
-import ConnectionStatus from "./connection-popover.jsx";
 import Tooltip from "@mui/material/Tooltip";
 import ConnectionOverlay from "./reconnecting-overlay.jsx";
-import VersionInfo from "./version-info.jsx";
 import VersionUpdateOverlay from "./version-update-overlay.jsx";
-import UpdateIndicator from "./update-indicator.jsx";
 import { getNavigation } from "../config/navigation.jsx";
-import { useUserTimeSettings } from '../hooks/useUserTimeSettings.jsx';
-import { formatTime } from '../utils/date-time.js';
 import { PageActionsProvider, usePageActions } from './page-actions-context.jsx';
-import WakeLockStatus from "./wake-lock-icon.jsx";
 
+const SAFARI_HEADER_LOGO = "/SAFARI.png";
+const HEADER_PARTNER_LOGOS = [
+    { src: "/ETS.jpg", alt: "ETS", href: "https://www.etsmtl.ca/", variant: "square" },
+    { src: "/Lassena.png", alt: "LASSENA", href: "https://lassena.etsmtl.ca/", variant: "wide" },
+    { src: "/CSA.png", alt: "Canadian Space Agency", href: "https://www.asc-csa.gc.ca/eng/", variant: "square" },
+    { src: "/seds.png", alt: "SEDS Canada", href: "https://www.seds.ca/", variant: "square" },
+];
 const drawerWidthExpanded = 240;
 const drawerWidthCollapsed = 56;
 
@@ -87,9 +87,51 @@ function ToolbarActions() {
     return (
         <Stack direction="row" alignItems="center" sx={{ padding: "6px 0px 0px 0px" }}>
             {node}
-            <ConnectionStatus />
-            <WakeLockStatus />
-            <TimeDisplay />
+            <HeaderPartnerLogos />
+        </Stack>
+    );
+}
+
+function HeaderPartnerLogos() {
+    return (
+        <Stack direction="row" alignItems="center" spacing={0.75} sx={{ mx: 1 }}>
+            {HEADER_PARTNER_LOGOS.map((logo) => (
+                <Tooltip title={logo.alt} key={logo.alt}>
+                    <Box
+                        component="a"
+                        href={logo.href}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        sx={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            height: 32,
+                            width: logo.variant === 'wide' ? 120 : 32,
+                            borderRadius: 0.75,
+                            backgroundColor: 'rgba(255, 255, 255, 0.08)',
+                            textDecoration: 'none',
+                            transition: 'background-color 160ms ease, transform 160ms ease',
+                            '&:hover': {
+                                backgroundColor: 'rgba(255, 255, 255, 0.16)',
+                                transform: 'translateY(-1px)',
+                            },
+                        }}
+                    >
+                        <Box
+                            component="img"
+                            src={logo.src}
+                            alt={logo.alt}
+                            sx={{
+                                display: 'block',
+                                maxHeight: 30,
+                                maxWidth: logo.variant === 'wide' ? 116 : 30,
+                                objectFit: 'contain',
+                            }}
+                        />
+                    </Box>
+                </Tooltip>
+            ))}
         </Stack>
     );
 }
@@ -101,14 +143,12 @@ function CustomAppTitle() {
                 <Stack direction="row" alignItems="center" spacing={2}>
                     <Box display={{ xs: "none", sm: "block" }}>
                         <Box display="flex" alignItems="center" gap={1}>
-                            <img src={GroundStationLogoGreenBlue} alt="Ground Station" width="30" height="30" />
+                            <img
+                                src={SAFARI_HEADER_LOGO}
+                                alt="SAFARI"
+                                style={{ height: 30, width: 54, objectFit: 'cover', borderRadius: 4 }}
+                            />
                             <Typography variant="h6">Ground Station</Typography>
-                            <Box sx={{ display: 'none', '@media (min-width:768px)': { display: 'block' } }}>
-                                <Stack direction="row" spacing={1} alignItems="center">
-                                    <VersionInfo minimal={true} />
-                                    <UpdateIndicator />
-                                </Stack>
-                            </Box>
                         </Box>
                     </Box>
                 </Stack>
@@ -136,41 +176,6 @@ AccountSidebarPreview.propTypes = {
 const accounts = [
     { id: 1, name: 'Efstratios Goudelis', email: 'sgoudelis@nerv.home', image: null },
 ];
-
-function TimeDisplay() {
-    const [isUTC, setIsUTC] = React.useState(false);
-    const [currentTime, setCurrentTime] = React.useState(new Date());
-    const { timezone, locale } = useUserTimeSettings();
-
-    React.useEffect(() => {
-        const interval = setInterval(() => setCurrentTime(new Date()), 1000);
-        return () => clearInterval(interval);
-    }, []);
-
-    const formattedTime = isUTC
-        ? formatTime(currentTime, { timezone: 'UTC', locale, options: { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false } })
-        : formatTime(currentTime, { timezone, locale, options: { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false } });
-
-    const timeZoneAbbr = isUTC
-        ? 'UTC'
-        : new Intl.DateTimeFormat(locale, { timeZone: timezone, timeZoneName: 'short' })
-            .formatToParts(currentTime)
-            .find((part) => part.type === 'timeZoneName')?.value || timezone;
-
-    return (
-        <Box
-            onClick={() => setIsUTC(!isUTC)}
-            sx={{ cursor: "pointer", p: 0, paddingTop: 0.75, paddingBottom: 0, borderRadius: "4px", textAlign: "center", maxWidth: "100px", display: "flex", flexDirection: "column", alignItems: "center" }}
-        >
-            <Typography variant="body2" sx={{ fontSize: "0.65rem", fontWeight: "bold", fontFamily: "monospace" }}>
-                {formattedTime}
-            </Typography>
-            <Typography variant="caption" sx={{ fontSize: "0.65rem", fontFamily: "monospace", color: "#aaa" }}>
-                {isUTC ? "UTC" : timeZoneAbbr}
-            </Typography>
-        </Box>
-    );
-}
 
 function SidebarFooterAccountPopover() {
     return (

@@ -89,19 +89,35 @@
     min-height: 64px;
     gap: 8px;
     padding: 8px 8px 6px;
+    overflow-x: auto;
     background: var(--mui-palette-background-default, #0d0f13);
+    scrollbar-width: thin;
 }
 
 .gs-stat-card {
+    --gs-stat-accent: var(--mui-palette-primary-main, #2196f3);
+    position: relative;
     display: flex;
     flex-direction: column;
     justify-content: center;
     min-width: 74px;
     height: 44px;
+    min-height: 44px;
     padding: 7px 11px;
-    border: 1px solid var(--mui-palette-border-main, #293241);
-    border-radius: 4px;
-    background: var(--mui-palette-background-paper, #151a21);
+    overflow: hidden;
+    border: 1px solid color-mix(in srgb, var(--gs-stat-accent) 24%, var(--mui-palette-border-main, #293241));
+    border-left: 4px solid var(--gs-stat-accent);
+    border-radius: 6px;
+    background:
+        linear-gradient(135deg, color-mix(in srgb, var(--gs-stat-accent) 12%, transparent), transparent 70%),
+        var(--mui-palette-background-paper, #151a21);
+    box-shadow: none;
+    transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease, background 160ms ease;
+}
+
+.gs-stat-card:hover {
+    transform: translateY(-1px);
+    border-color: color-mix(in srgb, var(--gs-stat-accent) 48%, var(--mui-palette-border-main, #293241));
     box-shadow: none;
 }
 
@@ -112,37 +128,79 @@
     min-width: 96px;
 }
 
+.gs-stat-tone-altitude {
+    --gs-stat-accent: var(--mui-palette-success-main, #4caf50);
+}
+
+.gs-stat-tone-distance {
+    --gs-stat-accent: var(--mui-palette-info-main, #2196f3);
+}
+
+.gs-stat-tone-speed {
+    --gs-stat-accent: var(--mui-palette-warning-main, #ff9800);
+}
+
+.gs-stat-tone-satellites {
+    --gs-stat-accent: var(--mui-palette-secondary-main, #9c27b0);
+}
+
+.gs-stat-tone-pressure {
+    --gs-stat-accent: #00bcd4;
+}
+
+.gs-stat-tone-success,
+.gs-stat-source.is-live {
+    --gs-stat-accent: var(--mui-palette-success-main, #4caf50);
+}
+
+.gs-stat-tone-warning,
+.gs-stat-source.is-waiting {
+    --gs-stat-accent: var(--mui-palette-warning-main, #ff9800);
+}
+
+.gs-stat-tone-neutral,
+.gs-stat-source.is-fallback,
+.gs-stat-source.is-unknown {
+    --gs-stat-accent: var(--mui-palette-text-secondary, #90a4ae);
+}
+
 .gs-stat-label {
     display: block;
     margin-bottom: 5px;
     color: var(--mui-palette-text-secondary, #a8b3c4);
     font-size: 9px;
     font-weight: 700;
-    line-height: 1;
+    line-height: 1.1;
     letter-spacing: 0;
+    text-transform: uppercase;
 }
 
 .gs-stat-value {
-    color: var(--mui-palette-primary-main, #5cc8ff);
-    font-size: 11px;
+    display: block;
+    width: 100%;
+    color: var(--gs-stat-accent);
+    font-size: 12px;
     font-weight: 800;
     line-height: 1;
     white-space: nowrap;
     text-shadow: none;
-    font-family: Consolas, "Courier New", monospace;
+    font-family: Roboto, Arial, sans-serif;
 }
 
 .gs-stat-status .gs-stat-value {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 66px;
+    width: fit-content;
     min-height: 18px;
-    border: 1px solid var(--mui-palette-success-main, #59d98b);
-    color: var(--mui-palette-success-main, #59d98b);
-    background: color-mix(in srgb, var(--mui-palette-success-main, #59d98b) 12%, transparent);
+    padding: 0 7px;
+    border: 1px solid color-mix(in srgb, var(--gs-stat-accent) 58%, transparent);
+    border-radius: 4px;
+    color: var(--gs-stat-accent);
+    background: color-mix(in srgb, var(--gs-stat-accent) 12%, transparent);
     box-shadow: none;
     text-shadow: none;
+    font-size: 10px;
 }
 
 .gs-stat-source {
@@ -152,30 +210,16 @@
 .gs-stat-source .gs-stat-value {
     display: inline-flex;
     align-items: center;
+    justify-content: center;
     width: fit-content;
     min-height: 18px;
     padding: 0 7px;
-    border: 1px solid var(--mui-palette-border-main, #293241);
-    border-radius: 2px;
+    border: 1px solid color-mix(in srgb, var(--gs-stat-accent) 58%, transparent);
+    border-radius: 4px;
+    color: var(--gs-stat-accent);
+    background: color-mix(in srgb, var(--gs-stat-accent) 12%, transparent);
     font-size: 10px;
-}
-
-.gs-stat-source.is-live .gs-stat-value {
-    border-color: var(--mui-palette-success-main, #59d98b);
-    color: var(--mui-palette-success-main, #59d98b);
-    background: color-mix(in srgb, var(--mui-palette-success-main, #59d98b) 12%, transparent);
-}
-
-.gs-stat-source.is-waiting .gs-stat-value {
-    border-color: var(--mui-palette-warning-main, #ffcc66);
-    color: var(--mui-palette-warning-main, #ffcc66);
-    background: color-mix(in srgb, var(--mui-palette-warning-main, #ffcc66) 12%, transparent);
-}
-
-.gs-stat-source.is-fallback .gs-stat-value,
-.gs-stat-source.is-unknown .gs-stat-value {
-    color: var(--mui-palette-text-secondary, #a8b3c4);
-    background: var(--mui-palette-background-elevated, #1d2430);
+    white-space: nowrap;
 }
 
 .gs-stat-detail {

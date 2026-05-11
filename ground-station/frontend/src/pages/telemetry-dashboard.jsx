@@ -41,20 +41,6 @@ import {
 } from 'cesium';
 import 'cesium/Build/Cesium/Widgets/widgets.css';
 import {
-    Area,
-    AreaChart,
-    CartesianGrid,
-    ComposedChart,
-    Line,
-    LineChart,
-    ResponsiveContainer,
-    Scatter,
-    ScatterChart,
-    Tooltip as RechartsTooltip,
-    XAxis,
-    YAxis,
-} from 'recharts';
-import {
     getTelemetryNumber,
     isTelemetryNumericHeader,
     normalizeTelemetryHeader,
@@ -144,13 +130,6 @@ const parseCSV = (text) => {
     });
 };
 
-const formatDateTime = (date) => {
-    const pad = (value) => String(value).padStart(2, '0');
-
-    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ` +
-        `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
-};
-
 const formatClock = (value, fallback) => {
     if (!value) return fallback;
 
@@ -184,39 +163,6 @@ const distanceKm = (start, end) => {
     return earthRadiusKm * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 };
 
-const TopNav = ({ activeTab, onTabChange }) => {
-    const [now, setNow] = useState(() => new Date());
-    const tabs = [
-        { id: 'globe', label: 'Vue Globe 3D' },
-        { id: 'analyse', label: 'Analyse' },
-    ];
-
-    useEffect(() => {
-        const interval = setInterval(() => setNow(new Date()), 1000);
-        return () => clearInterval(interval);
-    }, []);
-
-    return (
-        <header className="gs-top-nav">
-            <nav className="gs-nav-tabs" aria-label="Vues station sol">
-                {tabs.map(tab => (
-                    <button
-                        className={`gs-nav-tab${activeTab === tab.id ? ' is-active' : ''}`}
-                        key={tab.id}
-                        onClick={() => onTabChange(tab.id)}
-                        type="button"
-                    >
-                        {tab.label}
-                    </button>
-                ))}
-            </nav>
-            <time className="gs-nav-clock" dateTime={now.toISOString()}>
-                {formatDateTime(now)}
-            </time>
-        </header>
-    );
-};
-
 const getMqttSourceStat = (mqttStatus) => {
     if (!mqttStatus) {
         return {
@@ -224,6 +170,7 @@ const getMqttSourceStat = (mqttStatus) => {
             value: 'UNKNOWN',
             detail: 'status indisponible',
             sourceState: 'unknown',
+            tone: 'neutral',
         };
     }
 
@@ -233,6 +180,7 @@ const getMqttSourceStat = (mqttStatus) => {
             value: 'MQTT LIVE',
             detail: `${mqttStatus.stored_frames ?? 0} frames`,
             sourceState: 'live',
+            tone: 'success',
         };
     }
 
@@ -242,6 +190,7 @@ const getMqttSourceStat = (mqttStatus) => {
             value: 'MQTT WAIT',
             detail: '0 frame',
             sourceState: 'waiting',
+            tone: 'warning',
         };
     }
 
@@ -250,6 +199,7 @@ const getMqttSourceStat = (mqttStatus) => {
         value: 'CSV FALLBACK',
         detail: 'mqtt off',
         sourceState: 'fallback',
+        tone: 'neutral',
     };
 };
 
@@ -259,12 +209,12 @@ const TelemetryStatsBar = ({ currentRecord, distance, mqttStatus }) => {
     const satellites = getTelemetryNumber(currentRecord, ['#_Sat', '#Sat'], 0);
     const pressure = getTelemetryNumber(currentRecord, 'Pressure', 0);
     const stats = [
-        { label: 'ALTITUDE', value: `${altitude.toFixed(0)} m` },
-        { label: 'DISTANCE', value: `${distance.toFixed(4)} km` },
-        { label: 'VITESSE', value: `${speed.toFixed(2)} m/s` },
-        { label: 'GPS SAT', value: satellites.toFixed(0) },
-        { label: 'PRESSION', value: `${pressure.toFixed(1)} hPa` },
-        { label: 'STATUS', value: 'NOMINAL', status: true },
+        { label: 'ALTITUDE', value: `${altitude.toFixed(0)} m`, tone: 'altitude' },
+        { label: 'DISTANCE', value: `${distance.toFixed(4)} km`, tone: 'distance' },
+        { label: 'VITESSE', value: `${speed.toFixed(2)} m/s`, tone: 'speed' },
+        { label: 'GPS SAT', value: satellites.toFixed(0), tone: 'satellites' },
+        { label: 'PRESSION', value: `${pressure.toFixed(1)} hPa`, tone: 'pressure' },
+        { label: 'STATUS', value: 'NOMINAL', status: true, tone: 'success' },
         getMqttSourceStat(mqttStatus),
     ];
 
@@ -274,6 +224,7 @@ const TelemetryStatsBar = ({ currentRecord, distance, mqttStatus }) => {
                 <article
                     className={[
                         'gs-stat-card',
+                        stat.tone ? `gs-stat-tone-${stat.tone}` : '',
                         stat.status ? 'gs-stat-status' : '',
                         stat.sourceState ? `gs-stat-source is-${stat.sourceState}` : '',
                     ].filter(Boolean).join(' ')}
@@ -708,75 +659,6 @@ const MapViewport = ({
     );
 };
 
-const chartTooltipStyle = {
-    backgroundColor: 'rgba(8, 22, 36, 0.96)',
-    border: '1px solid rgba(0, 216, 255, 0.42)',
-    color: '#c9eaff',
-};
-
-const AnalysisView = ({ data }) => (
-    <section className="gs-analysis">
-        <article className="gs-chart-card">
-            <h2>Altitude vs Temps</h2>
-            <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={data}>
-                    <defs>
-                        <linearGradient id="altitudeFill" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="5%" stopColor="#00ff9c" stopOpacity={0.78} />
-                            <stop offset="95%" stopColor="#00ff9c" stopOpacity={0.02} />
-                        </linearGradient>
-                    </defs>
-                    <CartesianGrid stroke="rgba(111, 145, 168, 0.26)" strokeDasharray="3 3" />
-                    <XAxis dataKey="Time Index" stroke="#6f91a8" />
-                    <YAxis stroke="#6f91a8" />
-                    <RechartsTooltip contentStyle={chartTooltipStyle} />
-                    <Area dataKey="U_Alt" fill="url(#altitudeFill)" name="Altitude" stroke="#00ff9c" />
-                </AreaChart>
-            </ResponsiveContainer>
-        </article>
-
-        <article className="gs-chart-card">
-            <h2>Vitesse vs Temps</h2>
-            <ResponsiveContainer width="100%" height="100%">
-                <ComposedChart data={data}>
-                    <CartesianGrid stroke="rgba(111, 145, 168, 0.26)" strokeDasharray="3 3" />
-                    <XAxis dataKey="Time Index" stroke="#6f91a8" />
-                    <YAxis stroke="#6f91a8" />
-                    <RechartsTooltip contentStyle={chartTooltipStyle} />
-                    <Line dataKey="Speed" dot={false} name="Vitesse horizontale" stroke="#ffaa00" strokeWidth={2} />
-                    <Line dataKey="Vert_speed" dot={false} name="Vitesse verticale" stroke="#ff3b3b" strokeDasharray="5 5" strokeWidth={2} />
-                </ComposedChart>
-            </ResponsiveContainer>
-        </article>
-
-        <article className="gs-chart-card">
-            <h2>Pression vs Altitude</h2>
-            <ResponsiveContainer width="100%" height="100%">
-                <ScatterChart>
-                    <CartesianGrid stroke="rgba(111, 145, 168, 0.26)" strokeDasharray="3 3" />
-                    <XAxis dataKey="U_Alt" name="Altitude" stroke="#6f91a8" type="number" />
-                    <YAxis dataKey="Pressure" name="Pression" stroke="#6f91a8" />
-                    <RechartsTooltip contentStyle={chartTooltipStyle} />
-                    <Scatter data={data} fill="#00d8ff" name="Donnees" />
-                </ScatterChart>
-            </ResponsiveContainer>
-        </article>
-
-        <article className="gs-chart-card">
-            <h2>Satellites visibles vs Temps</h2>
-            <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={data}>
-                    <CartesianGrid stroke="rgba(111, 145, 168, 0.26)" strokeDasharray="3 3" />
-                    <XAxis dataKey="Time Index" stroke="#6f91a8" />
-                    <YAxis stroke="#6f91a8" />
-                    <RechartsTooltip contentStyle={chartTooltipStyle} />
-                    <Line dataKey="#_Sat" dot={false} name="Satellites GPS" stroke="#00d8ff" strokeWidth={2} />
-                </LineChart>
-            </ResponsiveContainer>
-        </article>
-    </section>
-);
-
 const TimelineControls = ({
     currentLabel,
     endLabel,
@@ -821,7 +703,6 @@ const TimelineControls = ({
 );
 
 export default function TelemetryDashboard() {
-    const [activeTab, setActiveTab] = useState('globe');
     const [sourceData, setSourceData] = useState([]);
     const [data, setData] = useState([]);
     const [hasData, setHasData] = useState(false);
@@ -1079,39 +960,32 @@ export default function TelemetryDashboard() {
 
     return (
         <main className="ground-station-shell">
-            <TopNav activeTab={activeTab} onTabChange={setActiveTab} />
             <TelemetryStatsBar
                 currentRecord={currentRecord}
                 distance={distance}
                 mqttStatus={mqttStatus}
             />
-            {activeTab === 'analyse' ? (
-                <AnalysisView data={chartData} />
-            ) : (
-                <>
-                    <MapViewport
-                        currentRecord={currentRecord}
-                        firstRecord={firstRecord}
-                        hasData={hasData}
-                        loading={loading}
-                        mapOptions={mapOptions}
-                        onToggleMapOption={handleToggleMapOption}
-                        trajectoryRecords={trajectoryRecords}
-                    />
-                    <TimelineControls
-                        currentLabel={currentLabel}
-                        endLabel={endLabel}
-                        isPlaying={isPlaying}
-                        onReset={handleReset}
-                        onSeek={handleSeek}
-                        onSpeedChange={setSpeedMs}
-                        onTogglePlay={() => setIsPlaying(previous => !previous)}
-                        progress={progress}
-                        speedMs={speedMs}
-                        startLabel={startLabel}
-                    />
-                </>
-            )}
+            <MapViewport
+                currentRecord={currentRecord}
+                firstRecord={firstRecord}
+                hasData={hasData}
+                loading={loading}
+                mapOptions={mapOptions}
+                onToggleMapOption={handleToggleMapOption}
+                trajectoryRecords={trajectoryRecords}
+            />
+            <TimelineControls
+                currentLabel={currentLabel}
+                endLabel={endLabel}
+                isPlaying={isPlaying}
+                onReset={handleReset}
+                onSeek={handleSeek}
+                onSpeedChange={setSpeedMs}
+                onTogglePlay={() => setIsPlaying(previous => !previous)}
+                progress={progress}
+                speedMs={speedMs}
+                startLabel={startLabel}
+            />
         </main>
     );
 }
