@@ -30,7 +30,8 @@ import {
     XAxis,
     YAxis,
 } from 'recharts';
-import { Box, Button, Checkbox, Paper, Typography } from '@mui/material';
+import { Box, Button, Checkbox, IconButton, Paper, Typography } from '@mui/material';
+import StarIcon from '@mui/icons-material/Star';
 import { alpha, useTheme } from '@mui/material/styles';
 import { useTelemetryStream } from './use-telemetry-stream.jsx';
 import { getTelemetryNumber, toTelemetryNumber } from './telemetry-utils.js';
@@ -68,8 +69,8 @@ function enrich(row) {
 
 // ── Chart field registry ──────────────────────────────────────────────
 const AVAILABLE_FIELDS = [
-    { key: '_elapsed_s',   label: 'Temps écoulé (s)',       step: 10000 },
-    { key: '_elapsed_min', label: 'Temps écoulé (min)',     step: 100   },
+    { key: '_elapsed_s',   label: 'Temps écoulé (s)',       step: 60    },
+    { key: '_elapsed_min', label: 'Temps écoulé (min)',     step: 1     },
     { key: 'U_Alt',        label: 'Altitude (m)',           step: 10000 },
     { key: 'Speed',        label: 'Speed (m/s)',            step: 100   },
     { key: 'Vert_speed',   label: 'Vertical Speed (m/s)',   step: 10    },
@@ -861,15 +862,22 @@ function TelemetryTerminal() {
 }
 
 // ── Station Dashboard ─────────────────────────────────────────────────
-const CHART_DEFS = [
-    { xKey: 'U_Alt', lines: [{ key: '_bilan', color: '#4cbc74' }] },
-    { xKey: 'U_Alt', lines: [{ key: '_fspl',  color: '#ee8a22' }] },
-];
+const ANALYSE_STORAGE_KEY = 'analyse_charts_config';
+
+function loadFavoriteCharts() {
+    try {
+        const saved = localStorage.getItem(ANALYSE_STORAGE_KEY);
+        if (saved) {
+            const parsed = JSON.parse(saved);
+            if (Array.isArray(parsed)) return parsed.filter((c) => c.favorite === true);
+        }
+    } catch {}
+    return [];
+}
 
 const BOTTOM_CHART_DEFS = [
-    { xKey: '_elapsed_min', lines: [{ key: 'U_Alt',      color: '#4fb7d6' }] },
-    { xKey: '_elapsed_min', lines: [{ key: 'Speed',      color: '#ee8a22' },
-                                    { key: 'Vert_speed', color: '#d2b04c' }] },
+    { id: 'station-bottom-alt',   xKey: '_elapsed_min', lines: [{ key: 'U_Alt',  color: '#4fb7d6' }] },
+    { id: 'station-bottom-speed', xKey: '_elapsed_min', lines: [{ key: 'Speed',  color: '#ee8a22' }] },
 ];
 
 export default function StationDashboard() {
@@ -892,20 +900,19 @@ export default function StationDashboard() {
     const currentRecord = chartData[chartData.length - 1] ?? {};
     const firstRecord = trajectoryRecords[0] ?? null;
 
+    const [favoriteCharts, setFavoriteCharts] = useState(() => loadFavoriteCharts());
     const [mapOptions, setMapOptions] = useState({ follow: false, trajectory: true, linkBeam: true });
-    const [trackingStates, setTrackingStates] = useState([true, true]);
+    const [trackingStates, setTrackingStates] = useState(() =>
+        Object.fromEntries(loadFavoriteCharts().map((c) => [c.id, true]))
+    );
     const [bottomTrackingStates, setBottomTrackingStates] = useState([true, true]);
 
     const handleToggleMapOption = (key) => {
         setMapOptions((prev) => ({ ...prev, [key]: !prev[key] }));
     };
 
-    const handleTrackingChange = useCallback((index, val) => {
-        setTrackingStates((prev) => {
-            const next = [...prev];
-            next[index] = val;
-            return next;
-        });
+    const handleTrackingChange = useCallback((id, val) => {
+        setTrackingStates((prev) => ({ ...prev, [id]: val }));
     }, []);
 
     const handleBottomTrackingChange = useCallback((index, val) => {
@@ -914,6 +921,22 @@ export default function StationDashboard() {
             next[index] = val;
             return next;
         });
+    }, []);
+
+    const toggleFavorite = useCallback((chart) => {
+        try {
+            const saved = localStorage.getItem(ANALYSE_STORAGE_KEY);
+            let config = saved ? JSON.parse(saved) : [];
+            if (!Array.isArray(config)) config = [];
+            const idx = config.findIndex((c) => c.id === chart.id);
+            if (idx >= 0) {
+                config[idx] = { ...config[idx], favorite: !config[idx].favorite };
+            } else {
+                config.push({ ...chart, cols: 3, ratio: '2/1', track: true, favorite: true });
+            }
+            localStorage.setItem(ANALYSE_STORAGE_KEY, JSON.stringify(config));
+            setFavoriteCharts(config.filter((c) => c.favorite === true));
+        } catch {}
     }, []);
 
     return (
@@ -934,50 +957,65 @@ export default function StationDashboard() {
                 p: 0.5,
                 overflowY: 'auto',
             }}>
-                {CHART_DEFS.map((chart, i) => (
-                    <Box key={i} sx={{ width: '100%', aspectRatio: '2 / 1', flexShrink: 0 }}>
-                        <Paper sx={{
-                            width: '100%',
-                            height: '100%',
-                            display: 'flex',
-                            flexDirection: 'column',
-                            p: 0,
-                            borderRadius: 1,
-                            overflow: 'hidden',
-                        }}>
-                            <Box sx={{ display: 'flex', alignItems: 'center', px: 0.5, pt: 0.25, flexShrink: 0 }}>
-                                <Box sx={{ flex: 1, textAlign: 'center' }}>
-                                    <ChartTitle chart={chart} />
-                                </Box>
-                                <Box sx={{ display: 'flex', alignItems: 'center', flexShrink: 0 }}>
-                                    <Checkbox
-                                        size="small"
-                                        checked={trackingStates[i]}
-                                        onChange={(e) => handleTrackingChange(i, e.target.checked)}
-                                        sx={{ p: 0.25, color: alpha(theme.palette.text.secondary, 0.5) }}
-                                    />
-                                    <Typography variant="caption" sx={{
-                                        fontSize: 10, lineHeight: 1, userSelect: 'none',
-                                        color: trackingStates[i]
-                                            ? 'text.secondary'
-                                            : alpha(theme.palette.text.secondary, 0.4),
-                                    }}>
-                                        Track
-                                    </Typography>
-                                </Box>
-                            </Box>
-                            <Box sx={{ flex: 1, minHeight: 0 }}>
-                                <TelemetryChart
-                                    data={enrichedData}
-                                    xKey={chart.xKey}
-                                    lines={chart.lines}
-                                    tracking={trackingStates[i]}
-                                    onTrackingChange={(val) => handleTrackingChange(i, val)}
-                                />
-                            </Box>
-                        </Paper>
+                {favoriteCharts.length === 0 ? (
+                    <Box sx={{ p: 1 }}>
+                        <Typography variant="caption" sx={{ color: 'text.disabled', fontSize: 11 }}>
+                            Aucun graphe favori — ajoutez des ⭐ dans /analyse.
+                        </Typography>
                     </Box>
-                ))}
+                ) : (
+                    favoriteCharts.map((chart) => (
+                        <Box key={chart.id} sx={{ width: '100%', aspectRatio: '2 / 1', flexShrink: 0 }}>
+                            <Paper sx={{
+                                width: '100%',
+                                height: '100%',
+                                display: 'flex',
+                                flexDirection: 'column',
+                                p: 0,
+                                borderRadius: 1,
+                                overflow: 'hidden',
+                            }}>
+                                <Box sx={{ display: 'flex', alignItems: 'center', px: 0.5, pt: 0.25, flexShrink: 0 }}>
+                                    <Box sx={{ flex: 1, textAlign: 'center' }}>
+                                        <ChartTitle chart={chart} />
+                                    </Box>
+                                    <Box sx={{ display: 'flex', alignItems: 'center', flexShrink: 0 }}>
+                                        <IconButton
+                                            size="small"
+                                            onClick={() => toggleFavorite(chart)}
+                                            sx={{ p: 0.25, color: '#fbbf24' }}
+                                        >
+                                            <StarIcon sx={{ fontSize: 14 }} />
+                                        </IconButton>
+                                        <Checkbox
+                                            size="small"
+                                            checked={trackingStates[chart.id] ?? true}
+                                            onChange={(e) => handleTrackingChange(chart.id, e.target.checked)}
+                                            sx={{ p: 0.25, color: alpha(theme.palette.text.secondary, 0.5) }}
+                                        />
+                                        <Typography variant="caption" sx={{
+                                            fontSize: 10, lineHeight: 1, userSelect: 'none',
+                                            color: (trackingStates[chart.id] ?? true)
+                                                ? 'text.secondary'
+                                                : alpha(theme.palette.text.secondary, 0.4),
+                                        }}>
+                                            Track
+                                        </Typography>
+                                    </Box>
+                                </Box>
+                                <Box sx={{ flex: 1, minHeight: 0 }}>
+                                    <TelemetryChart
+                                        data={enrichedData}
+                                        xKey={chart.xKey}
+                                        lines={chart.lines}
+                                        tracking={trackingStates[chart.id] ?? true}
+                                        onTrackingChange={(val) => handleTrackingChange(chart.id, val)}
+                                    />
+                                </Box>
+                            </Paper>
+                        </Box>
+                    ))
+                )}
 
                 {/* Terminal télémétrie live */}
                 <Box sx={{ width: '100%', aspectRatio: '2 / 1', flexShrink: 0 }}>

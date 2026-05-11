@@ -24,6 +24,8 @@ import DragIndicatorIcon from '@mui/icons-material/DragIndicator';
 import EditIcon from '@mui/icons-material/Edit';
 import FileDownloadIcon from '@mui/icons-material/FileDownload';
 import FileUploadIcon from '@mui/icons-material/FileUpload';
+import StarIcon from '@mui/icons-material/Star';
+import StarBorderOutlinedIcon from '@mui/icons-material/StarBorderOutlined';
 import {
     CartesianGrid,
     Line,
@@ -373,10 +375,10 @@ const loadSavedCharts = () => {
 };
 
 const DEFAULT_CHARTS = [
-    { id: 'default-0', xKey: 'U_Alt', lines: [{ key: '_bilan',   color: '#4cbc74' }], cols: 3, ratio: '1/1', track: true },
-    { id: 'default-1', xKey: 'U_Alt', lines: [{ key: '_fspl',    color: '#ee8a22' }], cols: 3, ratio: '1/1', track: true },
-    { id: 'default-2', xKey: 'U_Alt', lines: [{ key: 'Pressure', color: '#4fb7d6' }], cols: 3, ratio: '1/1', track: true },
-    { id: 'default-3', xKey: 'U_Alt', lines: [{ key: 'Speed',    color: '#d2b04c' }], cols: 3, ratio: '1/1', track: true },
+    { id: 'default-0', xKey: '_elapsed_min', lines: [{ key: '_bilan',   color: '#4cbc74' }], cols: 3, ratio: '1/1', track: true, favorite: false },
+    { id: 'default-1', xKey: '_elapsed_min', lines: [{ key: '_fspl',    color: '#ee8a22' }], cols: 3, ratio: '1/1', track: true, favorite: false },
+    { id: 'default-2', xKey: '_elapsed_min', lines: [{ key: 'Pressure', color: '#4fb7d6' }], cols: 3, ratio: '1/1', track: true, favorite: false },
+    { id: 'default-3', xKey: '_elapsed_min', lines: [{ key: 'Speed',    color: '#d2b04c' }], cols: 3, ratio: '1/1', track: true, favorite: false },
 ];
 
 function ChartTitle({ chart, sx }) {
@@ -669,6 +671,15 @@ export default function AnalyseDashboard() {
                                             <ChartTitle chart={chart} />
                                         </Box>
                                         <Box sx={{ display: 'flex', alignItems: 'center', flexShrink: 0 }}>
+                                            <IconButton
+                                                size="small"
+                                                onClick={() => updateChart(chart.id, { favorite: !chart.favorite })}
+                                                sx={{ p: 0.25, color: chart.favorite ? '#fbbf24' : alpha(theme.palette.text.secondary, 0.3) }}
+                                            >
+                                                {chart.favorite
+                                                    ? <StarIcon sx={{ fontSize: 14 }} />
+                                                    : <StarBorderOutlinedIcon sx={{ fontSize: 14 }} />}
+                                            </IconButton>
                                             <Checkbox
                                                 size="small"
                                                 checked={chart.track !== false}
