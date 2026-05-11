@@ -154,51 +154,8 @@ function TelemetryChart({ data, xKey, lines, tracking, onTrackingChange }) {
     const scrollRef = useRef(null);
     const isAutoScrollLockRef = useRef(false);
     const autoScrollRafRef = useRef(null);
-    const wheelTargetRef = useRef(0);
-    const wheelRafRef = useRef(null);
-    const onTrackingChangeRef = useRef(onTrackingChange);
-    onTrackingChangeRef.current = onTrackingChange;
     const hasData = !!data?.length && !!lines?.length;
 
-    // Non-passive wheel listener: redirects vertical wheel into smooth horizontal scroll.
-    // onTrackingChange is accessed via a ref so this effect runs only once (no re-mount on
-    // re-render), which prevents the cleanup from cancelling an in-flight wheel animation.
-    useEffect(() => {
-        const el = scrollRef.current;
-        if (!el) return;
-        const onWheel = (e) => {
-            e.preventDefault();
-            // Kill auto-scroll immediately so it doesn't fight the wheel animation.
-            cancelAnimationFrame(autoScrollRafRef.current);
-            autoScrollRafRef.current = null;
-            if (!wheelRafRef.current) wheelTargetRef.current = el.scrollLeft;
-            const raw = e.deltaY !== 0 ? e.deltaY : e.deltaX;
-            wheelTargetRef.current = Math.max(
-                0,
-                Math.min(el.scrollWidth - el.clientWidth, wheelTargetRef.current + raw * 0.4),
-            );
-            onTrackingChangeRef.current(false);
-            if (wheelRafRef.current) return;
-            const animate = () => {
-                const diff = wheelTargetRef.current - el.scrollLeft;
-                isAutoScrollLockRef.current = true;
-                if (Math.abs(diff) < 0.5) {
-                    el.scrollLeft = wheelTargetRef.current;
-                    wheelRafRef.current = null;
-                    return;
-                }
-                el.scrollLeft += diff * 0.12;
-                wheelRafRef.current = requestAnimationFrame(animate);
-            };
-            wheelRafRef.current = requestAnimationFrame(animate);
-        };
-        el.addEventListener('wheel', onWheel, { passive: false });
-        return () => {
-            el.removeEventListener('wheel', onWheel);
-            cancelAnimationFrame(wheelRafRef.current);
-            wheelRafRef.current = null;
-        };
-    }, [hasData]); // re-runs when the DOM element first appears (hasData: false→true)
     const labelFs = theme.typography.caption.fontSize;
 
     const { maxX, minY, maxY } = useMemo(() => {
@@ -261,15 +218,10 @@ function TelemetryChart({ data, xKey, lines, tracking, onTrackingChange }) {
         return result;
     }, [animYMin, animYMax]);
 
-    // rAF-based smooth auto-scroll. We set isAutoScrollLockRef=true before every
-    // el.scrollLeft write so handleScroll can tell our updates apart from user scroll.
     useEffect(() => {
         if (!tracking || !hasData) return;
         const el = scrollRef.current;
         if (!el) return;
-        // Kill any in-flight wheel animation so the two rAFs don't fight each other.
-        cancelAnimationFrame(wheelRafRef.current);
-        wheelRafRef.current = null;
         const targetLeft = Math.max(0, (maxX / stepX) * el.clientWidth - el.clientWidth * 0.5);
         const start = el.scrollLeft;
         const distance = targetLeft - start;
@@ -287,7 +239,6 @@ function TelemetryChart({ data, xKey, lines, tracking, onTrackingChange }) {
         return () => cancelAnimationFrame(autoScrollRafRef.current);
     }, [tracking, maxX, stepX, hasData]);
 
-    // Any scroll event without the lock is user-initiated (wheel, scrollbar drag, touch).
     const handleScroll = useCallback(() => {
         if (isAutoScrollLockRef.current) {
             isAutoScrollLockRef.current = false;

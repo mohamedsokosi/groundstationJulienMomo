@@ -30,7 +30,7 @@ import {
     XAxis,
     YAxis,
 } from 'recharts';
-import { Box, Paper, Typography } from '@mui/material';
+import { Box, Button, Checkbox, Paper, Typography } from '@mui/material';
 import { alpha, useTheme } from '@mui/material/styles';
 import { useTelemetryStream } from './use-telemetry-stream.jsx';
 import { getTelemetryNumber, toTelemetryNumber } from './telemetry-utils.js';
@@ -133,47 +133,7 @@ function TelemetryChart({ data, xKey, lines, tracking, onTrackingChange }) {
     const scrollRef = useRef(null);
     const isAutoScrollLockRef = useRef(false);
     const autoScrollRafRef = useRef(null);
-    const wheelTargetRef = useRef(0);
-    const wheelRafRef = useRef(null);
-    const onTrackingChangeRef = useRef(onTrackingChange);
-    onTrackingChangeRef.current = onTrackingChange;
     const hasData = !!data?.length && !!lines?.length;
-
-    useEffect(() => {
-        const el = scrollRef.current;
-        if (!el) return;
-        const onWheel = (e) => {
-            e.preventDefault();
-            cancelAnimationFrame(autoScrollRafRef.current);
-            autoScrollRafRef.current = null;
-            if (!wheelRafRef.current) wheelTargetRef.current = el.scrollLeft;
-            const raw = e.deltaY !== 0 ? e.deltaY : e.deltaX;
-            wheelTargetRef.current = Math.max(
-                0,
-                Math.min(el.scrollWidth - el.clientWidth, wheelTargetRef.current + raw * 0.4),
-            );
-            onTrackingChangeRef.current(false);
-            if (wheelRafRef.current) return;
-            const animate = () => {
-                const diff = wheelTargetRef.current - el.scrollLeft;
-                isAutoScrollLockRef.current = true;
-                if (Math.abs(diff) < 0.5) {
-                    el.scrollLeft = wheelTargetRef.current;
-                    wheelRafRef.current = null;
-                    return;
-                }
-                el.scrollLeft += diff * 0.12;
-                wheelRafRef.current = requestAnimationFrame(animate);
-            };
-            wheelRafRef.current = requestAnimationFrame(animate);
-        };
-        el.addEventListener('wheel', onWheel, { passive: false });
-        return () => {
-            el.removeEventListener('wheel', onWheel);
-            cancelAnimationFrame(wheelRafRef.current);
-            wheelRafRef.current = null;
-        };
-    }, [hasData]);
 
     const labelFs = theme.typography.caption.fontSize;
 
@@ -235,8 +195,6 @@ function TelemetryChart({ data, xKey, lines, tracking, onTrackingChange }) {
         if (!tracking || !hasData) return;
         const el = scrollRef.current;
         if (!el) return;
-        cancelAnimationFrame(wheelRafRef.current);
-        wheelRafRef.current = null;
         const targetLeft = Math.max(0, (maxX / stepX) * el.clientWidth - el.clientWidth * 0.5);
         const start = el.scrollLeft;
         const distance = targetLeft - start;
@@ -714,14 +672,209 @@ const CesiumViewport = ({ currentRecord, firstRecord, hasData, loading, mapOptio
     );
 };
 
+// ── Telemetry terminal ────────────────────────────────────────────────
+const TERMINAL_FIELDS = ['U_Alt', 'Speed', 'Vert_speed', 'Pressure', '#_Sat', 'U_Lat', 'U_Long'];
+
+function fmtTime(d) {
+    const p = (v) => String(v).padStart(2, '0');
+    return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+}
+
+function TelemetryTerminal() {
+    const { data } = useTelemetryStream();
+    const [lines, setLines] = useState([]);
+    const prevLengthRef = useRef(0);
+    const containerRef = useRef(null);
+    const [autoScroll, setAutoScroll] = useState(true);
+    const suppressScrollRef = useRef(false);
+
+    useEffect(() => {
+        if (!data?.length) {
+            if (prevLengthRef.current > 0) {
+                setLines([]);
+                prevLengthRef.current = 0;
+            }
+            return;
+        }
+        if (data.length < prevLengthRef.current) {
+            setLines([]);
+            prevLengthRef.current = 0;
+        }
+        if (data.length <= prevLengthRef.current) return;
+
+        const newPoints = data.slice(prevLengthRef.current);
+        prevLengthRef.current = data.length;
+
+        const now = new Date();
+        const ts = fmtTime(now);
+        const newLines = newPoints.map((pt) => {
+            const text = TERMINAL_FIELDS
+                .filter((k) => pt[k] !== undefined && pt[k] !== null && pt[k] !== '')
+                .map((k) => {
+                    const v = typeof pt[k] === 'number' ? pt[k].toFixed(2) : pt[k];
+                    return `${k}=${v}`;
+                })
+                .join('  ');
+            return { id: `${Date.now()}-${Math.random()}`, ts, text: text || '[vide]' };
+        });
+
+        setLines((prev) => {
+            const next = [...prev, ...newLines];
+            return next.length > 500 ? next.slice(next.length - 500) : next;
+        });
+    }, [data]);
+
+    useEffect(() => {
+        if (!autoScroll) return;
+        const el = containerRef.current;
+        if (!el) return;
+        suppressScrollRef.current = true;
+        el.scrollTop = el.scrollHeight;
+    }, [lines, autoScroll]);
+
+    const handleScroll = useCallback(() => {
+        if (suppressScrollRef.current) {
+            suppressScrollRef.current = false;
+            return;
+        }
+        const el = containerRef.current;
+        if (!el) return;
+        setAutoScroll(el.scrollTop + el.clientHeight >= el.scrollHeight - 12);
+    }, []);
+
+    const handleClear = useCallback(() => {
+        setLines([]);
+        prevLengthRef.current = 0;
+    }, []);
+
+    return (
+        <Paper sx={{
+            width: '100%',
+            height: '100%',
+            display: 'flex',
+            flexDirection: 'column',
+            borderRadius: 1,
+            overflow: 'hidden',
+            bgcolor: '#050a0f',
+            border: '1px solid #1d2430',
+        }}>
+            {/* Header bar */}
+            <Box sx={{
+                flexShrink: 0,
+                display: 'flex',
+                alignItems: 'center',
+                px: 1,
+                py: 0.25,
+                borderBottom: '1px solid #1d2430',
+                gap: 0.75,
+            }}>
+                <Typography sx={{
+                    fontFamily: 'Consolas, "Courier New", monospace',
+                    fontSize: 10,
+                    fontWeight: 700,
+                    color: '#5cc8ff',
+                    letterSpacing: 0,
+                    lineHeight: 1,
+                }}>
+                    TÉLÉMÉTRIE LIVE
+                </Typography>
+                <Box sx={{ flex: 1 }} />
+                <Box sx={{
+                    width: 6,
+                    height: 6,
+                    borderRadius: '50%',
+                    bgcolor: autoScroll ? '#59d98b' : '#ffcc66',
+                    transition: 'background-color 0.2s',
+                    flexShrink: 0,
+                }} />
+                <Button
+                    size="small"
+                    onClick={handleClear}
+                    sx={{
+                        minWidth: 0,
+                        px: 0.75,
+                        py: 0,
+                        fontSize: 9,
+                        lineHeight: 1.6,
+                        fontFamily: 'Consolas, monospace',
+                        fontWeight: 700,
+                        color: '#a8b3c4',
+                        '&:hover': { color: '#5cc8ff', bgcolor: 'transparent' },
+                    }}
+                >
+                    CLR
+                </Button>
+            </Box>
+
+            {/* Log body */}
+            <Box
+                ref={containerRef}
+                onScroll={handleScroll}
+                sx={{
+                    flex: 1,
+                    minHeight: 0,
+                    overflowY: 'auto',
+                    overflowX: 'hidden',
+                    p: 0.5,
+                    '&::-webkit-scrollbar': { width: 4 },
+                    '&::-webkit-scrollbar-track': { bgcolor: '#0d0f13' },
+                    '&::-webkit-scrollbar-thumb': { bgcolor: '#293241', borderRadius: 2 },
+                }}
+            >
+                {lines.length === 0 ? (
+                    <Typography sx={{
+                        fontFamily: 'Consolas, "Courier New", monospace',
+                        fontSize: 10,
+                        color: '#a8b3c4',
+                        fontStyle: 'italic',
+                        lineHeight: 1.6,
+                    }}>
+                        En attente de données...
+                    </Typography>
+                ) : (
+                    lines.map((line) => (
+                        <Box key={line.id} sx={{ display: 'flex', gap: 1, lineHeight: 1.5 }}>
+                            <Typography component="span" sx={{
+                                fontFamily: 'Consolas, "Courier New", monospace',
+                                fontSize: 10,
+                                color: '#a8b3c4',
+                                flexShrink: 0,
+                                lineHeight: 'inherit',
+                            }}>
+                                {line.ts}
+                            </Typography>
+                            <Typography component="span" sx={{
+                                fontFamily: 'Consolas, "Courier New", monospace',
+                                fontSize: 10,
+                                color: '#59d98b',
+                                wordBreak: 'break-all',
+                                lineHeight: 'inherit',
+                            }}>
+                                {line.text}
+                            </Typography>
+                        </Box>
+                    ))
+                )}
+            </Box>
+        </Paper>
+    );
+}
+
 // ── Station Dashboard ─────────────────────────────────────────────────
 const CHART_DEFS = [
     { xKey: 'U_Alt', lines: [{ key: '_bilan', color: '#4cbc74' }] },
     { xKey: 'U_Alt', lines: [{ key: '_fspl',  color: '#ee8a22' }] },
 ];
 
+const BOTTOM_CHART_DEFS = [
+    { xKey: '_elapsed_min', lines: [{ key: 'U_Alt',      color: '#4fb7d6' }] },
+    { xKey: '_elapsed_min', lines: [{ key: 'Speed',      color: '#ee8a22' },
+                                    { key: 'Vert_speed', color: '#d2b04c' }] },
+];
+
 export default function StationDashboard() {
-    const { chartData, loading, hasData } = useTelemetryStream();
+    const theme = useTheme();
+    const { chartData, loading, hasData } = useTelemetryStream({ intervalMs: 20000 });
 
     const enrichedData = useMemo(
         () => (chartData?.length ? chartData.map(enrich) : []),
@@ -741,6 +894,7 @@ export default function StationDashboard() {
 
     const [mapOptions, setMapOptions] = useState({ follow: false, trajectory: true, linkBeam: true });
     const [trackingStates, setTrackingStates] = useState([true, true]);
+    const [bottomTrackingStates, setBottomTrackingStates] = useState([true, true]);
 
     const handleToggleMapOption = (key) => {
         setMapOptions((prev) => ({ ...prev, [key]: !prev[key] }));
@@ -748,6 +902,14 @@ export default function StationDashboard() {
 
     const handleTrackingChange = useCallback((index, val) => {
         setTrackingStates((prev) => {
+            const next = [...prev];
+            next[index] = val;
+            return next;
+        });
+    }, []);
+
+    const handleBottomTrackingChange = useCallback((index, val) => {
+        setBottomTrackingStates((prev) => {
             const next = [...prev];
             next[index] = val;
             return next;
@@ -773,7 +935,7 @@ export default function StationDashboard() {
                 overflowY: 'auto',
             }}>
                 {CHART_DEFS.map((chart, i) => (
-                    <Box key={i} sx={{ width: '100%', aspectRatio: '1 / 1', flexShrink: 0 }}>
+                    <Box key={i} sx={{ width: '100%', aspectRatio: '2 / 1', flexShrink: 0 }}>
                         <Paper sx={{
                             width: '100%',
                             height: '100%',
@@ -783,8 +945,26 @@ export default function StationDashboard() {
                             borderRadius: 1,
                             overflow: 'hidden',
                         }}>
-                            <Box sx={{ flexShrink: 0, textAlign: 'center', px: 0.5, pt: 0.25 }}>
-                                <ChartTitle chart={chart} />
+                            <Box sx={{ display: 'flex', alignItems: 'center', px: 0.5, pt: 0.25, flexShrink: 0 }}>
+                                <Box sx={{ flex: 1, textAlign: 'center' }}>
+                                    <ChartTitle chart={chart} />
+                                </Box>
+                                <Box sx={{ display: 'flex', alignItems: 'center', flexShrink: 0 }}>
+                                    <Checkbox
+                                        size="small"
+                                        checked={trackingStates[i]}
+                                        onChange={(e) => handleTrackingChange(i, e.target.checked)}
+                                        sx={{ p: 0.25, color: alpha(theme.palette.text.secondary, 0.5) }}
+                                    />
+                                    <Typography variant="caption" sx={{
+                                        fontSize: 10, lineHeight: 1, userSelect: 'none',
+                                        color: trackingStates[i]
+                                            ? 'text.secondary'
+                                            : alpha(theme.palette.text.secondary, 0.4),
+                                    }}>
+                                        Track
+                                    </Typography>
+                                </Box>
                             </Box>
                             <Box sx={{ flex: 1, minHeight: 0 }}>
                                 <TelemetryChart
@@ -798,9 +978,14 @@ export default function StationDashboard() {
                         </Paper>
                     </Box>
                 ))}
+
+                {/* Terminal télémétrie live */}
+                <Box sx={{ width: '100%', aspectRatio: '2 / 1', flexShrink: 0 }}>
+                    <TelemetryTerminal />
+                </Box>
             </Box>
 
-            {/* Right column: 75% — Cesium globe */}
+            {/* Right column: 75% — Cesium 3/4 height + charts 1/4 height */}
             <Box sx={{
                 flex: 1,
                 minWidth: 0,
@@ -808,16 +993,69 @@ export default function StationDashboard() {
                 flexDirection: 'column',
                 p: 0.5,
                 pl: 0,
+                gap: 0.5,
+                overflow: 'hidden',
             }}>
-                <CesiumViewport
-                    currentRecord={currentRecord}
-                    firstRecord={firstRecord}
-                    hasData={hasData}
-                    loading={loading}
-                    mapOptions={mapOptions}
-                    onToggleMapOption={handleToggleMapOption}
-                    trajectoryRecords={trajectoryRecords}
-                />
+                {/* Cesium globe — 3/4 of the right column height */}
+                <Box sx={{ flex: 3, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+                    <CesiumViewport
+                        currentRecord={currentRecord}
+                        firstRecord={firstRecord}
+                        hasData={hasData}
+                        loading={loading}
+                        mapOptions={mapOptions}
+                        onToggleMapOption={handleToggleMapOption}
+                        trajectoryRecords={trajectoryRecords}
+                    />
+                </Box>
+
+                {/* Bottom charts: Altitude vs Temps + Vitesse vs Temps — 1/4 height, 2:1 ratio */}
+                <Box sx={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'row', gap: 0.5 }}>
+                    {BOTTOM_CHART_DEFS.map((chart, i) => (
+                        <Box key={i} sx={{ flex: 1, minWidth: 0, minHeight: 0 }}>
+                            <Paper sx={{
+                                width: '100%',
+                                height: '100%',
+                                display: 'flex',
+                                flexDirection: 'column',
+                                p: 0,
+                                borderRadius: 1,
+                                overflow: 'hidden',
+                            }}>
+                                <Box sx={{ display: 'flex', alignItems: 'center', px: 0.5, pt: 0.25, flexShrink: 0 }}>
+                                    <Box sx={{ flex: 1, textAlign: 'center' }}>
+                                        <ChartTitle chart={chart} />
+                                    </Box>
+                                    <Box sx={{ display: 'flex', alignItems: 'center', flexShrink: 0 }}>
+                                        <Checkbox
+                                            size="small"
+                                            checked={bottomTrackingStates[i]}
+                                            onChange={(e) => handleBottomTrackingChange(i, e.target.checked)}
+                                            sx={{ p: 0.25, color: alpha(theme.palette.text.secondary, 0.5) }}
+                                        />
+                                        <Typography variant="caption" sx={{
+                                            fontSize: 10, lineHeight: 1, userSelect: 'none',
+                                            color: bottomTrackingStates[i]
+                                                ? 'text.secondary'
+                                                : alpha(theme.palette.text.secondary, 0.4),
+                                        }}>
+                                            Track
+                                        </Typography>
+                                    </Box>
+                                </Box>
+                                <Box sx={{ flex: 1, minHeight: 0 }}>
+                                    <TelemetryChart
+                                        data={enrichedData}
+                                        xKey={chart.xKey}
+                                        lines={chart.lines}
+                                        tracking={bottomTrackingStates[i]}
+                                        onTrackingChange={(val) => handleBottomTrackingChange(i, val)}
+                                    />
+                                </Box>
+                            </Paper>
+                        </Box>
+                    ))}
+                </Box>
             </Box>
         </Box>
     );
