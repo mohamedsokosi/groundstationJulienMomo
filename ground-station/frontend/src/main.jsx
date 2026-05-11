@@ -9,6 +9,7 @@ import TelemetryDashboard from "./pages/telemetry-dashboard.jsx";
 import CubeSatDashboard from "./pages/cubesat-dashboard.jsx";
 import AnalyseDashboard from "./pages/analyse-dashboard.jsx";
 import RapportDashboard from "./pages/rapport-dashboard.jsx";
+import StationDashboard from "./pages/station-dashboard.jsx";
 import { SocketProvider } from './shared/socket.jsx';
 import { Provider as ReduxProvider } from 'react-redux';
 import { PersistGate } from 'redux-persist/integration/react';
@@ -42,6 +43,10 @@ const router = createBrowserRouter([
                     {
                         path: "rapport",
                         Component: RapportDashboard,
+                    },
+                    {
+                        path: "station",
+                        Component: StationDashboard,
                     },
                 ],
             },

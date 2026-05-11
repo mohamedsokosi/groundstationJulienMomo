@@ -33,6 +33,7 @@ import TuneIcon from '@mui/icons-material/Tune';
 import SatelliteAltIcon from '@mui/icons-material/SatelliteAlt';
 import InsightsIcon from '@mui/icons-material/Insights';
 import SummarizeIcon from '@mui/icons-material/Summarize';
+import SatelliteAltOutlinedIcon from '@mui/icons-material/SatelliteAltOutlined';
 import i18n from '../i18n/config.js';
 import { TleIcon } from '../shared/custom-icons.jsx';
 import { Box, CircularProgress } from '@mui/material';
@@ -347,6 +348,11 @@ export const getNavigation = () => [
         segment: 'rapport',
         title: 'Rapport',
         icon: <SummarizeIcon />,
+    },
+    {
+        segment: 'station',
+        title: 'Station',
+        icon: <SatelliteAltOutlinedIcon />,
     },
     /*
     {
