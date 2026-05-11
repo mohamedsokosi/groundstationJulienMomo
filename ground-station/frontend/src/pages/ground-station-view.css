@@ -357,42 +357,51 @@
 }
 
 .gs-zoom-button {
+    --gs-control-accent: var(--mui-palette-primary-main, #5cc8ff);
     display: flex;
     align-items: center;
     justify-content: center;
     width: 100%;
     height: 28px;
-    border: 1px solid var(--mui-palette-border-main, #293241);
-    border-radius: 4px;
-    color: var(--mui-palette-primary-main, #5cc8ff);
-    background: var(--mui-palette-background-elevated, #1d2430);
+    border: 1px solid color-mix(in srgb, var(--gs-control-accent) 24%, var(--mui-palette-border-main, #293241));
+    border-left: 4px solid var(--gs-control-accent);
+    border-radius: 6px;
+    color: var(--gs-control-accent);
+    background:
+        linear-gradient(135deg, color-mix(in srgb, var(--gs-control-accent) 12%, transparent), transparent 70%),
+        var(--mui-palette-background-paper, #151a21);
     box-shadow: none;
     font: 900 18px/1 Consolas, "Courier New", monospace;
+    letter-spacing: 0;
     cursor: pointer;
-    transition: transform 130ms ease, background 130ms ease, box-shadow 130ms ease;
+    transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease, background 160ms ease;
 }
 
 .gs-zoom-button:hover {
-    background: color-mix(in srgb, var(--mui-palette-primary-main, #5cc8ff) 16%, var(--mui-palette-background-elevated, #1d2430));
+    border-color: color-mix(in srgb, var(--gs-control-accent) 48%, var(--mui-palette-border-main, #293241));
     box-shadow: none;
     transform: translateY(-1px);
 }
 
 .gs-cyan-button {
+    --gs-control-accent: var(--mui-palette-primary-main, #5cc8ff);
     display: flex;
     align-items: center;
     justify-content: center;
     width: 232px;
     height: 26px;
-    border: 1px solid var(--mui-palette-border-main, #293241);
-    border-radius: 4px;
-    color: var(--mui-palette-primary-main, #5cc8ff);
-    background: var(--mui-palette-background-elevated, #1d2430);
+    border: 1px solid color-mix(in srgb, var(--gs-control-accent) 24%, var(--mui-palette-border-main, #293241));
+    border-left: 4px solid var(--gs-control-accent);
+    border-radius: 6px;
+    color: var(--gs-control-accent);
+    background:
+        linear-gradient(135deg, color-mix(in srgb, var(--gs-control-accent) 12%, transparent), transparent 70%),
+        var(--mui-palette-background-paper, #151a21);
     box-shadow: none;
     font: 800 10px/1 Roboto, Arial, sans-serif;
     letter-spacing: 0;
     cursor: pointer;
-    transition: transform 130ms ease, background 130ms ease, box-shadow 130ms ease;
+    transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease, background 160ms ease;
 }
 
 .gs-right-panel.compact .gs-cyan-button {
@@ -400,18 +409,17 @@
 }
 
 .gs-cyan-button.is-on {
-    color: var(--mui-palette-background-default, #0d0f13);
-    background: var(--mui-palette-primary-main, #5cc8ff);
-    border-color: var(--mui-palette-primary-main, #5cc8ff);
+    --gs-control-accent: var(--mui-palette-primary-main, #5cc8ff);
+    color: var(--mui-palette-primary-main, #5cc8ff);
 }
 
 .gs-cyan-button:not(.is-on) {
+    --gs-control-accent: var(--mui-palette-text-secondary, #a8b3c4);
     color: var(--mui-palette-text-secondary, #a8b3c4);
-    background: var(--mui-palette-background-elevated, #1d2430);
 }
 
 .gs-cyan-button:hover {
-    background: color-mix(in srgb, var(--mui-palette-primary-main, #5cc8ff) 18%, var(--mui-palette-background-elevated, #1d2430));
+    border-color: color-mix(in srgb, var(--gs-control-accent) 48%, var(--mui-palette-border-main, #293241));
     box-shadow: none;
     transform: translateY(-1px);
 }
@@ -553,13 +561,20 @@
 .gs-play-button,
 .gs-reset-button,
 .gs-speed-select {
+    --gs-control-accent: var(--mui-palette-primary-main, #5cc8ff);
     height: 28px;
-    border: 1px solid var(--mui-palette-border-main, #293241);
-    border-radius: 4px;
-    color: var(--mui-palette-primary-main, #5cc8ff);
-    background: var(--mui-palette-background-elevated, #1d2430);
+    border: 1px solid color-mix(in srgb, var(--gs-control-accent) 24%, var(--mui-palette-border-main, #293241));
+    border-left: 4px solid var(--gs-control-accent);
+    border-radius: 6px;
+    color: var(--gs-control-accent);
+    background:
+        linear-gradient(135deg, color-mix(in srgb, var(--gs-control-accent) 12%, transparent), transparent 70%),
+        var(--mui-palette-background-paper, #151a21);
+    box-shadow: none;
     font: 800 11px/1 Roboto, Arial, sans-serif;
-    transition: background 130ms ease, box-shadow 130ms ease;
+    letter-spacing: 0;
+    cursor: pointer;
+    transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease, background 160ms ease;
 }
 
 .gs-play-button {
@@ -567,14 +582,16 @@
 }
 
 .gs-reset-button {
+    --gs-control-accent: var(--mui-palette-info-main, #5cc8ff);
     width: 64px;
 }
 
 .gs-play-button:hover,
 .gs-reset-button:hover,
 .gs-speed-select:hover {
-    background: color-mix(in srgb, var(--mui-palette-primary-main, #5cc8ff) 14%, var(--mui-palette-background-elevated, #1d2430));
+    border-color: color-mix(in srgb, var(--gs-control-accent) 48%, var(--mui-palette-border-main, #293241));
     box-shadow: none;
+    transform: translateY(-1px);
 }
 
 .gs-timecode {
@@ -624,9 +641,9 @@
 }
 
 .gs-speed-select {
+    --gs-control-accent: var(--mui-palette-primary-main, #5cc8ff);
     width: 78px;
     padding: 0 8px;
-    color: var(--mui-palette-text-secondary, #a8b3c4);
     background-color: var(--mui-palette-background-elevated, #1d2430);
 }
 
