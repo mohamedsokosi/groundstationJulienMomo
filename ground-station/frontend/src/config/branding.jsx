@@ -17,14 +17,14 @@
  *
  */
 
-import {GroundStationLogoGreenBlue} from "../shared/dataurl-icons.jsx";
+const SAFARI_HEADER_LOGO = "/SAFARI.png";
 
 export const BRANDING = {
     logo: (
         <img
-            src={GroundStationLogoGreenBlue}
-            alt="Ground Station"
-            style={{height: 128}}
+            src={SAFARI_HEADER_LOGO}
+            alt="SAFARI"
+            style={{height: 128, width: 228, objectFit: 'cover', borderRadius: 8}}
         />
     ),
     title: 'Ground Station',
