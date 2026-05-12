@@ -19,48 +19,22 @@
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
-    ArcType,
-    ArcGisMapServerImageryProvider,
-    Cartesian2,
-    Cartesian3,
-    CallbackProperty,
-    Color,
-    ColorMaterialProperty,
-    createWorldImageryAsync,
-    Ion,
-    IonWorldImageryStyle,
-    LabelStyle,
-    HeadingPitchRange,
-    Math as CesiumMath,
-    Matrix4,
-    OpenStreetMapImageryProvider,
-    PolylineGlowMaterialProperty,
-    TileMapServiceImageryProvider,
-    VerticalOrigin,
-    Viewer,
-} from 'cesium';
-import 'cesium/Build/Cesium/Widgets/widgets.css';
-import {
     getTelemetryNumber,
     isTelemetryNumericHeader,
     normalizeTelemetryHeader,
     toTelemetryNumber,
+    distanceKm,
 } from './telemetry-utils.js';
 import {
     parseTelemetryProtobuf,
     TELEMETRY_PROTOBUF_SOURCE_URL,
     TELEMETRY_SOURCE_URL,
 } from './telemetry-data-source.js';
+import { getTelemetryRecordGeo } from './cesium-utils.js';
+import { CesiumViewport } from './CesiumViewport.jsx';
+import { TelemetryStatsBar } from './TelemetryStatsBar.jsx';
 import './ground-station-view.css';
 
-const DEFAULT_CENTER = [48.55, -81.35];
-const MAP_CAMERA_HEIGHT = 180000;
-const MAP_CAMERA_PITCH = -48;
-const MAP_CAMERA_HEADING = 32;
-const MAP_MIN_CAMERA_HEIGHT = 12000;
-const MAP_MAX_CAMERA_HEIGHT = 2400000;
-const MAP_ZOOM_FACTOR = 0.36;
-const ARCGIS_WORLD_IMAGERY_URL = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer';
 const TELEMETRY_ENDPOINTS = [
     { url: TELEMETRY_PROTOBUF_SOURCE_URL, format: 'protobuf' },
     { url: TELEMETRY_SOURCE_URL, format: 'csv' },
@@ -76,18 +50,13 @@ const withTelemetryCacheBuster = (endpoint) => {
 };
 
 const getTelemetryPayloadSignature = (payload, format) => {
-    if (format !== 'protobuf') {
-        return `${format}:${payload}`;
-    }
-
+    if (format !== 'protobuf') return `${format}:${payload}`;
     const bytes = new Uint8Array(payload);
     let hash = 2166136261;
-
-    for (let index = 0; index < bytes.length; index += 1) {
-        hash ^= bytes[index];
+    for (let i = 0; i < bytes.length; i += 1) {
+        hash ^= bytes[i];
         hash = Math.imul(hash, 16777619);
     }
-
     return `${format}:${bytes.byteLength}:${hash >>> 0}`;
 };
 
@@ -100,577 +69,36 @@ const getTelemetryRowIdentity = (record = {}) => [
 ].join('|');
 
 const parseCSV = (text) => {
-    const lines = text
-        .split(/\r?\n/)
-        .map(line => line.trim())
-        .filter(Boolean);
-
-    if (lines.length === 0) {
-        return [];
-    }
-
-    const headers = lines[0].split(',').map(header => header.trim());
-
+    const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+    if (lines.length === 0) return [];
+    const headers = lines[0].split(',').map(h => h.trim());
     return lines.slice(1).map((line, rowIndex) => {
-        const values = line.split(',').map(value => value.trim());
+        const values = line.split(',').map(v => v.trim());
         const obj = { streamIndex: rowIndex };
-
         headers.forEach((header, index) => {
             const value = values[index];
             const parsedValue = isTelemetryNumericHeader(header)
                 ? toTelemetryNumber(value)
                 : value ?? '';
             const normalizedHeader = normalizeTelemetryHeader(header);
-
             obj[header] = parsedValue;
             obj[normalizedHeader] = parsedValue;
         });
-
         return obj;
     });
 };
 
 const formatClock = (value, fallback) => {
     if (!value) return fallback;
-
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return fallback;
-
-    return date.toLocaleTimeString('fr-CA', {
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-        hour12: false,
-    });
+    return date.toLocaleTimeString('fr-CA', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
 };
 
-const getRecordClock = (record, fallback) => {
-    return formatClock(record?.['m-time'] || record?.m_time || record?.['Ublox UTC'] || record?.Ublox_UTC, fallback);
-};
+const getRecordClock = (record, fallback) =>
+    formatClock(record?.['m-time'] || record?.m_time || record?.['Ublox UTC'] || record?.Ublox_UTC, fallback);
 
-const distanceKm = (start, end) => {
-    if (!start || !end) return 0;
-
-    const earthRadiusKm = 6371;
-    const toRadians = (value) => value * Math.PI / 180;
-    const dLat = toRadians(end[0] - start[0]);
-    const dLon = toRadians(end[1] - start[1]);
-    const lat1 = toRadians(start[0]);
-    const lat2 = toRadians(end[0]);
-    const a = Math.sin(dLat / 2) ** 2 +
-        Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
-
-    return earthRadiusKm * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-};
-
-const getMqttSourceStat = (mqttStatus) => {
-    if (!mqttStatus) {
-        return {
-            label: 'SOURCE',
-            value: 'UNKNOWN',
-            detail: 'status indisponible',
-            sourceState: 'unknown',
-            tone: 'neutral',
-        };
-    }
-
-    if (mqttStatus.using_mqtt_store) {
-        return {
-            label: 'SOURCE',
-            value: 'MQTT LIVE',
-            detail: `${mqttStatus.stored_frames ?? 0} frames`,
-            sourceState: 'live',
-            tone: 'success',
-        };
-    }
-
-    if (mqttStatus.enabled) {
-        return {
-            label: 'SOURCE',
-            value: 'MQTT WAIT',
-            detail: '0 frame',
-            sourceState: 'waiting',
-            tone: 'warning',
-        };
-    }
-
-    return {
-        label: 'SOURCE',
-        value: 'CSV FALLBACK',
-        detail: 'mqtt off',
-        sourceState: 'fallback',
-        tone: 'neutral',
-    };
-};
-
-const TelemetryStatsBar = ({ currentRecord, distance, mqttStatus }) => {
-    const altitude = getTelemetryNumber(currentRecord, ['U_Alt', 'U Alt'], 0);
-    const speed = getTelemetryNumber(currentRecord, 'Speed', 0);
-    const satellites = getTelemetryNumber(currentRecord, ['#_Sat', '#Sat'], 0);
-    const pressure = getTelemetryNumber(currentRecord, 'Pressure', 0);
-    const stats = [
-        { label: 'ALTITUDE', value: `${altitude.toFixed(0)} m`, tone: 'altitude' },
-        { label: 'DISTANCE', value: `${distance.toFixed(4)} km`, tone: 'distance' },
-        { label: 'VITESSE', value: `${speed.toFixed(2)} m/s`, tone: 'speed' },
-        { label: 'GPS SAT', value: satellites.toFixed(0), tone: 'satellites' },
-        { label: 'PRESSION', value: `${pressure.toFixed(1)} hPa`, tone: 'pressure' },
-        { label: 'STATUS', value: 'NOMINAL', status: true, tone: 'success' },
-        getMqttSourceStat(mqttStatus),
-    ];
-
-    return (
-        <section className="gs-stats-bar" aria-label="Resume telemetrie">
-            {stats.map(stat => (
-                <article
-                    className={[
-                        'gs-stat-card',
-                        stat.tone ? `gs-stat-tone-${stat.tone}` : '',
-                        stat.status ? 'gs-stat-status' : '',
-                        stat.sourceState ? `gs-stat-source is-${stat.sourceState}` : '',
-                    ].filter(Boolean).join(' ')}
-                    key={stat.label}
-                >
-                    <span className="gs-stat-label">{stat.label}</span>
-                    <span className="gs-stat-value">{stat.value}</span>
-                    {stat.detail && <span className="gs-stat-detail">{stat.detail}</span>}
-                </article>
-            ))}
-        </section>
-    );
-};
-
-const RightControlPanel = ({ onZoomIn, onZoomOut, options, onToggle }) => {
-    const controls = [
-        { key: 'follow', label: 'Suivre CubeSat' },
-        { key: 'trajectory', label: 'Trajectoire' },
-        { key: 'linkBeam', label: 'Liaison sol' },
-    ];
-
-    return (
-        <aside className="gs-right-panel compact" aria-label="Controles carte">
-            <div className="gs-control-stack">
-                <div className="gs-zoom-controls" aria-label="Zoom carte">
-                    <button
-                        className="gs-zoom-button"
-                        onClick={onZoomIn}
-                        title="Zoom avant"
-                        type="button"
-                        aria-label="Zoom avant"
-                    >
-                        +
-                    </button>
-                    <button
-                        className="gs-zoom-button"
-                        onClick={onZoomOut}
-                        title="Zoom arriere"
-                        type="button"
-                        aria-label="Zoom arriere"
-                    >
-                        -
-                    </button>
-                </div>
-                {controls.map(control => (
-                    <button
-                        className={`gs-cyan-button${options[control.key] ? ' is-on' : ''}`}
-                        key={control.key}
-                        onClick={() => onToggle(control.key)}
-                        type="button"
-                    >
-                        {control.label} {options[control.key] ? 'ON' : 'OFF'}
-                    </button>
-                ))}
-            </div>
-        </aside>
-    );
-};
-
-const getTelemetryRecordGeo = (record) => {
-    const lat = toTelemetryNumber(record?.['U_Lat'], null);
-    const lon = toTelemetryNumber(record?.['U_Long'], null);
-    const alt = getTelemetryNumber(record, ['U_Alt', 'U Alt'], 0);
-
-    if (lat === null || lon === null) {
-        return null;
-    }
-
-    return { lat, lon, alt };
-};
-
-const getCesiumRecordPosition = (record) => {
-    const geo = getTelemetryRecordGeo(record);
-
-    if (!geo) {
-        return null;
-    }
-
-    const { lat, lon, alt } = geo;
-    return Cartesian3.fromDegrees(lon, lat, alt);
-};
-
-const getCesiumGroundPosition = (record) => {
-    const geo = getTelemetryRecordGeo(record);
-
-    if (!geo) {
-        return null;
-    }
-
-    return Cartesian3.fromDegrees(geo.lon, geo.lat, 0);
-};
-
-const getTrajectoryCameraView = (records) => {
-    const points = records
-        .map(getTelemetryRecordGeo)
-        .filter(Boolean);
-
-    if (points.length === 0) {
-        return {
-            lon: DEFAULT_CENTER[1],
-            lat: DEFAULT_CENTER[0],
-            height: MAP_CAMERA_HEIGHT,
-        };
-    }
-
-    const lats = points.map(point => point.lat);
-    const lons = points.map(point => point.lon);
-    const minLat = Math.min(...lats);
-    const maxLat = Math.max(...lats);
-    const minLon = Math.min(...lons);
-    const maxLon = Math.max(...lons);
-    const span = Math.max(maxLat - minLat, maxLon - minLon);
-
-    return {
-        lon: (minLon + maxLon) / 2,
-        lat: (minLat + maxLat) / 2,
-        height: Math.min(MAP_MAX_CAMERA_HEIGHT, Math.max(MAP_CAMERA_HEIGHT, span * 640000)),
-    };
-};
-
-const createBaseImageryProvider = async () => {
-    if (Ion.defaultAccessToken) {
-        try {
-            return await createWorldImageryAsync({
-                style: IonWorldImageryStyle.ROAD,
-            });
-        } catch (error) {
-            console.warn('Cesium ion road map unavailable, falling back to OpenStreetMap.', error);
-        }
-    }
-
-    try {
-        return new OpenStreetMapImageryProvider({
-            url: 'https://tile.openstreetmap.org/',
-        });
-    } catch (error) {
-        console.warn('OpenStreetMap unavailable, falling back to ArcGIS satellite imagery.', error);
-    }
-
-    try {
-        return await ArcGisMapServerImageryProvider.fromUrl(ARCGIS_WORLD_IMAGERY_URL);
-    } catch (error) {
-        console.warn('ArcGIS satellite imagery unavailable, falling back to local Cesium imagery.', error);
-        return TileMapServiceImageryProvider.fromUrl('/cesiumStatic/Assets/Textures/NaturalEarthII');
-    }
-};
-
-const MapViewport = ({
-    currentRecord,
-    firstRecord,
-    hasData,
-    loading,
-    mapOptions,
-    onToggleMapOption,
-    trajectoryRecords,
-}) => {
-    const containerRef = useRef(null);
-    const viewerRef = useRef(null);
-    const satelliteEntityRef = useRef(null);
-    const startEntityRef = useRef(null);
-    const trajectoryEntityRef = useRef(null);
-    const linkEntityRef = useRef(null);
-    const verticalLineEntityRef = useRef(null);
-    const groundProjectionEntityRef = useRef(null);
-    const trajectoryPositionsRef = useRef([]);
-    const linkPositionsRef = useRef([]);
-    const verticalPositionsRef = useRef([]);
-    const initializedRef = useRef(false);
-    const cameraHeightRef = useRef(MAP_CAMERA_HEIGHT);
-
-    const setThreeDCameraView = (viewer, lon, lat, height = cameraHeightRef.current) => {
-        const nextHeight = Math.min(MAP_MAX_CAMERA_HEIGHT, Math.max(MAP_MIN_CAMERA_HEIGHT, height));
-
-        cameraHeightRef.current = nextHeight;
-        viewer.camera.lookAt(
-            Cartesian3.fromDegrees(lon, lat, 0),
-            new HeadingPitchRange(
-                CesiumMath.toRadians(MAP_CAMERA_HEADING),
-                CesiumMath.toRadians(MAP_CAMERA_PITCH),
-                nextHeight,
-            ),
-        );
-        viewer.camera.lookAtTransform(Matrix4.IDENTITY);
-    };
-
-    const handleZoom = (direction) => {
-        const viewer = viewerRef.current;
-        if (!viewer) return;
-
-        const currentHeight = viewer.camera.positionCartographic.height || cameraHeightRef.current;
-        const nextHeight = direction === 'in'
-            ? currentHeight * (1 - MAP_ZOOM_FACTOR)
-            : currentHeight * (1 + MAP_ZOOM_FACTOR);
-
-        cameraHeightRef.current = Math.min(MAP_MAX_CAMERA_HEIGHT, Math.max(MAP_MIN_CAMERA_HEIGHT, nextHeight));
-
-        if (direction === 'in') {
-            viewer.camera.zoomIn(currentHeight - cameraHeightRef.current);
-        } else {
-            viewer.camera.zoomOut(cameraHeightRef.current - currentHeight);
-        }
-    };
-
-    useEffect(() => {
-        let disposed = false;
-        let resizeObserver = null;
-
-        const initializeViewer = async () => {
-            if (!containerRef.current || viewerRef.current) return;
-
-            const token = import.meta.env.VITE_CESIUM_ION_TOKEN;
-            if (token) {
-                Ion.defaultAccessToken = token;
-            }
-
-            if (disposed || !containerRef.current) return;
-
-            const viewer = new Viewer(containerRef.current, {
-                animation: false,
-                baseLayerPicker: false,
-                fullscreenButton: false,
-                geocoder: false,
-                homeButton: false,
-                infoBox: false,
-                navigationHelpButton: false,
-                sceneModePicker: false,
-                selectionIndicator: false,
-                timeline: false,
-                baseLayer: false,
-            });
-
-            viewer.scene.globe.enableLighting = false;
-            viewer.scene.globe.depthTestAgainstTerrain = false;
-            viewer.scene.globe.baseColor = Color.fromCssColorString('#0a141e');
-            viewer.scene.skyAtmosphere.show = false;
-            viewer.scene.skyBox.show = false;
-            viewer.scene.sun.show = false;
-            viewer.scene.moon.show = false;
-            viewer.scene.backgroundColor = Color.fromCssColorString('#050a0f');
-            viewer.scene.requestRenderMode = false;
-            setThreeDCameraView(viewer, DEFAULT_CENTER[1], DEFAULT_CENTER[0], MAP_CAMERA_HEIGHT);
-            const controls = viewer.scene.screenSpaceCameraController;
-            controls.enableRotate = true;
-            controls.enableZoom = true;
-            controls.enablePan = true;
-            controls.enableTilt = true;
-            controls.enableLook = false;
-            controls.zoomFactor = 3;
-            controls.minimumZoomDistance = MAP_MIN_CAMERA_HEIGHT;
-            controls.maximumZoomDistance = MAP_MAX_CAMERA_HEIGHT;
-
-            resizeObserver = new ResizeObserver(() => viewer.resize());
-            resizeObserver.observe(containerRef.current);
-            viewerRef.current = viewer;
-
-            const maxTextureSize = viewer.scene.context?.maximumTextureSize;
-            if (maxTextureSize !== 0) {
-                createBaseImageryProvider().then((imageryProvider) => {
-                    if (!disposed && viewerRef.current && !viewerRef.current.isDestroyed()) {
-                        viewer.imageryLayers.addImageryProvider(imageryProvider, 0);
-                    }
-                }).catch((error) => {
-                    console.warn('Cesium imagery layer could not be loaded.', error);
-                });
-            }
-        };
-
-        initializeViewer();
-
-        return () => {
-            disposed = true;
-            resizeObserver?.disconnect();
-            if (viewerRef.current && !viewerRef.current.isDestroyed()) {
-                viewerRef.current.destroy();
-            }
-            viewerRef.current = null;
-        };
-    }, []);
-
-    useEffect(() => {
-        const viewer = viewerRef.current;
-        if (!viewer) return;
-
-        const positions = trajectoryRecords
-            .map(getCesiumRecordPosition)
-            .filter(Boolean);
-        const currentPosition = getCesiumRecordPosition(currentRecord);
-        const groundPosition = getCesiumGroundPosition(currentRecord);
-        const startPosition = getCesiumRecordPosition(firstRecord);
-        const linkPositions = startPosition && currentPosition ? [startPosition, currentPosition] : [];
-        const verticalPositions = groundPosition && currentPosition ? [groundPosition, currentPosition] : [];
-
-        trajectoryPositionsRef.current = positions;
-        linkPositionsRef.current = linkPositions;
-        verticalPositionsRef.current = verticalPositions;
-
-        if (!trajectoryEntityRef.current) {
-            trajectoryEntityRef.current = viewer.entities.add({
-                name: 'Trajectoire CubeSat',
-                polyline: {
-                    positions: new CallbackProperty(() => trajectoryPositionsRef.current, false),
-                    width: 4,
-                    arcType: ArcType.NONE,
-                    material: new PolylineGlowMaterialProperty({
-                        glowPower: 0.16,
-                        color: Color.CYAN.withAlpha(0.96),
-                    }),
-                },
-            });
-        }
-        trajectoryEntityRef.current.show = mapOptions.trajectory && positions.length > 1;
-
-        if (startPosition && !startEntityRef.current) {
-            startEntityRef.current = viewer.entities.add({
-                name: 'Depart trajectoire',
-                position: startPosition,
-                point: {
-                    pixelSize: 11,
-                    color: Color.LIME,
-                    outlineColor: Color.WHITE,
-                    outlineWidth: 1,
-                },
-            });
-        } else if (startPosition) {
-            startEntityRef.current.position = startPosition;
-        }
-
-        if (currentPosition && !satelliteEntityRef.current) {
-            satelliteEntityRef.current = viewer.entities.add({
-                name: 'CubeSat temps reel',
-                position: currentPosition,
-                point: {
-                    pixelSize: 13,
-                    color: Color.RED,
-                    outlineColor: Color.WHITE,
-                    outlineWidth: 2,
-                },
-                label: {
-                    text: 'CubeSat',
-                    font: '12px Consolas',
-                    fillColor: Color.CYAN,
-                    outlineColor: Color.BLACK,
-                    outlineWidth: 3,
-                    style: LabelStyle.FILL_AND_OUTLINE,
-                    verticalOrigin: VerticalOrigin.BOTTOM,
-                    pixelOffset: new Cartesian2(0, -16),
-                },
-            });
-        } else if (currentPosition) {
-            satelliteEntityRef.current.position = currentPosition;
-        }
-
-        if (!linkEntityRef.current) {
-            linkEntityRef.current = viewer.entities.add({
-                name: 'Liaison sol',
-                polyline: {
-                    positions: new CallbackProperty(() => linkPositionsRef.current, false),
-                    width: 2,
-                    arcType: ArcType.NONE,
-                    material: new ColorMaterialProperty(Color.LIME.withAlpha(0.78)),
-                },
-            });
-        }
-        linkEntityRef.current.show = mapOptions.linkBeam && Boolean(startPosition && currentPosition);
-
-        if (!verticalLineEntityRef.current) {
-            verticalLineEntityRef.current = viewer.entities.add({
-                name: 'Axe Z CubeSat',
-                polyline: {
-                    positions: new CallbackProperty(() => verticalPositionsRef.current, false),
-                    width: 3,
-                    arcType: ArcType.NONE,
-                    material: new PolylineGlowMaterialProperty({
-                        glowPower: 0.24,
-                        color: Color.YELLOW.withAlpha(0.92),
-                    }),
-                },
-            });
-        }
-        verticalLineEntityRef.current.show = Boolean(groundPosition && currentPosition);
-
-        if (groundPosition && !groundProjectionEntityRef.current) {
-            groundProjectionEntityRef.current = viewer.entities.add({
-                name: 'Projection sol CubeSat',
-                position: groundPosition,
-                point: {
-                    pixelSize: 9,
-                    color: Color.YELLOW.withAlpha(0.85),
-                    outlineColor: Color.BLACK,
-                    outlineWidth: 1,
-                },
-            });
-        } else if (groundPosition) {
-            groundProjectionEntityRef.current.position = groundPosition;
-        }
-        if (groundProjectionEntityRef.current) {
-            groundProjectionEntityRef.current.show = Boolean(groundPosition);
-        }
-
-        if (!initializedRef.current && positions.length > 1) {
-            initializedRef.current = true;
-            const cameraView = getTrajectoryCameraView(trajectoryRecords);
-            setThreeDCameraView(viewer, cameraView.lon, cameraView.lat, cameraView.height);
-        }
-
-        viewer.trackedEntity = undefined;
-
-        if (mapOptions.follow && currentRecord) {
-            const currentGeo = getTelemetryRecordGeo(currentRecord);
-
-            if (currentGeo) {
-                setThreeDCameraView(viewer, currentGeo.lon, currentGeo.lat, cameraHeightRef.current);
-            }
-        }
-    }, [currentRecord, firstRecord, mapOptions.follow, mapOptions.linkBeam, mapOptions.trajectory, trajectoryRecords]);
-
-    return (
-        <section className="gs-map-frame gs-cesium-frame" aria-label="Globe Cesium de suivi CubeSat">
-            <div ref={containerRef} className="gs-cesium-viewer" />
-            <RightControlPanel
-                onToggle={onToggleMapOption}
-                onZoomIn={() => handleZoom('in')}
-                onZoomOut={() => handleZoom('out')}
-                options={mapOptions}
-            />
-            {(loading || !hasData) && (
-                <div className="gs-map-status">
-                    {loading ? 'CHARGEMENT CSV...' : 'AUCUNE TELEMETRIE'}
-                </div>
-            )}
-        </section>
-    );
-};
-
-const TimelineControls = ({
-    currentLabel,
-    endLabel,
-    isPlaying,
-    onReset,
-    onSeek,
-    onSpeedChange,
-    onTogglePlay,
-    progress,
-    speedMs,
-    startLabel,
-}) => (
+const TimelineControls = ({ currentLabel, endLabel, isPlaying, onReset, onSeek, onSpeedChange, onTogglePlay, progress, speedMs, startLabel }) => (
     <footer className="gs-timeline" aria-label="Timeline player">
         <button className="gs-play-button" onClick={onTogglePlay} type="button">
             {isPlaying ? 'PAUSE' : 'PLAY'}
@@ -683,7 +111,7 @@ const TimelineControls = ({
             className="gs-range"
             max="100"
             min="0"
-            onChange={(event) => onSeek(Number(event.target.value))}
+            onChange={(e) => onSeek(Number(e.target.value))}
             type="range"
             value={progress}
             aria-label="Pass timeline"
@@ -691,7 +119,7 @@ const TimelineControls = ({
         <span className="gs-timecode">{currentLabel || endLabel}</span>
         <select
             className="gs-speed-select"
-            onChange={(event) => onSpeedChange(Number(event.target.value))}
+            onChange={(e) => onSpeedChange(Number(e.target.value))}
             value={speedMs}
             aria-label="Vitesse lecture"
         >
@@ -710,20 +138,12 @@ export default function TelemetryDashboard() {
     const [loading, setLoading] = useState(true);
     const [mqttStatus, setMqttStatus] = useState(null);
     const [speedMs, setSpeedMs] = useState(500);
-    const [mapOptions, setMapOptions] = useState({
-        follow: false,
-        trajectory: true,
-        linkBeam: true,
-    });
+    const [mapOptions, setMapOptions] = useState({ follow: false, trajectory: true, linkBeam: true });
     const sourceIndexRef = useRef(0);
     const sourceRowsLengthRef = useRef(0);
     const streamIndexRef = useRef(0);
     const telemetryEndpointRef = useRef(null);
-    const telemetryPayloadRef = useRef({
-        signature: '',
-        text: '',
-        lastRowIdentity: '',
-    });
+    const telemetryPayloadRef = useRef({ signature: '', text: '', lastRowIdentity: '' });
 
     useEffect(() => {
         let isMounted = true;
@@ -732,29 +152,21 @@ export default function TelemetryDashboard() {
         const loadTelemetry = async ({ initial = false } = {}) => {
             const activeEndpoint = telemetryEndpointRef.current;
             const endpoints = activeEndpoint
-                ? [activeEndpoint, ...TELEMETRY_ENDPOINTS.filter(endpoint => endpoint.url !== activeEndpoint.url)]
+                ? [activeEndpoint, ...TELEMETRY_ENDPOINTS.filter(e => e.url !== activeEndpoint.url)]
                 : TELEMETRY_ENDPOINTS;
 
             for (const endpoint of endpoints) {
                 try {
-                    const response = await fetch(withTelemetryCacheBuster(endpoint.url), {
-                        cache: 'no-store',
-                    });
-
-                    if (!response.ok) {
-                        continue;
-                    }
+                    const response = await fetch(withTelemetryCacheBuster(endpoint.url), { cache: 'no-store' });
+                    if (!response.ok) continue;
 
                     const payload = endpoint.format === 'protobuf'
                         ? await response.arrayBuffer()
                         : await response.text();
 
-                    if (!isMounted) {
-                        return;
-                    }
+                    if (!isMounted) return;
 
                     telemetryEndpointRef.current = endpoint;
-
                     const payloadSignature = getTelemetryPayloadSignature(payload, endpoint.format);
                     const previousPayload = telemetryPayloadRef.current;
 
@@ -816,108 +228,80 @@ export default function TelemetryDashboard() {
 
         loadTelemetry({ initial: true });
         pollInterval = setInterval(() => loadTelemetry(), TELEMETRY_POLL_INTERVAL_MS);
-
-        return () => {
-            isMounted = false;
-            clearInterval(pollInterval);
-        };
+        return () => { isMounted = false; clearInterval(pollInterval); };
     }, []);
 
     useEffect(() => {
         let isMounted = true;
-
         const loadMqttStatus = async () => {
             try {
-                const response = await fetch(withTelemetryCacheBuster(MQTT_STATUS_URL), {
-                    cache: 'no-store',
-                });
-
-                if (!response.ok) {
-                    throw new Error(`HTTP ${response.status}`);
-                }
-
-                const status = await response.json();
-
-                if (isMounted) {
-                    setMqttStatus(status);
-                }
-            } catch (error) {
-                if (isMounted) {
-                    setMqttStatus(null);
-                }
+                const response = await fetch(withTelemetryCacheBuster(MQTT_STATUS_URL), { cache: 'no-store' });
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                if (isMounted) setMqttStatus(await response.json());
+            } catch (_) {
+                if (isMounted) setMqttStatus(null);
             }
         };
-
         loadMqttStatus();
         const interval = setInterval(loadMqttStatus, MQTT_STATUS_POLL_INTERVAL_MS);
-
-        return () => {
-            isMounted = false;
-            clearInterval(interval);
-        };
+        return () => { isMounted = false; clearInterval(interval); };
     }, []);
 
     useEffect(() => {
         if (!isPlaying || sourceData.length === 0) return undefined;
 
         const interval = setInterval(() => {
+            if (sourceIndexRef.current >= sourceData.length) {
+                setIsPlaying(false);
+                return;
+            }
+
             const sourcePoint = sourceData[sourceIndexRef.current];
-            const nextPoint = {
-                ...sourcePoint,
-                streamIndex: streamIndexRef.current,
-            };
+            const nextPoint = { ...sourcePoint, streamIndex: streamIndexRef.current };
             const maxStreamPoints = Math.max(sourceData.length * 3, 500);
 
-            setData((previousData) => {
-                const nextData = [...previousData, nextPoint];
-                return nextData.length > maxStreamPoints
-                    ? nextData.slice(nextData.length - maxStreamPoints)
-                    : nextData;
+            setData((prev) => {
+                const next = [...prev, nextPoint];
+                return next.length > maxStreamPoints ? next.slice(next.length - maxStreamPoints) : next;
             });
 
-            sourceIndexRef.current = (sourceIndexRef.current + 1) % sourceData.length;
+            sourceIndexRef.current += 1;
             streamIndexRef.current += 1;
         }, speedMs);
 
         return () => clearInterval(interval);
     }, [isPlaying, sourceData, speedMs]);
 
-    const chartData = useMemo(() => {
-        return data.map((item, index) => ({
-            ...item,
-            index,
-            'Time Index': item.streamIndex ?? index,
-            'U_Alt': getTelemetryNumber(item, ['U_Alt', 'U Alt']),
-            'Speed': getTelemetryNumber(item, 'Speed'),
-            'Vert_speed': getTelemetryNumber(item, ['Vert_speed', 'Vert speed']),
-            'Pressure': getTelemetryNumber(item, 'Pressure'),
-            'U_Lat': getTelemetryNumber(item, ['U_Lat', 'U Lat'], null),
-            'U_Long': getTelemetryNumber(item, ['U_Long', 'U Long'], null),
-            '#_Sat': getTelemetryNumber(item, ['#_Sat', '#Sat']),
-        }));
-    }, [data]);
+    const chartData = useMemo(() => data.map((item, index) => ({
+        ...item,
+        index,
+        'Time Index': item.streamIndex ?? index,
+        'U_Alt':      getTelemetryNumber(item, ['U_Alt', 'U Alt']),
+        'Speed':      getTelemetryNumber(item, 'Speed'),
+        'Vert_speed': getTelemetryNumber(item, ['Vert_speed', 'Vert speed']),
+        'Pressure':   getTelemetryNumber(item, 'Pressure'),
+        'U_Lat':      getTelemetryNumber(item, ['U_Lat', 'U Lat'], null),
+        'U_Long':     getTelemetryNumber(item, ['U_Long', 'U Long'], null),
+        '#_Sat':      getTelemetryNumber(item, ['#_Sat', '#Sat']),
+    })), [data]);
 
-    const trajectoryPoints = useMemo(() => {
-        return chartData
-            .map(point => [
-                toTelemetryNumber(point['U_Lat'], null),
-                toTelemetryNumber(point['U_Long'], null),
-            ])
-            .filter(([lat, lon]) => lat !== null && lon !== null);
-    }, [chartData]);
+    const trajectoryRecords = useMemo(() =>
+        chartData.filter(p =>
+            toTelemetryNumber(p['U_Lat'], null) !== null &&
+            toTelemetryNumber(p['U_Long'], null) !== null
+        ),
+    [chartData]);
 
-    const trajectoryRecords = useMemo(() => {
-        return chartData.filter(point => (
-            toTelemetryNumber(point['U_Lat'], null) !== null &&
-            toTelemetryNumber(point['U_Long'], null) !== null
-        ));
-    }, [chartData]);
-
-    const firstPoint = trajectoryPoints[0] ?? null;
-    const currentPoint = trajectoryPoints[trajectoryPoints.length - 1] ?? null;
-    const firstRecord = trajectoryRecords[0] ?? null;
+    const firstRecord  = trajectoryRecords[0] ?? null;
     const currentRecord = chartData[chartData.length - 1] ?? sourceData[0] ?? {};
-    const distance = distanceKm(firstPoint, currentPoint);
+
+    const firstGeo   = firstRecord   ? getTelemetryRecordGeo(firstRecord)   : null;
+    const currentGeo = currentRecord ? getTelemetryRecordGeo(currentRecord) : null;
+    const distance = distanceKm(
+        firstGeo   ? [firstGeo.lat,   firstGeo.lon]   : null,
+        currentGeo ? [currentGeo.lat, currentGeo.lon] : null,
+    );
+
     const progress = sourceData.length > 0
         ? Math.round((sourceIndexRef.current / sourceData.length) * 100)
         : 0;
@@ -931,31 +315,20 @@ export default function TelemetryDashboard() {
 
     const handleSeek = (percentage) => {
         if (sourceData.length === 0) return;
-
         const nextIndex = Math.min(
             sourceData.length - 1,
             Math.max(0, Math.round((percentage / 100) * (sourceData.length - 1)))
         );
         sourceIndexRef.current = nextIndex;
         streamIndexRef.current += 1;
-        setData(previousData => [
-            ...previousData,
-            {
-                ...sourceData[nextIndex],
-                streamIndex: streamIndexRef.current,
-            },
-        ]);
+        setData(prev => [...prev, { ...sourceData[nextIndex], streamIndex: streamIndexRef.current }]);
     };
 
-    const handleToggleMapOption = (key) => {
-        setMapOptions(previous => ({
-            ...previous,
-            [key]: !previous[key],
-        }));
-    };
+    const handleToggleMapOption = (key) =>
+        setMapOptions(prev => ({ ...prev, [key]: !prev[key] }));
 
-    const startLabel = getRecordClock(sourceData[0], '15:43:24');
-    const endLabel = getRecordClock(sourceData[sourceData.length - 1], '17:54:46');
+    const startLabel   = getRecordClock(sourceData[0], '15:43:24');
+    const endLabel     = getRecordClock(sourceData[sourceData.length - 1], '17:54:46');
     const currentLabel = getRecordClock(currentRecord, startLabel);
 
     return (
@@ -965,7 +338,7 @@ export default function TelemetryDashboard() {
                 distance={distance}
                 mqttStatus={mqttStatus}
             />
-            <MapViewport
+            <CesiumViewport
                 currentRecord={currentRecord}
                 firstRecord={firstRecord}
                 hasData={hasData}
@@ -981,7 +354,7 @@ export default function TelemetryDashboard() {
                 onReset={handleReset}
                 onSeek={handleSeek}
                 onSpeedChange={setSpeedMs}
-                onTogglePlay={() => setIsPlaying(previous => !previous)}
+                onTogglePlay={() => setIsPlaying(prev => !prev)}
                 progress={progress}
                 speedMs={speedMs}
                 startLabel={startLabel}
