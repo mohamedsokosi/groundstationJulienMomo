@@ -2,10 +2,15 @@ import PublicIcon from '@mui/icons-material/Public';
 import SatelliteAltIcon from '@mui/icons-material/SatelliteAlt';
 import InsightsIcon from '@mui/icons-material/Insights';
 import SummarizeIcon from '@mui/icons-material/Summarize';
-import SatelliteAltOutlinedIcon from '@mui/icons-material/SatelliteAltOutlined';
+import SettingsInputAntennaIcon from '@mui/icons-material/SettingsInputAntenna';
 import i18n from '../i18n/config.js';
 
 export const getNavigation = () => [
+    {
+        segment: 'station',
+        title: 'Station',
+        icon: <SettingsInputAntennaIcon />,
+    },
     {
         kind: 'header',
         title: i18n.t('settings', { ns: 'navigation' }),
@@ -29,10 +34,5 @@ export const getNavigation = () => [
         segment: 'rapport',
         title: 'Rapport',
         icon: <SummarizeIcon />,
-    },
-    {
-        segment: 'station',
-        title: 'Station',
-        icon: <SatelliteAltOutlinedIcon />,
     },
 ];

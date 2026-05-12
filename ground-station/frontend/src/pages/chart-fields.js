@@ -1,6 +1,6 @@
 export const AVAILABLE_FIELDS = [
-    { key: '_elapsed_s',   label: 'Temps écoulé (s)',       step: 60    },
-    { key: '_elapsed_min', label: 'Temps écoulé (min)',     step: 1     },
+    { key: '_elapsed_s',   label: 'Temps écoulé (s)',       step: 10000 },
+    { key: '_elapsed_min', label: 'Temps écoulé (min)',     step: 60    },
     { key: 'U_Alt',        label: 'Altitude (m)',           step: 10000 },
     { key: 'Speed',        label: 'Speed (m/s)',            step: 100   },
     { key: 'Vert_speed',   label: 'Vertical Speed (m/s)',   step: 10    },

@@ -46,10 +46,26 @@ export function parseTelemetryProtobuf(buffer) {
     return decodeTelemetryRowsFromProtobuf(buffer);
 }
 
+function parseRowTimestamp(item) {
+    const raw = item['m-time'] ?? item['Ublox UTC'] ?? item['Ublox_UTC'] ?? '';
+    if (!raw) return null;
+    const d = new Date(raw);
+    const ms = d.getTime();
+    return Number.isFinite(ms) ? ms : null;
+}
+
 export function buildTelemetryChartData(data = []) {
+    const epochMs = data.length > 0 ? parseRowTimestamp(data[0]) : null;
+
     return data.map((item, index) => {
         const timeIndex = toTelemetryNumber(item.streamIndex, index);
-        const elapsedSeconds = timeIndex * (TELEMETRY_STREAM_INTERVAL_MS / 1000);
+        let elapsedSeconds;
+        if (epochMs !== null) {
+            const t = parseRowTimestamp(item);
+            elapsedSeconds = t !== null ? (t - epochMs) / 1000 : timeIndex * (TELEMETRY_STREAM_INTERVAL_MS / 1000);
+        } else {
+            elapsedSeconds = timeIndex * (TELEMETRY_STREAM_INTERVAL_MS / 1000);
+        }
 
         return {
             ...item,
