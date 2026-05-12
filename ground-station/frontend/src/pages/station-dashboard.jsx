@@ -23,6 +23,54 @@ import { TelemetryTerminal } from './TelemetryTerminal.jsx';
 import { getTelemetryRecordGeo } from './cesium-utils.js';
 import './ground-station-view.css';
 
+const formatClock = (value, fallback) => {
+    if (!value) return fallback;
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return fallback;
+    return date.toLocaleTimeString('fr-CA', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+};
+
+const getRecordClock = (record, fallback) =>
+    formatClock(record?.['m-time'] || record?.m_time || record?.['Ublox UTC'] || record?.Ublox_UTC, fallback);
+
+const SPEED_PRESETS = [2000, 1000, 500, 250, 60];
+
+const TimelineControls = ({ currentLabel, endLabel, isPlaying, onReset, onSeek, onSpeedChange, onTogglePlay, progress, speedMs, startLabel }) => {
+    const isAutoSpeed = !SPEED_PRESETS.includes(speedMs);
+    return (
+        <footer className="gs-timeline" aria-label="Timeline player">
+            <button className="gs-play-button" onClick={onTogglePlay} type="button">
+                {isPlaying ? 'PAUSE' : 'PLAY'}
+            </button>
+            <button className="gs-reset-button" onClick={onReset} type="button" aria-label="Reset timeline">
+                RESET
+            </button>
+            <span className="gs-timecode">{startLabel}</span>
+            <input
+                className="gs-range"
+                max="100"
+                min="0"
+                onChange={(e) => onSeek(Number(e.target.value))}
+                type="range"
+                value={progress}
+                aria-label="Playback position"
+            />
+            <span className="gs-timecode">{currentLabel || endLabel}</span>
+            <select
+                className="gs-speed-select"
+                onChange={(e) => onSpeedChange(Number(e.target.value))}
+                value={speedMs}
+                aria-label="Vitesse lecture"
+            >
+                {isAutoSpeed && <option value={speedMs}>auto ({speedMs}ms)</option>}
+                {SPEED_PRESETS.map((ms) => (
+                    <option key={ms} value={ms}>{ms}ms</option>
+                ))}
+            </select>
+        </footer>
+    );
+};
+
 const MQTT_STATUS_URL = '/api/telemetry/mqtt/status';
 const MQTT_STATUS_POLL_MS = 2000;
 const ANALYSE_STORAGE_KEY = 'analyse_charts_config';
@@ -60,7 +108,35 @@ function loadLeftColumnItems() {
 
 export default function StationDashboard() {
     const theme = useTheme();
-    const { chartData, loading, hasData } = useTelemetryStream({ intervalMs: 20000 });
+    const {
+        chartData,
+        sourceData,
+        loading,
+        hasData,
+        playbackIndex,
+        isPlaying,
+        speedMs,
+        setSpeedMs,
+        pauseStream,
+        resumeStream,
+        seekTo,
+        resetStream,
+    } = useTelemetryStream();
+
+    const handleTogglePlay = useCallback(() => {
+        if (isPlaying) pauseStream();
+        else resumeStream();
+    }, [isPlaying, pauseStream, resumeStream]);
+
+    const handleSeek = useCallback((pct) => seekTo(pct), [seekTo]);
+    const handleReset = useCallback(() => resetStream(), [resetStream]);
+
+    const progress = sourceData.length > 0
+        ? Math.min(100, Math.round((playbackIndex / sourceData.length) * 100))
+        : 0;
+    const startLabel = getRecordClock(sourceData[0], '--:--:--');
+    const endLabel = getRecordClock(sourceData[sourceData.length - 1], '--:--:--');
+    const currentLabel = getRecordClock(chartData[chartData.length - 1], startLabel);
 
     const enrichedData = useMemo(
         () => (chartData?.length ? chartData.map(enrich) : []),
@@ -507,6 +583,19 @@ export default function StationDashboard() {
                     />
                 </Box>
 
+                <TimelineControls
+                    currentLabel={currentLabel}
+                    endLabel={endLabel}
+                    isPlaying={isPlaying}
+                    onReset={handleReset}
+                    onSeek={handleSeek}
+                    onSpeedChange={setSpeedMs}
+                    onTogglePlay={handleTogglePlay}
+                    progress={progress}
+                    speedMs={speedMs}
+                    startLabel={startLabel}
+                />
+
                 <Box sx={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'row', gap: 0.5 }}>
                     {BOTTOM_CHART_DEFS.map((chart, i) => (
                         <Box key={i} sx={{ flex: 1, minWidth: 0, minHeight: 0 }}>
@@ -553,6 +642,7 @@ export default function StationDashboard() {
                         </Box>
                     ))}
                 </Box>
+
             </Box>
         </Box>
     );

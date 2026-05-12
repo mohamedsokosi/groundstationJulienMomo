@@ -71,6 +71,8 @@ export const CesiumViewport = ({ currentRecord, firstRecord, hasData, loading, m
     const trajectoryPositionsRef = useRef([]);
     const linkPositionsRef = useRef([]);
     const verticalPositionsRef = useRef([]);
+    // FIX 2: initializedRef lives inside the viewer lifecycle, not across remounts.
+    // It is reset to false whenever the viewer is (re)created.
     const initializedRef = useRef(false);
     const cameraHeightRef = useRef(MAP_CAMERA_HEIGHT);
 
@@ -151,6 +153,16 @@ export const CesiumViewport = ({ currentRecord, firstRecord, hasData, loading, m
             resizeObserver.observe(containerRef.current);
             viewerRef.current = viewer;
 
+            // FIX 2: Reset all entity refs and initializedRef when viewer is (re)created
+            // so the entity-update effect rebuilds everything from scratch.
+            satelliteEntityRef.current = null;
+            startEntityRef.current = null;
+            trajectoryEntityRef.current = null;
+            linkEntityRef.current = null;
+            verticalLineEntityRef.current = null;
+            groundProjectionEntityRef.current = null;
+            initializedRef.current = false;
+
             const maxTextureSize = viewer.scene.context?.maximumTextureSize;
             if (maxTextureSize !== 0) {
                 createBaseImageryProvider().then((imageryProvider) => {
@@ -172,12 +184,20 @@ export const CesiumViewport = ({ currentRecord, firstRecord, hasData, loading, m
                 viewerRef.current.destroy();
             }
             viewerRef.current = null;
+            // FIX 2: Also clear entity refs on unmount so a future remount starts clean.
+            satelliteEntityRef.current = null;
+            startEntityRef.current = null;
+            trajectoryEntityRef.current = null;
+            linkEntityRef.current = null;
+            verticalLineEntityRef.current = null;
+            groundProjectionEntityRef.current = null;
+            initializedRef.current = false;
         };
     }, []);
 
     useEffect(() => {
         const viewer = viewerRef.current;
-        if (!viewer) return;
+        if (!viewer || viewer.isDestroyed()) return;
 
         const positions = trajectoryRecords.map(getCesiumRecordPosition).filter(Boolean);
         const currentPosition = getCesiumRecordPosition(currentRecord);
@@ -186,10 +206,12 @@ export const CesiumViewport = ({ currentRecord, firstRecord, hasData, loading, m
         const linkPositions = startPosition && currentPosition ? [startPosition, currentPosition] : [];
         const verticalPositions = groundPosition && currentPosition ? [groundPosition, currentPosition] : [];
 
+        // FIX 1: Update refs BEFORE entities read them (CallbackProperty reads on next frame).
         trajectoryPositionsRef.current = positions;
         linkPositionsRef.current = linkPositions;
         verticalPositionsRef.current = verticalPositions;
 
+        // --- Trajectory polyline ---
         if (!trajectoryEntityRef.current) {
             trajectoryEntityRef.current = viewer.entities.add({
                 name: 'Trajectoire CubeSat',
@@ -203,20 +225,24 @@ export const CesiumViewport = ({ currentRecord, firstRecord, hasData, loading, m
         }
         trajectoryEntityRef.current.show = mapOptions.trajectory && positions.length > 1;
 
-        if (startPosition && !startEntityRef.current) {
+        // --- Start point (green dot = ground station / depart) ---
+        if (!startEntityRef.current) {
             startEntityRef.current = viewer.entities.add({
                 name: 'Depart trajectoire',
-                position: startPosition,
+                position: startPosition ?? Cartesian3.fromDegrees(0, 0, 0),
                 point: { pixelSize: 11, color: Color.LIME, outlineColor: Color.WHITE, outlineWidth: 1 },
             });
-        } else if (startPosition) {
+        }
+        if (startPosition) {
             startEntityRef.current.position = startPosition;
         }
+        startEntityRef.current.show = Boolean(startPosition);
 
-        if (currentPosition && !satelliteEntityRef.current) {
+        // --- CubeSat current position (red dot) ---
+        if (!satelliteEntityRef.current) {
             satelliteEntityRef.current = viewer.entities.add({
                 name: 'CubeSat temps reel',
-                position: currentPosition,
+                position: currentPosition ?? Cartesian3.fromDegrees(0, 0, 0),
                 point: { pixelSize: 13, color: Color.RED, outlineColor: Color.WHITE, outlineWidth: 2 },
                 label: {
                     text: 'CubeSat',
@@ -229,10 +255,13 @@ export const CesiumViewport = ({ currentRecord, firstRecord, hasData, loading, m
                     pixelOffset: new Cartesian2(0, -16),
                 },
             });
-        } else if (currentPosition) {
+        }
+        if (currentPosition) {
             satelliteEntityRef.current.position = currentPosition;
         }
+        satelliteEntityRef.current.show = Boolean(currentPosition);
 
+        // --- Link line: depart → CubeSat (green) ---
         if (!linkEntityRef.current) {
             linkEntityRef.current = viewer.entities.add({
                 name: 'Liaison sol',
@@ -244,8 +273,9 @@ export const CesiumViewport = ({ currentRecord, firstRecord, hasData, loading, m
                 },
             });
         }
-        linkEntityRef.current.show = mapOptions.linkBeam && Boolean(startPosition && currentPosition);
+        linkEntityRef.current.show = mapOptions.linkBeam && linkPositions.length === 2;
 
+        // --- Vertical line: ground projection → CubeSat (yellow) ---
         if (!verticalLineEntityRef.current) {
             verticalLineEntityRef.current = viewer.entities.add({
                 name: 'Axe Z CubeSat',
@@ -257,21 +287,22 @@ export const CesiumViewport = ({ currentRecord, firstRecord, hasData, loading, m
                 },
             });
         }
-        verticalLineEntityRef.current.show = Boolean(groundPosition && currentPosition);
+        verticalLineEntityRef.current.show = verticalPositions.length === 2;
 
-        if (groundPosition && !groundProjectionEntityRef.current) {
+        // --- Ground projection dot (yellow) ---
+        if (!groundProjectionEntityRef.current) {
             groundProjectionEntityRef.current = viewer.entities.add({
                 name: 'Projection sol CubeSat',
-                position: groundPosition,
+                position: groundPosition ?? Cartesian3.fromDegrees(0, 0, 0),
                 point: { pixelSize: 9, color: Color.YELLOW.withAlpha(0.85), outlineColor: Color.BLACK, outlineWidth: 1 },
             });
-        } else if (groundPosition) {
+        }
+        if (groundPosition) {
             groundProjectionEntityRef.current.position = groundPosition;
         }
-        if (groundProjectionEntityRef.current) {
-            groundProjectionEntityRef.current.show = Boolean(groundPosition);
-        }
+        groundProjectionEntityRef.current.show = Boolean(groundPosition);
 
+        // --- Initial camera fit (runs once after first trajectory data arrives) ---
         if (!initializedRef.current && positions.length > 1) {
             initializedRef.current = true;
             const cameraView = getTrajectoryCameraView(trajectoryRecords);

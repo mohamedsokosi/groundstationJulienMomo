@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Box, Button, Paper, Typography } from '@mui/material';
-import { useTelemetryStream } from './use-telemetry-stream.jsx';
+import { useSelector } from 'react-redux';
 
 const TERMINAL_FIELDS = ['U_Alt', 'Speed', 'Vert_speed', 'Pressure', '#_Sat', 'U_Lat', 'U_Long'];
 
@@ -10,7 +10,7 @@ function fmtTime(d) {
 }
 
 export function TelemetryTerminal() {
-    const { data } = useTelemetryStream();
+    const data = useSelector((state) => state.telemetry?.telemetryData ?? []);
     const [lines, setLines] = useState([]);
     const prevLengthRef = useRef(0);
     const containerRef = useRef(null);

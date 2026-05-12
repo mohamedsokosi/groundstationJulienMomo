@@ -1,0 +1,2261 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>RAPPORT_FONCTIONS.md</title>
+<meta http-equiv="Content-type" content="text/html;charset=UTF-8">
+
+<style>
+/* https://github.com/microsoft/vscode/blob/master/extensions/markdown-language-features/media/markdown.css */
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
+body {
+	font-family: var(--vscode-markdown-font-family, -apple-system, BlinkMacSystemFont, "Segoe WPC", "Segoe UI", "Ubuntu", "Droid Sans", sans-serif);
+	font-size: var(--vscode-markdown-font-size, 14px);
+	padding: 0 26px;
+	line-height: var(--vscode-markdown-line-height, 22px);
+	word-wrap: break-word;
+}
+
+#code-csp-warning {
+	position: fixed;
+	top: 0;
+	right: 0;
+	color: white;
+	margin: 16px;
+	text-align: center;
+	font-size: 12px;
+	font-family: sans-serif;
+	background-color:#444444;
+	cursor: pointer;
+	padding: 6px;
+	box-shadow: 1px 1px 1px rgba(0,0,0,.25);
+}
+
+#code-csp-warning:hover {
+	text-decoration: none;
+	background-color:#007acc;
+	box-shadow: 2px 2px 2px rgba(0,0,0,.25);
+}
+
+body.scrollBeyondLastLine {
+	margin-bottom: calc(100vh - 22px);
+}
+
+body.showEditorSelection .code-line {
+	position: relative;
+}
+
+body.showEditorSelection .code-active-line:before,
+body.showEditorSelection .code-line:hover:before {
+	content: "";
+	display: block;
+	position: absolute;
+	top: 0;
+	left: -12px;
+	height: 100%;
+}
+
+body.showEditorSelection li.code-active-line:before,
+body.showEditorSelection li.code-line:hover:before {
+	left: -30px;
+}
+
+.vscode-light.showEditorSelection .code-active-line:before {
+	border-left: 3px solid rgba(0, 0, 0, 0.15);
+}
+
+.vscode-light.showEditorSelection .code-line:hover:before {
+	border-left: 3px solid rgba(0, 0, 0, 0.40);
+}
+
+.vscode-light.showEditorSelection .code-line .code-line:hover:before {
+	border-left: none;
+}
+
+.vscode-dark.showEditorSelection .code-active-line:before {
+	border-left: 3px solid rgba(255, 255, 255, 0.4);
+}
+
+.vscode-dark.showEditorSelection .code-line:hover:before {
+	border-left: 3px solid rgba(255, 255, 255, 0.60);
+}
+
+.vscode-dark.showEditorSelection .code-line .code-line:hover:before {
+	border-left: none;
+}
+
+.vscode-high-contrast.showEditorSelection .code-active-line:before {
+	border-left: 3px solid rgba(255, 160, 0, 0.7);
+}
+
+.vscode-high-contrast.showEditorSelection .code-line:hover:before {
+	border-left: 3px solid rgba(255, 160, 0, 1);
+}
+
+.vscode-high-contrast.showEditorSelection .code-line .code-line:hover:before {
+	border-left: none;
+}
+
+img {
+	max-width: 100%;
+	max-height: 100%;
+}
+
+a {
+	text-decoration: none;
+}
+
+a:hover {
+	text-decoration: underline;
+}
+
+a:focus,
+input:focus,
+select:focus,
+textarea:focus {
+	outline: 1px solid -webkit-focus-ring-color;
+	outline-offset: -1px;
+}
+
+hr {
+	border: 0;
+	height: 2px;
+	border-bottom: 2px solid;
+}
+
+h1 {
+	padding-bottom: 0.3em;
+	line-height: 1.2;
+	border-bottom-width: 1px;
+	border-bottom-style: solid;
+}
+
+h1, h2, h3 {
+	font-weight: normal;
+}
+
+table {
+	border-collapse: collapse;
+}
+
+table > thead > tr > th {
+	text-align: left;
+	border-bottom: 1px solid;
+}
+
+table > thead > tr > th,
+table > thead > tr > td,
+table > tbody > tr > th,
+table > tbody > tr > td {
+	padding: 5px 10px;
+}
+
+table > tbody > tr + tr > td {
+	border-top: 1px solid;
+}
+
+blockquote {
+	margin: 0 7px 0 5px;
+	padding: 0 16px 0 10px;
+	border-left-width: 5px;
+	border-left-style: solid;
+}
+
+code {
+	font-family: Menlo, Monaco, Consolas, "Droid Sans Mono", "Courier New", monospace, "Droid Sans Fallback";
+	font-size: 1em;
+	line-height: 1.357em;
+}
+
+body.wordWrap pre {
+	white-space: pre-wrap;
+}
+
+pre:not(.hljs),
+pre.hljs code > div {
+	padding: 16px;
+	border-radius: 3px;
+	overflow: auto;
+}
+
+pre code {
+	color: var(--vscode-editor-foreground);
+	tab-size: 4;
+}
+
+/** Theming */
+
+.vscode-light pre {
+	background-color: rgba(220, 220, 220, 0.4);
+}
+
+.vscode-dark pre {
+	background-color: rgba(10, 10, 10, 0.4);
+}
+
+.vscode-high-contrast pre {
+	background-color: rgb(0, 0, 0);
+}
+
+.vscode-high-contrast h1 {
+	border-color: rgb(0, 0, 0);
+}
+
+.vscode-light table > thead > tr > th {
+	border-color: rgba(0, 0, 0, 0.69);
+}
+
+.vscode-dark table > thead > tr > th {
+	border-color: rgba(255, 255, 255, 0.69);
+}
+
+.vscode-light h1,
+.vscode-light hr,
+.vscode-light table > tbody > tr + tr > td {
+	border-color: rgba(0, 0, 0, 0.18);
+}
+
+.vscode-dark h1,
+.vscode-dark hr,
+.vscode-dark table > tbody > tr + tr > td {
+	border-color: rgba(255, 255, 255, 0.18);
+}
+
+</style>
+
+<style>
+/* Tomorrow Theme */
+/* http://jmblog.github.com/color-themes-for-google-code-highlightjs */
+/* Original theme - https://github.com/chriskempson/tomorrow-theme */
+
+/* Tomorrow Comment */
+.hljs-comment,
+.hljs-quote {
+	color: #8e908c;
+}
+
+/* Tomorrow Red */
+.hljs-variable,
+.hljs-template-variable,
+.hljs-tag,
+.hljs-name,
+.hljs-selector-id,
+.hljs-selector-class,
+.hljs-regexp,
+.hljs-deletion {
+	color: #c82829;
+}
+
+/* Tomorrow Orange */
+.hljs-number,
+.hljs-built_in,
+.hljs-builtin-name,
+.hljs-literal,
+.hljs-type,
+.hljs-params,
+.hljs-meta,
+.hljs-link {
+	color: #f5871f;
+}
+
+/* Tomorrow Yellow */
+.hljs-attribute {
+	color: #eab700;
+}
+
+/* Tomorrow Green */
+.hljs-string,
+.hljs-symbol,
+.hljs-bullet,
+.hljs-addition {
+	color: #718c00;
+}
+
+/* Tomorrow Blue */
+.hljs-title,
+.hljs-section {
+	color: #4271ae;
+}
+
+/* Tomorrow Purple */
+.hljs-keyword,
+.hljs-selector-tag {
+	color: #8959a8;
+}
+
+.hljs {
+	display: block;
+	overflow-x: auto;
+	color: #4d4d4c;
+	padding: 0.5em;
+}
+
+.hljs-emphasis {
+	font-style: italic;
+}
+
+.hljs-strong {
+	font-weight: bold;
+}
+</style>
+
+<style>
+/*
+ * Markdown PDF CSS
+ */
+
+ body {
+	font-family: -apple-system, BlinkMacSystemFont, "Segoe WPC", "Segoe UI", "Ubuntu", "Droid Sans", sans-serif, "Meiryo";
+	padding: 0 12px;
+}
+
+pre {
+	background-color: #f8f8f8;
+	border: 1px solid #cccccc;
+	border-radius: 3px;
+	overflow-x: auto;
+	white-space: pre-wrap;
+	overflow-wrap: break-word;
+}
+
+pre:not(.hljs) {
+	padding: 23px;
+	line-height: 19px;
+}
+
+blockquote {
+	background: rgba(127, 127, 127, 0.1);
+	border-color: rgba(0, 122, 204, 0.5);
+}
+
+.emoji {
+	height: 1.4em;
+}
+
+code {
+	font-size: 14px;
+	line-height: 19px;
+}
+
+/* for inline code */
+:not(pre):not(.hljs) > code {
+	color: #C9AE75; /* Change the old color so it seems less like an error */
+	font-size: inherit;
+}
+
+/* Page Break : use <div class="page"/> or <div class="page"></div> to insert page break
+-------------------------------------------------------- */
+.page {
+	page-break-after: always;
+}
+
+</style>
+
+<script src="https://unpkg.com/mermaid/dist/mermaid.min.js"></script>
+</head>
+<body>
+  <script>
+    mermaid.initialize({
+      startOnLoad: true,
+      theme: document.body.classList.contains('vscode-dark') || document.body.classList.contains('vscode-high-contrast')
+          ? 'dark'
+          : 'default'
+    });
+  </script>
+<h1 id="rapport-complet-des-fonctions-et-méthodes--ground-station">Rapport Complet des Fonctions et Méthodes — Ground Station</h1>
+<blockquote>
+<p>Généré le 2026-05-12<br>
+Projet : Ground Station (backend Python + frontend React/JS)</p>
+</blockquote>
+<hr>
+<h2 id="table-des-matières">Table des Matières</h2>
+<h3 id="backend-python">Backend (Python)</h3>
+<ul>
+<li><a href="#backendapppy">app.py</a></li>
+<li><a href="#backendcommonappconfigpy">common/appconfig.py</a></li>
+<li><a href="#backendcommonargumentspy">common/arguments.py</a></li>
+<li><a href="#backendcommoncommonpy">common/common.py</a></li>
+<li><a href="#backendcommonloggerpy">common/logger.py</a></li>
+<li><a href="#backendcrudpreferencespy">crud/preferences.py</a></li>
+<li><a href="#backenddbmodelspy">db/models.py</a></li>
+<li><a href="#backendhandlerspreferencespy">handlers/preferences.py</a></li>
+<li><a href="#backendhandlersroutingpy">handlers/routing.py</a></li>
+<li><a href="#backendhandlerssocketpy">handlers/socket.py</a></li>
+<li><a href="#backendpipelinemqtt_telemetry_receiverpy">pipeline/mqtt_telemetry_receiver.py</a></li>
+<li><a href="#backendpipelinetelemetry_storepy">pipeline/telemetry_store.py</a></li>
+<li><a href="#backendservershutdownpy">server/shutdown.py</a></li>
+<li><a href="#backendserverstartuppy">server/startup.py</a></li>
+<li><a href="#backendservertelemetry_protobufpy">server/telemetry_protobuf.py</a></li>
+<li><a href="#backendserverversionpy">server/version.py</a></li>
+</ul>
+<h3 id="frontend-react--javascript">Frontend (React / JavaScript)</h3>
+<ul>
+<li><a href="#frontendpagescesium-utilsjs">pages/cesium-utils.js</a></li>
+<li><a href="#frontendpagestelemetry-dashboardjsx">pages/telemetry-dashboard.jsx</a></li>
+<li><a href="#frontendpagescesiumviewportjsx">pages/CesiumViewport.jsx</a></li>
+<li><a href="#frontendpagestelemetry-componentsjsx">pages/telemetry-components.jsx</a></li>
+<li><a href="#frontendpageschart-logicjs">pages/chart-logic.js</a></li>
+<li><a href="#frontendpagestelemetry-protobufjs">pages/telemetry-protobuf.js</a></li>
+<li><a href="#frontendpagescharttitlejsx">pages/ChartTitle.jsx</a></li>
+<li><a href="#frontendpagescubesat-dashboardjsx">pages/cubesat-dashboard.jsx</a></li>
+<li><a href="#frontendpageschart-fieldsjs">pages/chart-fields.js</a></li>
+<li><a href="#frontendpagesstation-dashboardjsx">pages/station-dashboard.jsx</a></li>
+<li><a href="#frontendpagestelemetrystatsbaarjsx">pages/TelemetryStatsBar.jsx</a></li>
+<li><a href="#frontendpagestelemetryterminalJsx">pages/TelemetryTerminal.jsx</a></li>
+<li><a href="#frontendpagestelemetry-data-sourcejs">pages/telemetry-data-source.js</a></li>
+<li><a href="#frontendpagestelemetrychartjsx">pages/TelemetryChart.jsx</a></li>
+<li><a href="#frontendpagescubesat-annotated-visualjsx">pages/cubesat-annotated-visual.jsx</a></li>
+<li><a href="#frontendpagesuse-telemetry-streamjsx">pages/use-telemetry-stream.jsx</a></li>
+<li><a href="#frontendpagesrapport-dashboardjsx">pages/rapport-dashboard.jsx</a></li>
+<li><a href="#frontendpagestelemetry-slicejsx">pages/telemetry-slice.jsx</a></li>
+<li><a href="#frontendpagescubesat-utilsjs">pages/cubesat-utils.js</a></li>
+<li><a href="#frontendpagesanalyse-dashboardjsx">pages/analyse-dashboard.jsx</a></li>
+<li><a href="#frontendpagestelemetry-utilsjs">pages/telemetry-utils.js</a></li>
+<li><a href="#frontendpagescubesat-subsystem-paneljsx">pages/cubesat-subsystem-panel.jsx</a></li>
+</ul>
+<hr>
+<h2 id="backend-python-1">Backend (Python)</h2>
+<hr>
+<h3 id="backendapppy"><code>backend/app.py</code></h3>
+<p>Point d'entrée principal de l'application.</p>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Fonction</th>
+<th>Signature</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>L27</td>
+<td><code>print_banner</code></td>
+<td><code>() → None</code></td>
+<td>Affiche la bannière de version de Ground Station dans le terminal.</td>
+</tr>
+<tr>
+<td>L32</td>
+<td><code>configure_process_names</code></td>
+<td><code>() → None</code></td>
+<td>Définit les noms du processus et du thread principal pour faciliter le monitoring.</td>
+</tr>
+<tr>
+<td>L39</td>
+<td><code>main</code></td>
+<td><code>() → None</code></td>
+<td>Point d'entrée principal : initialise la base de données, enregistre les handlers et démarre le serveur Uvicorn.</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h3 id="backendcommonappconfigpy"><code>backend/common/appconfig.py</code></h3>
+<p>Chargement de la configuration de l'application.</p>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Fonction</th>
+<th>Signature</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>L39</td>
+<td><code>load_app_config</code></td>
+<td><code>(config_path: Path) → Dict[str, Any]</code></td>
+<td>Charge la configuration applicative depuis un fichier JSON. Retourne les valeurs par défaut si le fichier est absent.</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h3 id="backendcommonargumentspy"><code>backend/common/arguments.py</code></h3>
+<p>Gestion des arguments en ligne de commande.</p>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Fonction</th>
+<th>Signature</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>L104</td>
+<td><code>_pick</code></td>
+<td><code>(cli_value, key) → Any</code></td>
+<td>Fonction interne : sélectionne la valeur CLI ou revient à la valeur du fichier de configuration.</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h3 id="backendcommoncommonpy"><code>backend/common/common.py</code></h3>
+<p>Utilitaires communs (sérialisation JSON, décorateurs de timing).</p>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Fonction / Méthode</th>
+<th>Signature</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>L29</td>
+<td><code>ModelEncoder.__init__</code></td>
+<td><code>(self, *args, **kwargs) → None</code></td>
+<td>Encodeur JSON personnalisé qui force <code>allow_nan=False</code> pour éviter les valeurs NaN/Infinity.</td>
+</tr>
+<tr>
+<td>L36</td>
+<td><code>ModelEncoder.default</code></td>
+<td><code>(self, obj) → Any</code></td>
+<td>Gère la sérialisation des types non-standards : dates, UUID, types numpy, modèles SQLAlchemy.</td>
+</tr>
+<tr>
+<td>L73</td>
+<td><code>ModelEncoder.encode</code></td>
+<td><code>(self, o) → str</code></td>
+<td>Assainit l'objet avant encodage pour détecter les valeurs NaN/Infinity.</td>
+</tr>
+<tr>
+<td>L90</td>
+<td><code>serialize_object</code></td>
+<td><code>(obj) → Any</code></td>
+<td>Sérialise un objet Python en JSON et le désérialise via l'encodeur personnalisé.</td>
+</tr>
+<tr>
+<td>L110</td>
+<td><code>timeit</code></td>
+<td><code>(func) → Decorator</code></td>
+<td>Décorateur synchrone qui mesure et journalise le temps d'exécution de la fonction décorée.</td>
+</tr>
+<tr>
+<td>L124</td>
+<td><code>async_timeit</code></td>
+<td><code>(func) → Async Decorator</code></td>
+<td>Décorateur asynchrone qui mesure et journalise le temps d'exécution d'une coroutine.</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h3 id="backendcommonloggerpy"><code>backend/common/logger.py</code></h3>
+<p>Configuration du système de journalisation.</p>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Fonction</th>
+<th>Signature</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>L25</td>
+<td><code>get_logger_config</code></td>
+<td><code>(args) → dict</code></td>
+<td>Charge la configuration de logging depuis un fichier YAML spécifié dans les arguments.</td>
+</tr>
+<tr>
+<td>L51</td>
+<td><code>get_logger</code></td>
+<td><code>(args) → logging.Logger</code></td>
+<td>Retourne une instance de logger configurée nommée <code>&quot;ground-station&quot;</code>.</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h3 id="backendcrudpreferencespy"><code>backend/crud/preferences.py</code></h3>
+<p>Opérations CRUD sur les préférences utilisateur.</p>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Fonction</th>
+<th>Signature</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>L28</td>
+<td><code>fetch_preference</code></td>
+<td><code>(session, preference_id) → dict</code></td>
+<td>Récupère une préférence unique par son UUID.</td>
+</tr>
+<tr>
+<td>L49</td>
+<td><code>fetch_all_preferences</code></td>
+<td><code>(session) → dict</code></td>
+<td>Récupère toutes les préférences en les fusionnant avec les valeurs par défaut.</td>
+</tr>
+<tr>
+<td>L94</td>
+<td><code>add_preference</code></td>
+<td><code>(session, data) → dict</code></td>
+<td>Crée et persiste un nouvel enregistrement de préférence.</td>
+</tr>
+<tr>
+<td>L126</td>
+<td><code>edit_preference</code></td>
+<td><code>(session, data) → dict</code></td>
+<td>Modifie une préférence existante en mettant à jour les champs fournis.</td>
+</tr>
+<tr>
+<td>L168</td>
+<td><code>set_preferences</code></td>
+<td><code>(session, preferences) → dict</code></td>
+<td>Modifie ou insère (upsert) plusieurs enregistrements de préférences.</td>
+</tr>
+<tr>
+<td>L272</td>
+<td><code>delete_preference</code></td>
+<td><code>(session, preference_id) → dict</code></td>
+<td>Supprime un enregistrement de préférence par son UUID.</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h3 id="backenddbmodelspy"><code>backend/db/models.py</code></h3>
+<p>Modèles SQLAlchemy et types de données personnalisés.</p>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Méthode</th>
+<th>Signature</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>L12</td>
+<td><code>AwareDateTime.process_result_value</code></td>
+<td><code>(self, value, dialect) → datetime</code></td>
+<td>Assure que les datetimes lus depuis la base sont timezone-aware (UTC si naïf).</td>
+</tr>
+<tr>
+<td>L23</td>
+<td><code>AwareDateTime.process_bind_param</code></td>
+<td><code>(self, value, dialect) → datetime</code></td>
+<td>Assure que les datetimes écrits en base sont timezone-aware.</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h3 id="backendhandlerspreferencespy"><code>backend/handlers/preferences.py</code></h3>
+<p>Handlers Socket.IO pour les préférences.</p>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Fonction</th>
+<th>Signature</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>L7</td>
+<td><code>fetch_preferences</code></td>
+<td><code>(sio, data, logger, sid) → Dict[str, Union[bool, list]]</code></td>
+<td>Récupère toutes les préférences via le handler Socket.IO.</td>
+</tr>
+<tr>
+<td>L16</td>
+<td><code>update_preferences</code></td>
+<td><code>(sio, data, logger, sid) → Dict[str, Union[bool, list, str]]</code></td>
+<td>Met à jour les préférences via le handler Socket.IO.</td>
+</tr>
+<tr>
+<td>L28</td>
+<td><code>register_handlers</code></td>
+<td><code>(registry) → None</code></td>
+<td>Enregistre les handlers de préférences dans le registre de handlers.</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h3 id="backendhandlersroutingpy"><code>backend/handlers/routing.py</code></h3>
+<p>Registre et routage des handlers.</p>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Méthode / Fonction</th>
+<th>Signature</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>L15</td>
+<td><code>HandlerRegistry.register</code></td>
+<td><code>(self, command, handler, event_type) → None</code></td>
+<td>Enregistre une seule route de handler.</td>
+</tr>
+<tr>
+<td>L18</td>
+<td><code>HandlerRegistry.register_batch</code></td>
+<td><code>(self, routes) → dict</code></td>
+<td>Enregistre plusieurs routes de handlers à partir d'un dictionnaire.</td>
+</tr>
+<tr>
+<td>L22</td>
+<td><code>HandlerRegistry.get_handler</code></td>
+<td><code>(self, command) → Optional[HandlerRoute]</code></td>
+<td>Récupère la route de handler associée à une commande.</td>
+</tr>
+<tr>
+<td>L29</td>
+<td><code>dispatch_request</code></td>
+<td><code>(sio, cmd, data, logger, sid, registry) → Dict</code></td>
+<td>Dispatch une requête vers le handler approprié selon la commande.</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h3 id="backendhandlerssocketpy"><code>backend/handlers/socket.py</code></h3>
+<p>Enregistrement des événements Socket.IO.</p>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Fonction</th>
+<th>Signature</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>L10</td>
+<td><code>_register_all_handlers</code></td>
+<td><code>() → None</code></td>
+<td>Enregistre tous les handlers d'événements dans le registre.</td>
+</tr>
+<tr>
+<td>L17</td>
+<td><code>register_socketio_handlers</code></td>
+<td><code>(sio) → None</code></td>
+<td>Enregistre les événements Socket.IO : <code>connect</code>, <code>disconnect</code>, <code>data_request</code>, <code>data_submission</code>.</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h3 id="backendpipelinemqtt_telemetry_receiverpy"><code>backend/pipeline/mqtt_telemetry_receiver.py</code></h3>
+<p>Réception de télémétrie via MQTT.</p>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Fonction</th>
+<th>Signature</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>L16</td>
+<td><code>_env_int</code></td>
+<td><code>(name, default) → int</code></td>
+<td>Parse une variable d'environnement en entier avec valeur de repli.</td>
+</tr>
+<tr>
+<td>L23</td>
+<td><code>is_mqtt_enabled</code></td>
+<td><code>() → bool</code></td>
+<td>Vérifie si le récepteur MQTT est activé via variable d'environnement.</td>
+</tr>
+<tr>
+<td>L27</td>
+<td><code>get_mqtt_config</code></td>
+<td><code>() → dict</code></td>
+<td>Retourne le dictionnaire de configuration MQTT depuis les variables d'environnement.</td>
+</tr>
+<tr>
+<td>L39</td>
+<td><code>_run_receiver</code></td>
+<td><code>(config) → None</code></td>
+<td>Exécute la boucle du récepteur MQTT : connexion au broker et abonnement au topic.</td>
+</tr>
+<tr>
+<td>L102</td>
+<td><code>start_mqtt_receiver_in_background</code></td>
+<td><code>() → None</code></td>
+<td>Démarre le récepteur MQTT dans un thread en arrière-plan.</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h3 id="backendpipelinetelemetry_storepy"><code>backend/pipeline/telemetry_store.py</code></h3>
+<p>Stockage en mémoire des trames de télémétrie.</p>
+<h4 id="classe-telemetrystore">Classe <code>TelemetryStore</code></h4>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Méthode</th>
+<th>Signature</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>L10</td>
+<td><code>__init__</code></td>
+<td><code>(self, maxlen) → None</code></td>
+<td>Initialise le store avec une longueur maximale de deque.</td>
+</tr>
+<tr>
+<td>L14</td>
+<td><code>configure_maxlen</code></td>
+<td><code>(self, maxlen) → None</code></td>
+<td>Reconfigure la longueur maximale de la deque.</td>
+</tr>
+<tr>
+<td>L23</td>
+<td><code>add_frame</code></td>
+<td><code>(self, frame) → None</code></td>
+<td>Ajoute une trame de télémétrie au store.</td>
+</tr>
+<tr>
+<td>L27</td>
+<td><code>get_frames</code></td>
+<td><code>(self) → list[dict]</code></td>
+<td>Retourne la liste de toutes les trames stockées.</td>
+</tr>
+<tr>
+<td>L31</td>
+<td><code>clear_frames</code></td>
+<td><code>(self) → None</code></td>
+<td>Vide toutes les trames du store.</td>
+</tr>
+<tr>
+<td>L35</td>
+<td><code>has_frames</code></td>
+<td><code>(self) → bool</code></td>
+<td>Retourne <code>True</code> si le store contient au moins une trame.</td>
+</tr>
+<tr>
+<td>L39</td>
+<td><code>get_count</code></td>
+<td><code>(self) → int</code></td>
+<td>Retourne le nombre de trames actuellement stockées.</td>
+</tr>
+</tbody>
+</table>
+<h4 id="fonctions-module-wrappers-sur-le-singleton">Fonctions module (wrappers sur le singleton)</h4>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Fonction</th>
+<th>Signature</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>L47</td>
+<td><code>configure_maxlen</code></td>
+<td><code>(maxlen) → None</code></td>
+<td>Configure la longueur maximale du store singleton.</td>
+</tr>
+<tr>
+<td>L51</td>
+<td><code>add_frame</code></td>
+<td><code>(frame) → None</code></td>
+<td>Ajoute une trame au store singleton.</td>
+</tr>
+<tr>
+<td>L55</td>
+<td><code>get_frames</code></td>
+<td><code>() → list[dict]</code></td>
+<td>Retourne les trames du store singleton.</td>
+</tr>
+<tr>
+<td>L59</td>
+<td><code>clear_frames</code></td>
+<td><code>() → None</code></td>
+<td>Vide le store singleton.</td>
+</tr>
+<tr>
+<td>L63</td>
+<td><code>has_frames</code></td>
+<td><code>() → bool</code></td>
+<td>Vérifie si le store singleton a des trames.</td>
+</tr>
+<tr>
+<td>L67</td>
+<td><code>get_count</code></td>
+<td><code>() → int</code></td>
+<td>Retourne le nombre de trames du store singleton.</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h3 id="backendservershutdownpy"><code>backend/server/shutdown.py</code></h3>
+<p>Gestion de l'arrêt propre du serveur.</p>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Fonction</th>
+<th>Signature</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>L6</td>
+<td><code>cleanup_everything</code></td>
+<td><code>() → None</code></td>
+<td>Exécute les opérations de nettoyage à l'arrêt du serveur.</td>
+</tr>
+<tr>
+<td>L10</td>
+<td><code>signal_handler</code></td>
+<td><code>(signum, frame) → None</code></td>
+<td>Intercepte les signaux SIGINT/SIGTERM et déclenche l'arrêt propre.</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h3 id="backendserverstartuppy"><code>backend/server/startup.py</code></h3>
+<p>Démarrage de l'application FastAPI, endpoints REST.</p>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Fonction</th>
+<th>Signature</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>L26</td>
+<td><code>lifespan</code></td>
+<td><code>(fastapiapp) → AsyncContextManager</code></td>
+<td>Gestionnaire du cycle de vie FastAPI (démarrage / nettoyage).</td>
+</tr>
+<tr>
+<td>L81</td>
+<td><code>get_version</code></td>
+<td><code>() → Response</code></td>
+<td>Endpoint GET <code>/api/version</code> : retourne les informations de version.</td>
+</tr>
+<tr>
+<td>L90</td>
+<td><code>update_check</code></td>
+<td><code>() → Response</code></td>
+<td>Endpoint GET <code>/api/update-check</code> : vérifie les mises à jour disponibles.</td>
+</tr>
+<tr>
+<td>L103</td>
+<td><code>_get_telemetry_csv_path</code></td>
+<td><code>() → Path</code></td>
+<td>Retourne le chemin vers le fichier <code>telemetry.csv</code>.</td>
+</tr>
+<tr>
+<td>L107</td>
+<td><code>_read_telemetry_csv_frames</code></td>
+<td><code>(csv_path) → list[dict]</code></td>
+<td>Lit et parse les trames de télémétrie depuis un fichier CSV.</td>
+</tr>
+<tr>
+<td>L116</td>
+<td><code>get_telemetry_csv</code></td>
+<td><code>() → Response</code></td>
+<td>Endpoint GET <code>/api/telemetry/csv</code> : retourne les données CSV de télémétrie.</td>
+</tr>
+<tr>
+<td>L135</td>
+<td><code>get_telemetry_protobuf</code></td>
+<td><code>() → Response</code></td>
+<td>Endpoint GET <code>/api/telemetry/protobuf</code> : retourne la télémétrie encodée en Protobuf.</td>
+</tr>
+<tr>
+<td>L161</td>
+<td><code>get_telemetry_mqtt_status</code></td>
+<td><code>() → Response</code></td>
+<td>Endpoint GET <code>/api/telemetry/mqtt/status</code> : retourne l'état du récepteur MQTT.</td>
+</tr>
+<tr>
+<td>L175</td>
+<td><code>clear_telemetry_mqtt_store</code></td>
+<td><code>() → Response</code></td>
+<td>Endpoint DELETE <code>/api/telemetry/mqtt/store</code> : vide le store de télémétrie MQTT.</td>
+</tr>
+<tr>
+<td>L184</td>
+<td><code>serve_spa</code></td>
+<td><code>(request, full_path) → Response</code></td>
+<td>Endpoint catch-all : sert l'application SPA React.</td>
+</tr>
+<tr>
+<td>L191</td>
+<td><code>init_db</code></td>
+<td><code>() → None</code></td>
+<td>Initialise la base de données et exécute les migrations.</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h3 id="backendservertelemetry_protobufpy"><code>backend/server/telemetry_protobuf.py</code></h3>
+<p>Encodage/décodage Protobuf des trames de télémétrie.</p>
+<h4 id="fonctions-daide">Fonctions d'aide</h4>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Fonction</th>
+<th>Signature</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>L32</td>
+<td><code>_to_string</code></td>
+<td><code>(value, fallback) → str</code></td>
+<td>Convertit une valeur en string avec valeur de repli.</td>
+</tr>
+<tr>
+<td>L38</td>
+<td><code>_to_float</code></td>
+<td><code>(value, fallback) → float</code></td>
+<td>Convertit une valeur en float avec valeur de repli.</td>
+</tr>
+<tr>
+<td>L45</td>
+<td><code>_to_uint32</code></td>
+<td><code>(value, fallback) → int</code></td>
+<td>Convertit une valeur en uint32 avec vérification des bornes.</td>
+</tr>
+<tr>
+<td>L53</td>
+<td><code>_clean_row</code></td>
+<td><code>(row) → dict</code></td>
+<td>Assainit une ligne de télémétrie (trim strings, suppression des clés <code>None</code>).</td>
+</tr>
+</tbody>
+</table>
+<h4 id="fonctions-de-normalisation">Fonctions de normalisation</h4>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Fonction</th>
+<th>Signature</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>L61</td>
+<td><code>csv_row_to_telemetry_frame</code></td>
+<td><code>(row, sequence_number) → dict</code></td>
+<td>Convertit une ligne CSV en dictionnaire de trame de télémétrie.</td>
+</tr>
+<tr>
+<td>L87</td>
+<td><code>normalize_telemetry_frame</code></td>
+<td><code>(frame, sequence_number) → dict</code></td>
+<td>Normalise une trame gérant à la fois snake_case et camelCase.</td>
+</tr>
+</tbody>
+</table>
+<h4 id="fonctions-dencodage-protobuf">Fonctions d'encodage Protobuf</h4>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Fonction</th>
+<th>Signature</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>L139</td>
+<td><code>encode_varint</code></td>
+<td><code>(value) → bytes</code></td>
+<td>Encode un uint32 en entier à longueur variable (varint).</td>
+</tr>
+<tr>
+<td>L151</td>
+<td><code>encode_key</code></td>
+<td><code>(field_number, wire_type) → bytes</code></td>
+<td>Encode la clé de champ Protobuf.</td>
+</tr>
+<tr>
+<td>L155</td>
+<td><code>encode_uint32</code></td>
+<td><code>(field_number, value) → bytes</code></td>
+<td>Encode un champ uint32.</td>
+</tr>
+<tr>
+<td>L159</td>
+<td><code>encode_double</code></td>
+<td><code>(field_number, value) → bytes</code></td>
+<td>Encode un champ double.</td>
+</tr>
+<tr>
+<td>L163</td>
+<td><code>encode_string</code></td>
+<td><code>(field_number, value) → bytes</code></td>
+<td>Encode un champ string.</td>
+</tr>
+<tr>
+<td>L170</td>
+<td><code>encode_telemetry_frame</code></td>
+<td><code>(frame) → bytes</code></td>
+<td>Encode une trame complète de télémétrie en Protobuf.</td>
+</tr>
+<tr>
+<td>L196</td>
+<td><code>encode_telemetry_batch</code></td>
+<td><code>(frames, schema_version) → bytes</code></td>
+<td>Encode un lot de trames de télémétrie en Protobuf.</td>
+</tr>
+</tbody>
+</table>
+<h4 id="fonctions-de-décodage-protobuf">Fonctions de décodage Protobuf</h4>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Fonction</th>
+<th>Signature</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>L209</td>
+<td><code>decode_varint</code></td>
+<td><code>(data, offset) → tuple[int, int]</code></td>
+<td>Décode un entier à longueur variable depuis des bytes.</td>
+</tr>
+<tr>
+<td>L229</td>
+<td><code>_read_length_delimited</code></td>
+<td><code>(data, offset) → tuple[bytes, int]</code></td>
+<td>Lit un champ à longueur délimitée.</td>
+</tr>
+<tr>
+<td>L237</td>
+<td><code>_read_double</code></td>
+<td><code>(data, offset) → tuple[float, int]</code></td>
+<td>Lit un double (8 octets) depuis des bytes.</td>
+</tr>
+<tr>
+<td>L244</td>
+<td><code>_skip_field</code></td>
+<td><code>(data, offset, wire_type) → int</code></td>
+<td>Saute un champ selon son wire type.</td>
+</tr>
+<tr>
+<td>L264</td>
+<td><code>decode_telemetry_frame</code></td>
+<td><code>(data) → dict</code></td>
+<td>Décode une trame de télémétrie depuis des bytes Protobuf.</td>
+</tr>
+<tr>
+<td>L322</td>
+<td><code>decode_telemetry_batch</code></td>
+<td><code>(data) → dict</code></td>
+<td>Décode un lot de trames de télémétrie depuis des bytes Protobuf.</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h3 id="backendserverversionpy"><code>backend/server/version.py</code></h3>
+<p>Gestion des versions, informations système et vérification de mises à jour.</p>
+<h4 id="fonctions-de-version">Fonctions de version</h4>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Fonction</th>
+<th>Signature</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>L44</td>
+<td><code>_normalize_version</code></td>
+<td><code>(raw) → str</code></td>
+<td>Normalise une chaîne de version au format <code>major.minor.patch</code>.</td>
+</tr>
+<tr>
+<td>L62</td>
+<td><code>_compare_versions</code></td>
+<td><code>(a, b) → int</code></td>
+<td>Compare deux versions sémantiques (1 si a&gt;b, -1 si a&lt;b, 0 si égales).</td>
+</tr>
+<tr>
+<td>L86</td>
+<td><code>_fetch_latest_release</code></td>
+<td><code>() → dict[str, Any]</code></td>
+<td>Récupère les informations de la dernière release depuis l'API GitHub.</td>
+</tr>
+<tr>
+<td>L100</td>
+<td><code>get_update_check</code></td>
+<td><code>(cache_ttl_seconds) → UpdateCheckData</code></td>
+<td>Retourne la disponibilité d'une mise à jour avec mise en cache mémoire.</td>
+</tr>
+<tr>
+<td>L138</td>
+<td><code>get_version_base</code></td>
+<td><code>() → str</code></td>
+<td>Lit la version de base depuis le fichier <code>version.json</code>.</td>
+</tr>
+<tr>
+<td>L153</td>
+<td><code>get_git_revision_short_hash</code></td>
+<td><code>() → str</code></td>
+<td>Retourne le hash court de la révision git ou <code>&quot;unknown&quot;</code>.</td>
+</tr>
+<tr>
+<td>L164</td>
+<td><code>get_build_date</code></td>
+<td><code>() → str</code></td>
+<td>Retourne la date de build au format ISO (YYYYMMDD).</td>
+</tr>
+<tr>
+<td>L169</td>
+<td><code>get_version_info</code></td>
+<td><code>() → dict</code></td>
+<td>Retourne les informations complètes de version (version, buildDate, gitCommit, environment).</td>
+</tr>
+<tr>
+<td>L368</td>
+<td><code>get_version</code></td>
+<td><code>() → str</code></td>
+<td>Retourne la chaîne de version courante depuis le cache.</td>
+</tr>
+<tr>
+<td>L376</td>
+<td><code>get_full_version_info</code></td>
+<td><code>() → dict</code></td>
+<td>Retourne le dictionnaire complet d'informations de version.</td>
+</tr>
+<tr>
+<td>L396</td>
+<td><code>write_version_info_during_build</code></td>
+<td><code>(version_info_override) → dict</code></td>
+<td>Écrit les informations de version dans un fichier lors du build.</td>
+</tr>
+</tbody>
+</table>
+<h4 id="fonctions-dinformations-système">Fonctions d'informations système</h4>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Fonction</th>
+<th>Signature</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>L211</td>
+<td><code>_get_cpu_usage_percent_nonblocking</code></td>
+<td><code>(prime) → float</code></td>
+<td>Retourne le pourcentage d'utilisation CPU sans bloquer.</td>
+</tr>
+<tr>
+<td>L229</td>
+<td><code>get_system_info</code></td>
+<td><code>(include_load_avg, include_cpu_temp, nonblocking_cpu) → dict</code></td>
+<td>Retourne les informations système : CPU, mémoire, disque, OS, températures.</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="frontend-react--javascript-1">Frontend (React / JavaScript)</h2>
+<hr>
+<h3 id="frontendsrcpagescesium-utilsjs"><code>frontend/src/pages/cesium-utils.js</code></h3>
+<p>Utilitaires pour l'intégration CesiumJS (carte 3D).</p>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Fonction</th>
+<th>Signature</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>L22</td>
+<td><code>getTelemetryRecordGeo</code></td>
+<td><code>(record) → {lat, lon, alt} | null</code></td>
+<td>Extrait les coordonnées géographiques d'un enregistrement de télémétrie.</td>
+</tr>
+<tr>
+<td>L30</td>
+<td><code>getCesiumRecordPosition</code></td>
+<td><code>(record) → Cartesian3 | null</code></td>
+<td>Retourne la position 3D Cesium d'un enregistrement de télémétrie.</td>
+</tr>
+<tr>
+<td>L36</td>
+<td><code>getCesiumGroundPosition</code></td>
+<td><code>(record) → Cartesian3 | null</code></td>
+<td>Retourne la position au sol projetée (altitude 0) pour Cesium.</td>
+</tr>
+<tr>
+<td>L42</td>
+<td><code>getTrajectoryCameraView</code></td>
+<td><code>(records) → {lon, lat, height}</code></td>
+<td>Calcule la vue caméra optimale pour afficher une trajectoire complète.</td>
+</tr>
+<tr>
+<td>L61</td>
+<td><code>createBaseImageryProvider</code></td>
+<td><code>() → Promise&lt;ImageryProvider&gt;</code></td>
+<td>Crée le fournisseur d'imagerie de base avec chaîne de repli.</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h3 id="frontendsrcpagestelemetry-dashboardjsx"><code>frontend/src/pages/telemetry-dashboard.jsx</code></h3>
+<p>Dashboard principal de télémétrie (composant legacy/monolithique).</p>
+<h4 id="fonctions-utilitaires">Fonctions utilitaires</h4>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Fonction</th>
+<th>Signature</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>L73</td>
+<td><code>withTelemetryCacheBuster</code></td>
+<td><code>(endpoint) → string</code></td>
+<td>Ajoute un paramètre anti-cache à une URL d'endpoint.</td>
+</tr>
+<tr>
+<td>L78</td>
+<td><code>getTelemetryPayloadSignature</code></td>
+<td><code>(payload, format) → string</code></td>
+<td>Génère une signature unique d'un payload de télémétrie (pour détecter les changements).</td>
+</tr>
+<tr>
+<td>L94</td>
+<td><code>getTelemetryRowIdentity</code></td>
+<td><code>(record) → string</code></td>
+<td>Génère un identifiant unique pour un enregistrement de télémétrie.</td>
+</tr>
+<tr>
+<td>L102</td>
+<td><code>parseCSV</code></td>
+<td><code>(text) → array</code></td>
+<td>Parse un texte CSV en tableau d'objets JavaScript.</td>
+</tr>
+<tr>
+<td>L133</td>
+<td><code>formatClock</code></td>
+<td><code>(value, fallback) → string</code></td>
+<td>Formate une valeur de date en affichage horloge <code>HH:MM:SS</code>.</td>
+</tr>
+<tr>
+<td>L147</td>
+<td><code>getRecordClock</code></td>
+<td><code>(record, fallback) → string</code></td>
+<td>Extrait et formate l'heure depuis un enregistrement de télémétrie.</td>
+</tr>
+<tr>
+<td>L151</td>
+<td><code>distanceKm</code></td>
+<td><code>(start, end) → number</code></td>
+<td>Calcule la distance Haversine (en km) entre deux points géographiques.</td>
+</tr>
+<tr>
+<td>L166</td>
+<td><code>getMqttSourceStat</code></td>
+<td><code>(mqttStatus) → object</code></td>
+<td>Retourne les statistiques de l'état de la source MQTT.</td>
+</tr>
+</tbody>
+</table>
+<h4 id="composants-react">Composants React</h4>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Composant</th>
+<th>Props</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>L206</td>
+<td><code>TelemetryStatsBar</code></td>
+<td><code>{currentRecord, distance, mqttStatus}</code></td>
+<td>Barre de statistiques de télémétrie (vitesse, altitude, distance, etc.).</td>
+</tr>
+<tr>
+<td>L242</td>
+<td><code>RightControlPanel</code></td>
+<td><code>{onZoomIn, onZoomOut, options, onToggle}</code></td>
+<td>Panneau de contrôle droit avec options de carte.</td>
+</tr>
+<tr>
+<td>L375</td>
+<td><code>MapViewport</code></td>
+<td><code>{currentRecord, firstRecord, hasData, loading, mapOptions, onToggleMapOption, trajectoryRecords}</code></td>
+<td>Viewport principal de la carte 3D Cesium.</td>
+</tr>
+<tr>
+<td>L662</td>
+<td><code>TimelineControls</code></td>
+<td><code>{...}</code></td>
+<td>Contrôles de lecture/avance de la timeline de télémétrie.</td>
+</tr>
+<tr>
+<td>L705</td>
+<td><code>TelemetryDashboard</code></td>
+<td><code>()</code></td>
+<td>Composant principal du dashboard de télémétrie.</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h3 id="frontendsrcpagescesiumviewportjsx"><code>frontend/src/pages/CesiumViewport.jsx</code></h3>
+<p>Composant isolé du viewport Cesium (version refactorisée).</p>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Composant</th>
+<th>Props</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>L34</td>
+<td><code>RightControlPanel</code></td>
+<td><code>{onZoomIn, onZoomOut, options, onToggle}</code></td>
+<td>Panneau de contrôle de la carte (exporté).</td>
+</tr>
+<tr>
+<td>L62</td>
+<td><code>CesiumViewport</code></td>
+<td><code>{currentRecord, firstRecord, hasData, loading, mapOptions, onToggleMapOption, trajectoryRecords}</code></td>
+<td>Composant viewport Cesium isolé (exporté).</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h3 id="frontendsrcpagestelemetry-componentsjsx"><code>frontend/src/pages/telemetry-components.jsx</code></h3>
+<p>Composants React réutilisables pour la télémétrie.</p>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Composant</th>
+<th>Props</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>L29</td>
+<td><code>StatisticCard</code></td>
+<td><code>{label, value, color, icon}</code></td>
+<td>Carte de statistique réutilisable avec label, valeur, couleur et icône.</td>
+</tr>
+<tr>
+<td>L74</td>
+<td><code>ChartCard</code></td>
+<td><code>{title, children, subtitle}</code></td>
+<td>Carte de graphique réutilisable avec titre et sous-titre.</td>
+</tr>
+<tr>
+<td>L111</td>
+<td><code>TelemetrySummary</code></td>
+<td><code>{data}</code></td>
+<td>Résumé des données de télémétrie sous forme de cartes.</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h3 id="frontendsrcpageschart-logicjs"><code>frontend/src/pages/chart-logic.js</code></h3>
+<p>Logique de calcul pour les graphiques (FSPL, link budget).</p>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Fonction</th>
+<th>Signature</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>L6</td>
+<td><code>computeFSPL</code></td>
+<td><code>(altM) → number | null</code></td>
+<td>Calcule la perte en espace libre (FSPL) depuis l'altitude en mètres.</td>
+</tr>
+<tr>
+<td>L11</td>
+<td><code>computeLinkBudget</code></td>
+<td><code>(fspl) → number | null</code></td>
+<td>Calcule le bilan de liaison depuis le FSPL.</td>
+</tr>
+<tr>
+<td>L16</td>
+<td><code>enrich</code></td>
+<td><code>(row) → object</code></td>
+<td>Enrichit une ligne de télémétrie avec les champs calculés (FSPL, link budget, distance).</td>
+</tr>
+<tr>
+<td>L22</td>
+<td><code>pagedDomain</code></td>
+<td><code>(maxVal, minVal, step) → [number, number]</code></td>
+<td>Calcule le domaine paginé pour les axes de graphiques.</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h3 id="frontendsrcpagestelemetry-protobufjs"><code>frontend/src/pages/telemetry-protobuf.js</code></h3>
+<p>Décodage Protobuf côté frontend (implémentation JavaScript).</p>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Fonction</th>
+<th>Signature</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>L8</td>
+<td><code>readVarint</code></td>
+<td><code>(bytes, offset) → {value, offset}</code></td>
+<td>Lit un entier à longueur variable (varint) depuis un buffer.</td>
+</tr>
+<tr>
+<td>L31</td>
+<td><code>readLengthDelimited</code></td>
+<td><code>(bytes, offset) → {value, offset}</code></td>
+<td>Lit un champ à longueur délimitée depuis un buffer.</td>
+</tr>
+<tr>
+<td>L46</td>
+<td><code>readDouble</code></td>
+<td><code>(bytes, offset) → {value, offset}</code></td>
+<td>Lit un double (8 octets) depuis un buffer.</td>
+</tr>
+<tr>
+<td>L60</td>
+<td><code>readString</code></td>
+<td><code>(bytes, offset) → {value, offset}</code></td>
+<td>Lit un champ string UTF-8 depuis un buffer.</td>
+</tr>
+<tr>
+<td>L68</td>
+<td><code>skipField</code></td>
+<td><code>(bytes, offset, wireType) → number</code></td>
+<td>Saute un champ Protobuf selon son wire type.</td>
+</tr>
+<tr>
+<td>L83</td>
+<td><code>decodeTelemetryFrame</code></td>
+<td><code>(bytes) → object</code></td>
+<td>Décode une trame de télémétrie depuis des bytes Protobuf.</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h3 id="frontendsrcpagescharttitlejsx"><code>frontend/src/pages/ChartTitle.jsx</code></h3>
+<p>Composant d'en-tête de graphique.</p>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Composant</th>
+<th>Props</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>L5</td>
+<td><code>ChartTitle</code></td>
+<td><code>{chart, sx}</code></td>
+<td>Affiche le titre d'un graphique avec les noms de champs.</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h3 id="frontendsrcpagescubesat-dashboardjsx"><code>frontend/src/pages/cubesat-dashboard.jsx</code></h3>
+<p>Dashboard interactif CubeSat.</p>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Composant</th>
+<th>Props</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>L20</td>
+<td><code>CubeSatDashboard</code></td>
+<td><code>()</code></td>
+<td>Dashboard principal interactif du CubeSat avec visualisation des sous-systèmes.</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h3 id="frontendsrcpageschart-fieldsjs"><code>frontend/src/pages/chart-fields.js</code></h3>
+<p>Configuration des champs de graphiques.</p>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Fonction</th>
+<th>Signature</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>L27</td>
+<td><code>fieldLabel</code></td>
+<td><code>(key) → string</code></td>
+<td>Retourne le label lisible d'un champ de télémétrie par sa clé.</td>
+</tr>
+<tr>
+<td>L31</td>
+<td><code>fieldUnit</code></td>
+<td><code>(key) → string</code></td>
+<td>Extrait l'unité depuis le label d'un champ.</td>
+</tr>
+<tr>
+<td>L36</td>
+<td><code>fieldStep</code></td>
+<td><code>(key) → number</code></td>
+<td>Retourne le pas de graduation pour un champ donné.</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h3 id="frontendsrcpagesstation-dashboardjsx"><code>frontend/src/pages/station-dashboard.jsx</code></h3>
+<p>Dashboard principal de la station sol.</p>
+<h4 id="fonctions-utilitaires-1">Fonctions utilitaires</h4>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Fonction</th>
+<th>Signature</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>L26</td>
+<td><code>formatClock</code></td>
+<td><code>(value, fallback) → string</code></td>
+<td>Formate une valeur temporelle en <code>HH:MM:SS</code>.</td>
+</tr>
+<tr>
+<td>L33</td>
+<td><code>getRecordClock</code></td>
+<td><code>(record, fallback) → string</code></td>
+<td>Extrait l'heure formatée d'un enregistrement de télémétrie.</td>
+</tr>
+<tr>
+<td>L84</td>
+<td><code>loadFavoriteCharts</code></td>
+<td><code>() → array</code></td>
+<td>Charge la liste des graphiques favoris depuis <code>localStorage</code>.</td>
+</tr>
+<tr>
+<td>L95</td>
+<td><code>loadLeftColumnItems</code></td>
+<td><code>() → array</code></td>
+<td>Charge la configuration de la colonne gauche depuis <code>localStorage</code>.</td>
+</tr>
+</tbody>
+</table>
+<h4 id="composants-react-1">Composants React</h4>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Composant</th>
+<th>Props</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>L38</td>
+<td><code>TimelineControls</code></td>
+<td><code>{...}</code></td>
+<td>Contrôles de timeline (lecture, pause, avance, rewind).</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h3 id="frontendsrcpagestelemetrystatsbarjsx"><code>frontend/src/pages/TelemetryStatsBar.jsx</code></h3>
+<p>Barre de statistiques de télémétrie (composant extrait).</p>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Composant</th>
+<th>Props</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>L5</td>
+<td><code>TelemetryStatsBar</code></td>
+<td><code>{currentRecord, distance, mqttStatus}</code></td>
+<td>Affiche les statistiques temps-réel de télémétrie (altitude, vitesse, RSSI, etc.).</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h3 id="frontendsrcpagestelemetryterminaljsx"><code>frontend/src/pages/TelemetryTerminal.jsx</code></h3>
+<p>Terminal d'affichage de télémétrie brute.</p>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Fonction / Composant</th>
+<th>Signature</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>L7</td>
+<td><code>fmtTime</code></td>
+<td><code>(d) → string</code></td>
+<td>Formate une date en <code>HH:MM:SS</code>.</td>
+</tr>
+<tr>
+<td>L12</td>
+<td><code>TelemetryTerminal</code></td>
+<td><code>() → JSX</code></td>
+<td>Composant terminal style CLI affichant les trames de télémétrie brutes en temps réel.</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h3 id="frontendsrcpagestelemetry-data-sourcejs"><code>frontend/src/pages/telemetry-data-source.js</code></h3>
+<p>Sources de données de télémétrie (CSV, Protobuf, fichiers).</p>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Fonction</th>
+<th>Signature</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>L14</td>
+<td><code>parseTelemetryCsv</code></td>
+<td><code>(text) → array</code></td>
+<td>Parse un texte CSV en tableau d'enregistrements de télémétrie normalisés.</td>
+</tr>
+<tr>
+<td>L45</td>
+<td><code>parseTelemetryProtobuf</code></td>
+<td><code>(buffer) → array</code></td>
+<td>Décode des données de télémétrie Protobuf depuis un ArrayBuffer.</td>
+</tr>
+<tr>
+<td>L49</td>
+<td><code>buildTelemetryChartData</code></td>
+<td><code>(data) → array</code></td>
+<td>Transforme des données de télémétrie en format optimisé pour les graphiques.</td>
+</tr>
+<tr>
+<td>L80</td>
+<td><code>createTelemetryStreamPoint</code></td>
+<td><code>(rows, currentIndex, streamIndex) → object | null</code></td>
+<td>Crée un point de stream depuis un tableau de lignes et un index.</td>
+</tr>
+<tr>
+<td>L92</td>
+<td><code>getTelemetryStreamLimit</code></td>
+<td><code>(sourceLength) → number</code></td>
+<td>Calcule le nombre maximum de points de stream selon la taille de la source.</td>
+</tr>
+<tr>
+<td>L96</td>
+<td><code>readTextFile</code></td>
+<td><code>(file) → Promise&lt;string&gt;</code></td>
+<td>Lit un fichier texte de l'utilisateur et retourne son contenu.</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h3 id="frontendsrcpagestelemetrychartjsx"><code>frontend/src/pages/TelemetryChart.jsx</code></h3>
+<p>Composant de graphique de télémétrie.</p>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Composant</th>
+<th>Props</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>L17</td>
+<td><code>TelemetryChart</code></td>
+<td><code>{data, xKey, lines, tracking, onTrackingChange}</code></td>
+<td>Graphique Recharts pour visualiser les séries temporelles de télémétrie.</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h3 id="frontendsrcpagescubesat-annotated-visualjsx"><code>frontend/src/pages/cubesat-annotated-visual.jsx</code></h3>
+<p>Visualisation annotée SVG du CubeSat.</p>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Fonction / Composant</th>
+<th>Signature</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>L15</td>
+<td><code>getPolygonPath</code></td>
+<td><code>(points) → string</code></td>
+<td>Convertit un tableau de points en chemin SVG <code>d</code>.</td>
+</tr>
+<tr>
+<td>L19</td>
+<td><code>CubeSatAnnotatedVisual</code></td>
+<td><code>{selectedSubsystemId, hoveredSubsystemId, ...}</code></td>
+<td>Diagramme SVG interactif annoté du CubeSat avec sélection de sous-systèmes.</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h3 id="frontendsrcpagesuse-telemetry-streamjsx"><code>frontend/src/pages/use-telemetry-stream.jsx</code></h3>
+<p>Hook React pour le streaming de télémétrie.</p>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Hook</th>
+<th>Signature</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>L39</td>
+<td><code>useTelemetryStream</code></td>
+<td><code>({autoStart, sourceUrl, intervalMs}) → state &amp; controls</code></td>
+<td>Hook React gérant le streaming de télémétrie : chargement, lecture, pause, avance trame par trame.</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h3 id="frontendsrcpagesrapport-dashboardjsx"><code>frontend/src/pages/rapport-dashboard.jsx</code></h3>
+<p>Dashboard de rapport et d'export.</p>
+<h4 id="fonctions-utilitaires-2">Fonctions utilitaires</h4>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Fonction</th>
+<th>Signature</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>L48</td>
+<td><code>fsplDB</code></td>
+<td><code>(distM, freqMHz) → number | null</code></td>
+<td>Calcule le FSPL en dB depuis la distance (m) et la fréquence (MHz).</td>
+</tr>
+<tr>
+<td>L53</td>
+<td><code>downloadText</code></td>
+<td><code>(filename, content, mime) → void</code></td>
+<td>Déclenche le téléchargement d'un contenu texte comme fichier.</td>
+</tr>
+</tbody>
+</table>
+<h4 id="composants-react-2">Composants React</h4>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Composant</th>
+<th>Props</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>L63</td>
+<td><code>StatCard</code></td>
+<td><code>{label, value, unit, color}</code></td>
+<td>Carte de statistique avec label, valeur, unité et couleur.</td>
+</tr>
+<tr>
+<td>L94</td>
+<td><code>SectionHeader</code></td>
+<td><code>{title, subtitle}</code></td>
+<td>En-tête de section avec titre et sous-titre.</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h3 id="frontendsrcpagestelemetry-slicejsx"><code>frontend/src/pages/telemetry-slice.jsx</code></h3>
+<p>Redux slice pour la gestion de l'état de télémétrie.</p>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Action / Reducer</th>
+<th>Signature</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>L37</td>
+<td><code>setTelemetrySourceData</code></td>
+<td><code>(state, action)</code></td>
+<td>Définit les données source brutes dans le store Redux.</td>
+</tr>
+<tr>
+<td>L41</td>
+<td><code>setTelemetryData</code></td>
+<td><code>(state, action)</code></td>
+<td>Définit les données de télémétrie traitées dans le store.</td>
+</tr>
+<tr>
+<td>L45</td>
+<td><code>appendTelemetryPoint</code></td>
+<td><code>(state, action)</code></td>
+<td>Ajoute un point de télémétrie au tableau existant.</td>
+</tr>
+<tr>
+<td>L65</td>
+<td><code>setLoading</code></td>
+<td><code>(state, action)</code></td>
+<td>Définit l'état de chargement (<code>true</code>/<code>false</code>).</td>
+</tr>
+<tr>
+<td>L68</td>
+<td><code>setError</code></td>
+<td><code>(state, action)</code></td>
+<td>Définit le message d'erreur dans le store.</td>
+</tr>
+<tr>
+<td>L71</td>
+<td><code>setSelectedPoint</code></td>
+<td><code>(state, action)</code></td>
+<td>Définit le point actuellement sélectionné dans la timeline.</td>
+</tr>
+<tr>
+<td>L74</td>
+<td><code>setPlaybackState</code></td>
+<td><code>(state, action)</code></td>
+<td>Définit l'index de lecture et l'index de stream.</td>
+</tr>
+<tr>
+<td>L78</td>
+<td><code>setTelemetryMode</code></td>
+<td><code>(state, action)</code></td>
+<td>Définit le mode de télémétrie (CSV, Protobuf, MQTT, etc.).</td>
+</tr>
+<tr>
+<td>L81</td>
+<td><code>resetTelemetryStream</code></td>
+<td><code>(state, action)</code></td>
+<td>Réinitialise le stream à son état initial.</td>
+</tr>
+<tr>
+<td>L88</td>
+<td><code>clearTelemetryData</code></td>
+<td><code>(state, action)</code></td>
+<td>Efface toutes les données de télémétrie du store.</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h3 id="frontendsrcpagescubesat-utilsjs"><code>frontend/src/pages/cubesat-utils.js</code></h3>
+<p>Utilitaires pour le dashboard CubeSat.</p>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Fonction</th>
+<th>Signature</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>L8</td>
+<td><code>getSubsystemById</code></td>
+<td><code>(subsystemId) → object</code></td>
+<td>Retourne la configuration d'un sous-système par son identifiant.</td>
+</tr>
+<tr>
+<td>L12</td>
+<td><code>getTelemetryField</code></td>
+<td><code>(fieldId) → object</code></td>
+<td>Retourne la configuration d'un champ de télémétrie par son ID.</td>
+</tr>
+<tr>
+<td>L16</td>
+<td><code>getFieldCurrentValue</code></td>
+<td><code>(fieldConfig, record) → any</code></td>
+<td>Extrait la valeur actuelle d'un champ depuis un enregistrement de télémétrie.</td>
+</tr>
+<tr>
+<td>L28</td>
+<td><code>formatFieldCurrentValue</code></td>
+<td><code>(fieldConfig, record) → string</code></td>
+<td>Formate la valeur d'un champ pour l'affichage (avec unité).</td>
+</tr>
+<tr>
+<td>L42</td>
+<td><code>getSubsystemMetrics</code></td>
+<td><code>(subsystem, record) → array</code></td>
+<td>Retourne toutes les métriques d'un sous-système pour un enregistrement.</td>
+</tr>
+<tr>
+<td>L56</td>
+<td><code>getSubsystemSummaryMetrics</code></td>
+<td><code>(subsystem, record) → array</code></td>
+<td>Retourne les métriques résumées (affichage compact) d'un sous-système.</td>
+</tr>
+<tr>
+<td>L67</td>
+<td><code>getSubsystemTrendSeries</code></td>
+<td><code>(subsystem, chartData, limit) → array</code></td>
+<td>Retourne les séries de tendance d'un sous-système pour les graphiques.</td>
+</tr>
+<tr>
+<td>L100</td>
+<td><code>getSubsystemStatus</code></td>
+<td><code>(subsystem, latestRecord) → {label, tone}</code></td>
+<td>Détermine le statut opérationnel d'un sous-système (OK, WARNING, ERROR).</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h3 id="frontendsrcpagesanalyse-dashboardjsx"><code>frontend/src/pages/analyse-dashboard.jsx</code></h3>
+<p>Dashboard d'analyse et de configuration des graphiques.</p>
+<h4 id="fonctions-utilitaires-3">Fonctions utilitaires</h4>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Fonction</th>
+<th>Signature</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>L51</td>
+<td><code>gridCol</code></td>
+<td><code>(cols) → object</code></td>
+<td>Retourne une configuration de colonne de grille CSS.</td>
+</tr>
+<tr>
+<td>L59</td>
+<td><code>migrateChart</code></td>
+<td><code>(c) → object</code></td>
+<td>Migre un graphique depuis l'ancien format vers le format actuel.</td>
+</tr>
+<tr>
+<td>L64</td>
+<td><code>loadSavedCharts</code></td>
+<td><code>() → array | null</code></td>
+<td>Charge les graphiques sauvegardés depuis <code>localStorage</code>.</td>
+</tr>
+</tbody>
+</table>
+<h4 id="composants-react-3">Composants React</h4>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Composant</th>
+<th>Props</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>L86</td>
+<td><code>AnalyseDashboard</code></td>
+<td><code>()</code></td>
+<td>Dashboard d'analyse permettant la création et personnalisation de graphiques.</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h3 id="frontendsrcpagestelemetry-utilsjs"><code>frontend/src/pages/telemetry-utils.js</code></h3>
+<p>Utilitaires bas-niveau pour la télémétrie.</p>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Fonction</th>
+<th>Signature</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>L1</td>
+<td><code>normalizeTelemetryHeader</code></td>
+<td><code>(header) → string</code></td>
+<td>Normalise un header CSV en remplaçant les espaces par des underscores.</td>
+</tr>
+<tr>
+<td>L5</td>
+<td><code>isTelemetryNumericHeader</code></td>
+<td><code>(header) → boolean</code></td>
+<td>Vérifie si un header représente une donnée numérique.</td>
+</tr>
+<tr>
+<td>L11</td>
+<td><code>toTelemetryNumber</code></td>
+<td><code>(value, fallback) → number</code></td>
+<td>Convertit une valeur en nombre avec valeur de repli.</td>
+</tr>
+<tr>
+<td>L30</td>
+<td><code>getTelemetryValue</code></td>
+<td><code>(record, keys, fallback) → any</code></td>
+<td>Extrait une valeur d'un enregistrement par clé(s) avec repli.</td>
+</tr>
+<tr>
+<td>L44</td>
+<td><code>getTelemetryNumber</code></td>
+<td><code>(record, keys, fallback) → number</code></td>
+<td>Extrait une valeur numérique d'un enregistrement par clé(s).</td>
+</tr>
+<tr>
+<td>L48</td>
+<td><code>formatTelemetryNumber</code></td>
+<td><code>(value, decimals, unit) → string</code></td>
+<td>Formate un nombre avec décimales et unité pour l'affichage.</td>
+</tr>
+<tr>
+<td>L59</td>
+<td><code>distanceKm</code></td>
+<td><code>(start, end) → number</code></td>
+<td>Calcule la distance Haversine (km) entre deux coordonnées géographiques.</td>
+</tr>
+<tr>
+<td>L70</td>
+<td><code>getMqttSourceStat</code></td>
+<td><code>(mqttStatus) → object</code></td>
+<td>Retourne les statistiques de l'état de la source MQTT.</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h3 id="frontendsrcpagescubesat-subsystem-paneljsx"><code>frontend/src/pages/cubesat-subsystem-panel.jsx</code></h3>
+<p>Panneau de détail d'un sous-système CubeSat.</p>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Composant</th>
+<th>Props</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>L40</td>
+<td><code>CubeSatSubsystemPanel</code></td>
+<td><code>{subsystem, latestPoint, chartData}</code></td>
+<td>Panneau détaillé d'un sous-système : métriques, graphiques de tendance, statut.</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="résumé-statistique">Résumé statistique</h2>
+<table>
+<thead>
+<tr>
+<th>Catégorie</th>
+<th>Nombre</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Fichiers backend Python</td>
+<td>16</td>
+</tr>
+<tr>
+<td>Fichiers frontend JS/JSX</td>
+<td>21</td>
+</tr>
+<tr>
+<td>Fonctions/méthodes backend</td>
+<td>~80</td>
+</tr>
+<tr>
+<td>Composants React</td>
+<td>~22</td>
+</tr>
+<tr>
+<td>Fonctions utilitaires frontend</td>
+<td>~55</td>
+</tr>
+<tr>
+<td><strong>Total fonctions/méthodes</strong></td>
+<td><strong>~157</strong></td>
+</tr>
+</tbody>
+</table>
+<hr>
+<p><em>Rapport généré automatiquement depuis le code source du projet Ground Station.</em></p>
+
+</body>
+</html>
