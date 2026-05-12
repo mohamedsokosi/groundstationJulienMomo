@@ -2,189 +2,35 @@ import asyncio
 import concurrent.futures
 import csv
 import os
-import queue
-import tempfile
-import zipfile
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Set
 
 import socketio
-from engineio.payload import Payload
-from fastapi import BackgroundTasks, FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from audio.audiobroadcaster import AudioBroadcaster
-from audio.audiostreamer import WebAudioStreamer
-from common.arguments import arguments
 from common.logger import logger
-from db import *  # noqa: F401,F403
-from db import engine  # Explicit import for type checker
-from db.migrations import run_migrations
-from observations import events as obs_events
-from observations.events import emit_scheduled_observations_changed as _emit
-from observations.events import set_socketio_instance
-from observations.executor import ObservationExecutor
-from observations.sync import ObservationSchedulerSync
+from db import AsyncSessionLocal, engine, run_migrations  # noqa: F401
 from pipeline import telemetry_store
 from pipeline.mqtt_telemetry_receiver import (
     get_mqtt_config,
     is_mqtt_enabled,
     start_mqtt_receiver_in_background,
 )
-from pipeline.orchestration.processmanager import process_manager
-from server import shutdown
-from server.firsttime import first_time_initialization, run_initial_sync
-from server.scheduler import run_initial_observation_generation, start_scheduler, stop_scheduler
-from server.sessionsnapshot import start_session_runtime_emitter
-from server.systeminfo import start_system_info_emitter
 from server.telemetry_protobuf import csv_row_to_telemetry_frame, encode_telemetry_batch
 from server.version import get_full_version_info, get_update_check
-from tasks.manager import BackgroundTaskManager
-from tracker.messages import handle_tracker_messages
-from tracker.runner import get_tracker_manager, start_tracker_process
-
-# Increase payload limits to handle large waterfall PNG images (typically 2-5MB as base64)
-Payload.max_decode_packets = 50
-# Default is 100KB (100000 bytes), increase to 10MB to handle large PNG images
-Payload.max_decode_packet_size = 10 * 1024 * 1024  # 10MB
-
-# At the top of the file, add a global to track background tasks
-background_tasks: Set[asyncio.Task] = set()
-
-# Module-level variable to track if initial sync is needed
-_needs_initial_sync: bool = False
-
-# Audio distribution system
-# Demodulators write to audio_queue, AudioBroadcaster distributes to multiple consumers
-# Keep input queue small (5-10 chunks) to minimize tuning lag
-# At 1024 samples/chunk @ 44.1kHz = 23ms/chunk, 10 chunks = 230ms latency
-audio_queue: queue.Queue = queue.Queue(maxsize=10)
-audio_broadcaster: AudioBroadcaster = AudioBroadcaster(audio_queue)
-
-# Background task manager (initialized after sio is created)
-background_task_manager: BackgroundTaskManager = None
 
 
 @asynccontextmanager
 async def lifespan(fastapiapp: FastAPI):
-    """Custom lifespan for FastAPI."""
-    global background_task_manager
-
     logger.info("FastAPI lifespan startup...")
     start_mqtt_receiver_in_background()
-    start_tracker_process()
-    tracker_manager = get_tracker_manager()
-    # In an async context, prefer get_running_loop() (get_event_loop() is deprecated when no loop set)
-    event_loop = asyncio.get_running_loop()
-
-    # Set socketio instance for observations events
-    set_socketio_instance(sio)
-
-    # Initialize background task manager
-    background_task_manager = BackgroundTaskManager(sio)
-    logger.info("BackgroundTaskManager initialized")
-
-    # Start audio broadcaster
-    audio_broadcaster.start()
-    shutdown.audio_broadcaster = audio_broadcaster
-
-    # Subscribe consumers to broadcaster
-    playback_queue = audio_broadcaster.subscribe("playback", maxsize=10)
-    shutdown.audio_consumer = WebAudioStreamer(playback_queue, sio, event_loop)
-    shutdown.audio_consumer.start()
-
-    # Initialize ProcessManager with event loop for TranscriptionManager
-    process_manager.set_event_loop(event_loop)
-    logger.info("ProcessManager initialized with event loop")
-
-    asyncio.create_task(handle_tracker_messages(sio))
-    await tracker_manager.sync_tracking_state_from_db()
-
-    # SoapySDR discovery (runs as background tasks)
-    if arguments.runonce_soapy_discovery:
-        # Single discovery at startup
-        logger.info("Starting one-time SoapySDR discovery at startup...")
-        from tasks.registry import get_task
-
-        discovery_func = get_task("soapysdr_discovery")
-        await background_task_manager.start_task(
-            func=discovery_func, kwargs={"mode": "single"}, name="SoapySDR Discovery (startup)"
-        )
-    if arguments.enable_soapy_discovery:
-        # Continuous monitoring mode
-        logger.info("Starting continuous SoapySDR discovery monitoring...")
-        from tasks.registry import get_task
-
-        discovery_func = get_task("soapysdr_discovery")
-        await background_task_manager.start_task(
-            func=discovery_func,
-            kwargs={"mode": "monitor", "refresh_interval": 120},
-            name="SoapySDR Discovery (monitor)",
-        )
-
-    # Schedule initial sync if needed
-    if _needs_initial_sync:
-        asyncio.create_task(run_initial_sync(background_task_manager))
-
-    # Start the background task scheduler
-    scheduler = start_scheduler(sio, process_manager, background_task_manager)
-
-    # Initialize observation executor and scheduler sync
-    observation_executor = ObservationExecutor(process_manager, sio)
-    observation_sync = ObservationSchedulerSync(scheduler, observation_executor)
-
-    # Store observation_sync globally for use in handlers
-    obs_events.observation_sync = observation_sync
-
-    # Run initial observation generation
-    asyncio.create_task(run_initial_observation_generation())
-
-    # Sync all observations to APScheduler after a brief delay
-    # (allows initial generation to complete first)
-    async def sync_observations_after_delay():
-        await asyncio.sleep(2)
-        logger.info("Syncing scheduled observations to APScheduler...")
-        result = await observation_sync.sync_all_observations()
-        if result["success"]:
-            stats = result.get("stats", {})
-            logger.info(
-                f"Observation sync complete: {stats.get('scheduled', 0)} scheduled, "
-                f"{stats.get('skipped_disabled', 0)} disabled, "
-                f"{stats.get('skipped_status', 0)} wrong status, "
-                f"{stats.get('skipped_past', 0)} past events"
-            )
-        else:
-            logger.error(f"Observation sync failed: {result.get('error')}")
-
-    asyncio.create_task(sync_observations_after_delay())
-
-    # Start performance monitoring
-    process_manager.start_monitoring()
-    logger.info("Performance monitoring started (metrics emission every 2s)")
-
-    # Start live system-info emitter task (registers into background_tasks)
-    start_system_info_emitter(sio, background_tasks)
-
-    # Start session runtime snapshot emitter task (registers into background_tasks)
-    start_session_runtime_emitter(sio, background_tasks)
-
     try:
         yield
     finally:
         logger.info("FastAPI lifespan cleanup...")
-        # Shutdown background task manager
-        if background_task_manager:
-            await background_task_manager.shutdown()
-        # Cancel background tasks we created
-        for task in list(background_tasks):
-            task.cancel()
-        background_tasks.clear()
-        stop_scheduler()
-        process_manager.shutdown()
-        shutdown.cleanup_everything()
 
 
 sio = socketio.AsyncServer(
@@ -193,19 +39,13 @@ sio = socketio.AsyncServer(
     logger=True,
     engineio_logger=True,
     binary=True,
-    max_http_buffer_size=10 * 1024 * 1024,  # 10MB to handle large waterfall PNG images
+    max_http_buffer_size=10 * 1024 * 1024,
 )
-
-
-async def emit_scheduled_observations_changed():
-    """Emit event to all clients that scheduled observations have changed."""
-    await _emit()
-
 
 app = FastAPI(
     lifespan=lifespan,
     title="Ground Station API",
-    description="API for satellite tracking, SDR control, and radio communication",
+    description="API for satellite tracking and telemetry",
     version="1.0.0",
     docs_url="/api/docs",
     redoc_url="/api/redoc",
@@ -221,15 +61,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-process_manager.set_sio(sio)
-_HERE = os.path.dirname(os.path.abspath(__file__))  # backend/server/
+_HERE = os.path.dirname(os.path.abspath(__file__))
 FRONTEND_DIST_DIR = os.environ.get(
     "STATIC_FILES_DIR",
     os.path.normpath(os.path.join(_HERE, "..", "..", "frontend", "dist")),
 )
 
-# Mount static directories
-app.mount("/satimages", StaticFiles(directory="satimages"), name="satimages")
 app.mount(
     "/cesiumStatic",
     StaticFiles(
@@ -240,57 +77,23 @@ app.mount(
     name="cesiumStatic",
 )
 
-# Mount data directories for recordings, snapshots, decoded data (SSTV, AFSK, Morse, etc.), and audio
-# Ensure these directories exist before mounting
-backend_dir = os.path.dirname(os.path.abspath(__file__))
-recordings_dir = os.path.join(backend_dir, "..", "data", "recordings")
-snapshots_dir = os.path.join(backend_dir, "..", "data", "snapshots")
-decoded_dir = os.path.join(backend_dir, "..", "data", "decoded")
-audio_dir = os.path.join(backend_dir, "..", "data", "audio")
-transcriptions_dir = os.path.join(backend_dir, "..", "data", "transcriptions")
 
-# Create directories if they don't exist
-os.makedirs(recordings_dir, exist_ok=True)
-os.makedirs(snapshots_dir, exist_ok=True)
-os.makedirs(decoded_dir, exist_ok=True)
-os.makedirs(audio_dir, exist_ok=True)
-os.makedirs(transcriptions_dir, exist_ok=True)
-
-# Use html=True to enable directory browsing
-app.mount("/recordings", StaticFiles(directory=recordings_dir, html=True), name="recordings")
-app.mount("/snapshots", StaticFiles(directory=snapshots_dir, html=True), name="snapshots")
-app.mount("/decoded", StaticFiles(directory=decoded_dir, html=True), name="decoded")
-app.mount("/audio", StaticFiles(directory=audio_dir, html=True), name="audio")
-# Note: html=False for transcriptions to ensure .txt files are served with correct content-type
-app.mount(
-    "/transcriptions", StaticFiles(directory=transcriptions_dir, html=False), name="transcriptions"
-)
-
-
-# Add the version API endpoint BEFORE the catch-all route
 @app.get("/api/version")
 async def get_version():
-    """Return the current version information of the application."""
     try:
-        version_info = get_full_version_info()
-        return version_info
+        return get_full_version_info()
     except Exception as e:
         logger.error(f"Error retrieving version information: {str(e)}")
-        raise HTTPException(
-            status_code=500, detail=f"Failed to retrieve version information: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Failed to retrieve version information: {str(e)}")
 
 
 @app.get("/api/update-check")
 async def update_check():
-    """Return update availability based on GitHub releases."""
     try:
         return get_update_check()
     except Exception as e:
         logger.error(f"Error retrieving update information: {str(e)}")
-        raise HTTPException(
-            status_code=500, detail=f"Failed to retrieve update information: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Failed to retrieve update information: {str(e)}")
 
 
 TELEMETRY_PROTOBUF_MEDIA_TYPE = "application/x-protobuf"
@@ -302,17 +105,16 @@ def _get_telemetry_csv_path() -> Path:
 
 
 def _read_telemetry_csv_frames(csv_path: Path) -> list[dict]:
-    with csv_path.open("r", encoding="utf-8-sig", newline="") as telemetry_file:
-        reader = csv.DictReader(telemetry_file)
+    with csv_path.open("r", encoding="utf-8-sig", newline="") as f:
+        reader = csv.DictReader(f)
         return [
-            csv_row_to_telemetry_frame(row, sequence_number=index)
-            for index, row in enumerate(reader)
+            csv_row_to_telemetry_frame(row, sequence_number=i)
+            for i, row in enumerate(reader)
         ]
 
 
 @app.get("/api/telemetry.csv")
 async def get_telemetry_csv():
-    """Serve the telemetry CSV file for the customize dashboard."""
     try:
         csv_path = _get_telemetry_csv_path()
         if not csv_path.exists():
@@ -332,7 +134,6 @@ async def get_telemetry_csv():
 
 @app.get("/api/telemetry.pb")
 async def get_telemetry_protobuf():
-    """Serve MQTT telemetry frames when available, otherwise fall back to CSV data."""
     try:
         if telemetry_store.has_frames():
             frames = telemetry_store.get_frames()
@@ -380,44 +181,6 @@ async def clear_telemetry_mqtt_store():
     }
 
 
-def _resolve_decoded_folder(decoded_root: Path, foldername: str) -> Path:
-    folder_path = (decoded_root / foldername).resolve()
-    try:
-        folder_path.relative_to(decoded_root)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid folder path")
-    if not folder_path.exists() or not folder_path.is_dir():
-        raise HTTPException(status_code=404, detail="Decoded folder not found")
-    return folder_path
-
-
-@app.get("/api/decoded/{foldername}/download")
-async def download_decoded_folder(foldername: str, background_tasks: BackgroundTasks):
-    decoded_root = Path(decoded_dir).resolve()
-    folder_path = _resolve_decoded_folder(decoded_root, foldername)
-    temp_zip = tempfile.NamedTemporaryFile(delete=False, suffix=".zip")
-    temp_zip.close()
-
-    try:
-        with zipfile.ZipFile(temp_zip.name, "w", zipfile.ZIP_DEFLATED) as archive:
-            for file_path in folder_path.rglob("*"):
-                if file_path.is_file():
-                    archive.write(file_path, file_path.relative_to(folder_path).as_posix())
-    except Exception as exc:
-        if os.path.exists(temp_zip.name):
-            os.remove(temp_zip.name)
-        raise HTTPException(status_code=500, detail=f"Failed to create archive: {exc}")
-
-    background_tasks.add_task(os.remove, temp_zip.name)
-    return FileResponse(
-        temp_zip.name,
-        media_type="application/zip",
-        filename=f"{foldername}.zip",
-        background=background_tasks,
-    )
-
-
-# This catch-all route comes AFTER specific API routes
 @app.get("/{full_path:path}")
 async def serve_spa(request: Request, full_path: str):
     if full_path.startswith(("static/", "assets/", "cesiumStatic/", "favicon.ico")):
@@ -426,61 +189,21 @@ async def serve_spa(request: Request, full_path: str):
 
 
 async def init_db():
-    """Initialize database and run migrations."""
-    global _needs_initial_sync
-
     logger.info("Initializing database...")
 
-    # Ensure required data directories exist
-    logger.info("Ensuring data directories exist...")
     backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    data_dirs = [
+    for directory in [
         os.path.join(backend_dir, "data", "db"),
-        os.path.join(backend_dir, "data", "recordings"),
-        os.path.join(backend_dir, "data", "snapshots"),
-        os.path.join(
-            backend_dir, "data", "decoded"
-        ),  # For SSTV images, AFSK packets, Morse audio, etc.
-        os.path.join(backend_dir, "data", "audio"),  # For audio recordings
-        os.path.join(backend_dir, "data", "configs"),  # For satellite decoder configurations
-        os.path.join(backend_dir, "data", "uhd_images"),  # For UHD FPGA images
-        os.path.join(backend_dir, "data", "uhd_config"),  # For UHD configuration files
-        os.path.join(backend_dir, "data", "transcriptions"),  # For transcription text files
-    ]
-    for directory in data_dirs:
+        os.path.join(backend_dir, "data", "configs"),
+    ]:
         os.makedirs(directory, exist_ok=True)
-        logger.debug(f"Ensured directory exists: {directory}")
 
-    # Check if database exists by trying to query metadata
-    database_existed = False
     try:
-        async with engine.begin() as conn:
-            # Try to get table names - if this succeeds, database exists
-            result = await conn.run_sync(
-                lambda sync_conn: engine.dialect.get_table_names(sync_conn)
-            )
-            database_existed = len(result) > 0
-    except Exception:
-        # Database doesn't exist or is empty
-        database_existed = False
-
-    # Run Alembic migrations to ensure schema is up to date
-    try:
-        # Run migrations in a thread pool to avoid event loop conflicts
-        # Use the currently running loop (compatible with Python 3.12+)
         loop = asyncio.get_running_loop()
         with concurrent.futures.ThreadPoolExecutor() as executor:
             await loop.run_in_executor(executor, run_migrations)
-
     except Exception as e:
         logger.error(f"Error running database migrations: {e}")
-        logger.exception(e)
         raise
 
-    # If database didn't exist before, populate with initial data
-    if not database_existed:
-        logger.info("Database initialized (new, populated with initial data)")
-        await first_time_initialization()
-        _needs_initial_sync = True
-    else:
-        logger.info("Database initialized (existing, migrations applied)")
+    logger.info("Database initialized")

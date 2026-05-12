@@ -22,7 +22,7 @@ from sqlalchemy import delete, insert, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from common.common import logger, serialize_object
-from db.models import Preferences, TrackingState
+from db.models import Preferences
 
 
 async def fetch_preference(session: AsyncSession, preference_id: Union[uuid.UUID, str]) -> dict:
@@ -292,88 +292,3 @@ async def delete_preference(session: AsyncSession, preference_id: Union[uuid.UUI
         logger.error(traceback.format_exc())
         return {"success": False, "error": str(e)}
 
-
-async def set_map_settings(session: AsyncSession, data: dict) -> dict:
-    """
-    Updates satellite tracking state or inserts new settings into the database.
-
-    This function handles updating settings for satellite tracking by name. If a
-    record with the given name exists, it will update the existing record. Otherwise,
-    it will insert a new record with the provided data. The updated/created record
-    is serialized and returned alongside the success status. In case of errors,
-    a failure status and error message are returned, and the transaction is rolled back.
-
-    :param session:
-        An AsyncSession instance for handling database operations.
-    :param data:
-        A dictionary containing the satellite tracking settings to set. The keys
-        must include 'name' and 'value'. Additional keys will be used to update
-        or insert the record.
-    :return:
-        A dictionary containing the success status, serialized record data if
-        successful, and error information in case of failure.
-    """
-    try:
-        assert data.get("name", None) is not None, "name is required when setting map settings"
-        assert data.get("value", None) is not None, "value is required when setting map settings"
-
-        now = datetime.now(timezone.utc)
-        data["updated"] = now
-
-        existing_record = await session.execute(
-            select(TrackingState).where(TrackingState.name == data["name"])
-        )
-        existing_record = existing_record.scalar_one_or_none()
-
-        if existing_record:
-            for key, value in data.items():
-                setattr(existing_record, key, value)
-            new_record = existing_record
-        else:
-            new_record = TrackingState(**data)
-
-        await session.merge(new_record)
-        await session.commit()
-        new_record = serialize_object(new_record)
-        return {"success": True, "data": new_record, "error": None}
-
-    except Exception as e:
-        await session.rollback()
-        logger.error(f"Error storing satellite tracking state: {e}")
-        logger.error(traceback.format_exc())
-        return {"success": False, "error": str(e)}
-
-
-async def get_map_settings(session: AsyncSession, name: str) -> dict:
-    """
-    Retrieve map settings for the given name.
-
-    This asynchronous function queries the database to fetch the map
-    settings related to satellite tracking state. If data is successfully
-    retrieved, it returns the settings in a structured format. If no data is
-    found, an empty dictionary is provided. In case of an error during
-    execution, the function logs the error and returns a failure response.
-
-    :param session: Database session instance to execute queries
-    :param name: The name identifier related to the map settings
-    :return: A dictionary containing either the map settings 'data'
-        or an empty dictionary and a 'success' status indicating
-        the operation's outcome
-    """
-    try:
-        # Query map settings from the database using the provided name
-        map_settings = await session.execute(
-            select(TrackingState).where(TrackingState.name == name)
-        )
-        map_settings_row = map_settings.scalars().first()
-
-        if map_settings_row:
-            map_settings_row = serialize_object(map_settings_row)
-            return {"success": True, "data": map_settings_row}
-        else:
-            return {"success": True, "data": {}}
-
-    except Exception as e:
-        logger.error(f"Error retrieving map settings: {str(e)}")
-        logger.exception(e)
-        return {"success": False, "data": {}, "error": str(e)}
