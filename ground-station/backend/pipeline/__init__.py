@@ -1,1 +1,1 @@
-"""SDR pipeline orchestration and management."""
+"""SDR pipeline — telemetry ingest."""

@@ -70,14 +70,14 @@ export default function CubeSatDashboard() {
                                         : 'Hover for names, click to lock a subsystem.'}
                                 </Typography>
                             </Box>
-                            <Button
+                            {/* <Button
                                 variant={editMode ? 'contained' : 'outlined'}
                                 size="small"
                                 onClick={() => setEditMode((v) => !v)}
                                 sx={{ flexShrink: 0, mt: 0.5 }}
                             >
                                 {editMode ? 'DONE' : '> EDIT <'}
-                            </Button>
+                            </Button> */}
                         </Box>
 
                         <Box sx={{ width: '70%', mx: 'auto' }}>

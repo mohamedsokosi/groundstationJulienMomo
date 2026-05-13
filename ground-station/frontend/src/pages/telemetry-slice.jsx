@@ -49,6 +49,11 @@ const telemetrySlice = createSlice({
                 return;
             }
 
+            const last = state.telemetryData[state.telemetryData.length - 1];
+            if (last !== undefined && point.streamIndex <= last.streamIndex) {
+                state.telemetryData = [];
+            }
+
             state.telemetryData.push(point);
 
             if (state.telemetryData.length > maxPoints) {

@@ -20,7 +20,6 @@
 
 import {styled} from "@mui/material/styles";
 import Paper from "@mui/material/Paper";
-import {Polyline, Tooltip as LeafletTooltip} from "react-leaflet";
 import React, {useEffect, useRef, useState} from "react";
 import Tooltip from "@mui/material/Tooltip";
 import {Box, Chip, Fab, Stack, Tab} from "@mui/material";
@@ -166,14 +165,6 @@ export const TitleBar = styled(Paper)(({ theme }) => ({
         : '0 1px 2px rgba(0, 0, 0, 0.08)',
 }));
 
-export const ThemedLeafletTooltip = styled(LeafletTooltip)(({ theme }) => ({
-    color: theme.palette.text.primary,
-    backgroundColor: theme.palette.background.paper,
-    borderRadius: theme.shape.borderRadius,
-    borderColor: theme.palette.background.paper,
-    zIndex: 1000,
-}));
-
 export const ThemedStackIsland = styled(Stack)(({theme}) => ({
     color: theme.palette.text.secondary,
     backgroundColor: theme.palette.background.paper,
@@ -194,42 +185,6 @@ export const SettingItem = styled('div')(({theme}) => ({
     padding: '0.2rem 0.1rem',
     fontsize: '0.9rem !important',
 }));
-
-export function InternationalDateLinePolyline() {
-    // Coordinates for the International Date Line
-    const dateLineCoordinates1 = [
-        [90, 180],
-        [-90, 180],
-    ];
-
-    const dateLineCoordinates2 = [
-        [90, -180],
-        [-90, -180],
-    ];
-
-    return [
-        <Polyline
-            key={'first-date-line'}
-            positions={dateLineCoordinates1}
-            pathOptions={{
-                opacity: 0.9,
-                color: 'white',
-                weight: 1,
-                dashArray: '1, 5',
-            }}
-        />,
-        <Polyline
-            key={'second-date-line'}
-            positions={dateLineCoordinates2}
-            pathOptions={{
-                opacity: 0.9,
-                color: 'white',
-                weight: 1,
-                dashArray: '1, 5',
-            }}
-        />
-    ];
-}
 
 function stringToColor(string) {
     let hash = 0;

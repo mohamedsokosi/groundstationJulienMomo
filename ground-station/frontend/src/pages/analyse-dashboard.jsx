@@ -26,73 +26,15 @@ import FileDownloadIcon from '@mui/icons-material/FileDownload';
 import FileUploadIcon from '@mui/icons-material/FileUpload';
 import StarIcon from '@mui/icons-material/Star';
 import StarBorderOutlinedIcon from '@mui/icons-material/StarBorderOutlined';
-import {
-    CartesianGrid,
-    Line,
-    LineChart,
-    ResponsiveContainer,
-    Tooltip,
-    XAxis,
-    YAxis,
-} from 'recharts';
 import { useTelemetryStream } from './use-telemetry-stream.jsx';
 import { usePageActions } from '../layout/page-actions-context.jsx';
+import { AVAILABLE_FIELDS, CHART_COLORS, fieldLabel } from './chart-fields.js';
+import { enrich } from './chart-logic.js';
+import { TelemetryChart } from './TelemetryChart.jsx';
+import { ChartTitle } from './ChartTitle.jsx';
 
-const FREQ_MHZ = 437;
-function computeFSPL(altM) {
-    if (!altM || altM <= 0) return null;
-    return +(20 * Math.log10((4 * Math.PI * altM * FREQ_MHZ * 1e6) / 3e8)).toFixed(2);
-}
-
-const TX_DBM = 30;
-const TX_GAIN_DBI = 8;
-const RX_GAIN_DBI = 10;
-function computeLinkBudget(fspl) {
-    if (fspl === null) return null;
-    return +(TX_DBM + TX_GAIN_DBI - fspl + RX_GAIN_DBI).toFixed(2);
-}
-
-// step = fixed page size for X-axis windowing (threshold to expand = 75% of step)
-const AVAILABLE_FIELDS = [
-    { key: '_elapsed_s',   label: 'Temps écoulé (s)',       step: 60    },
-    { key: '_elapsed_min', label: 'Temps écoulé (min)',     step: 1     },
-    { key: 'U_Alt',        label: 'Altitude (m)',           step: 10000 },
-    { key: 'Speed',        label: 'Speed (m/s)',            step: 100   },
-    { key: 'Vert_speed',   label: 'Vertical Speed (m/s)',   step: 10    },
-    { key: 'Pressure',     label: 'Pressure (hPa)',         step: 100   },
-    { key: '#_Sat',        label: 'Satellites',             step: 10    },
-    { key: 'U_Lat',        label: 'Latitude (°)',           step: 1     },
-    { key: 'U_Long',       label: 'Longitude (°)',          step: 1     },
-    { key: '_fspl',        label: 'FSPL (dB)',              step: 100   },
-    { key: '_bilan',       label: 'Bilan de liaison (dBm)', step: 100   },
-    { key: '_distance',    label: 'Distance verticale (m)', step: 10000 },
-    { key: 'MIU',          label: 'MIU (V)',                step: 1     },
-    { key: 'T1',           label: 'Temp. 1 (°C)',           step: 10    },
-    { key: 'T2',           label: 'Temp. 2 (°C)',           step: 10    },
-    { key: 'T3',           label: 'Temp. 3 (°C)',           step: 10    },
-    { key: 'T4',           label: 'Temp. 4 (°C)',           step: 10    },
-    { key: 'T5',           label: 'Temp. 5 (°C)',           step: 10    },
-    { key: 'T6',           label: 'Temp. 6 (°C)',           step: 10    },
-    { key: 'T7',           label: 'Temp. 7 (°C)',           step: 10    },
-    { key: 'T8',           label: 'Temp. 8 (°C)',           step: 10    },
-];
-
-function fieldLabel(key) {
-    return AVAILABLE_FIELDS.find((f) => f.key === key)?.label || key;
-}
-
-function fieldUnit(key) {
-    const m = fieldLabel(key).match(/\(([^)]+)\)$/);
-    return m ? m[1] : '';
-}
-
-function enrich(row) {
-    const alt = parseFloat(row['U_Alt'] ?? row['U Alt']) || 0;
-    const fspl = computeFSPL(alt);
-    return { ...row, _fspl: fspl, _bilan: computeLinkBudget(fspl), _distance: alt };
-}
-
-const CHART_COLORS = ['#4cbc74', '#ee8a22', '#4fb7d6', '#d2b04c', '#8797ab', '#2e9f69'];
+const STORAGE_KEY = 'analyse_charts_config';
+const STATION_LEFT_COL_KEY = 'station_left_column_config';
 
 const SIZE_OPTIONS = [
     { value: 3,  label: '¼' },
@@ -114,246 +56,6 @@ function gridCol(cols) {
     };
 }
 
-function fieldStep(key) {
-    return AVAILABLE_FIELDS.find(f => f.key === key)?.step ?? 100;
-}
-
-function pagedDomain(maxVal, minVal, step) {
-    const hi = (Math.floor(maxVal / step + 0.5) + 1) * step;
-    const lo = minVal < 0 ? -(Math.floor(-minVal / step + 0.5) + 1) * step : 0;
-    return [lo, hi];
-}
-
-// Smoothly animate a domain boundary whenever it changes (ease-in-out cubic, 700 ms)
-function useAnimatedDomain(target, duration = 700) {
-    const valueRef = useRef(target);
-    const [displayed, setDisplayed] = useState(target);
-    const rafRef = useRef(null);
-
-    useEffect(() => {
-        if (target === valueRef.current) return;
-        cancelAnimationFrame(rafRef.current);
-        const from = valueRef.current;
-        const t0 = performance.now();
-        const tick = (now) => {
-            const p = Math.min((now - t0) / duration, 1);
-            const e = p < 0.5 ? 4 * p * p * p : 1 - (-2 * p + 2) ** 3 / 2;
-            const v = from + (target - from) * e;
-            valueRef.current = v;
-            setDisplayed(v);
-            if (p < 1) rafRef.current = requestAnimationFrame(tick);
-        };
-        rafRef.current = requestAnimationFrame(tick);
-        return () => cancelAnimationFrame(rafRef.current);
-    }, [target, duration]);
-
-    return displayed;
-}
-
-// chart = { id, xKey, lines: [{key, color}], cols, ratio }
-function TelemetryChart({ data, xKey, lines, tracking, onTrackingChange }) {
-    const theme = useTheme();
-    const scrollRef = useRef(null);
-    const isAutoScrollLockRef = useRef(false);
-    const autoScrollRafRef = useRef(null);
-    const hasData = !!data?.length && !!lines?.length;
-
-    const labelFs = theme.typography.caption.fontSize;
-
-    const { maxX, minY, maxY } = useMemo(() => {
-        if (!data?.length) return { maxX: 0, minY: 0, maxY: 0 };
-        let mx = 0, mn = 0, my = 0;
-        for (const d of data) {
-            const x = Number(d[xKey]) || 0;
-            if (x > mx) mx = x;
-            for (const { key } of lines) {
-                const v = Number(d[key]) || 0;
-                if (v > my) my = v;
-                if (v < mn) mn = v;
-            }
-        }
-        return { maxX: mx, minY: mn, maxY: my };
-    }, [data, xKey, lines]);
-
-    const stepX = fieldStep(xKey);
-    const stepY = lines.reduce((m, { key }) => Math.max(m, fieldStep(key)), 0) || 100;
-
-    const [, xDomainMax] = pagedDomain(maxX, 0, stepX);
-    const [yDomainMin, yDomainMax] = pagedDomain(maxY, minY, stepY);
-
-    const animXMax = useAnimatedDomain(xDomainMax);
-    const animYMin = useAnimatedDomain(yDomainMin);
-    const animYMax = useAnimatedDomain(yDomainMax);
-
-    // Build explicit X tick array so 0 is always shown and density is ~10 ticks/page.
-    // Derived from animXMax (the animated value) so ticks stay within the current domain
-    // during expansion and never appear ahead of the visible chart area.
-    const xTicks = useMemo(() => {
-        if (!animXMax) return [0];
-        const raw = stepX / 10;
-        const mag = Math.pow(10, Math.floor(Math.log10(raw)));
-        const n = raw / mag;
-        const nice = n < 1.5 ? mag : n < 3.5 ? 2 * mag : n < 7.5 ? 5 * mag : 10 * mag;
-        const count = Math.round(animXMax / nice);
-        return Array.from({ length: Math.min(count, 500) + 1 }, (_, i) =>
-            Math.round(i * nice * 1e9) / 1e9
-        );
-    }, [animXMax, stepX]);
-
-    const pagesX = animXMax / stepX;
-
-    // Explicit Y ticks: ~8 ticks across the animated domain, snapped to a nice interval.
-    // Providing explicit ticks prevents Recharts from auto-generating values from a
-    // float domain, which causes the brief huge-number glitch during domain transitions.
-    const yTicks = useMemo(() => {
-        const range = animYMax - animYMin;
-        if (range <= 0) return [Math.round(animYMin)];
-        const raw = range / 8;
-        const mag = Math.pow(10, Math.floor(Math.log10(raw)));
-        const n = raw / mag;
-        const nice = n < 1.5 ? mag : n < 3.5 ? 2 * mag : n < 7.5 ? 5 * mag : 10 * mag;
-        const lo = Math.ceil(animYMin / nice) * nice;
-        const result = [];
-        for (let v = lo; v <= animYMax + nice * 0.0001; v += nice) {
-            result.push(Math.round(v * 1e9) / 1e9);
-        }
-        return result;
-    }, [animYMin, animYMax]);
-
-    useEffect(() => {
-        if (!tracking || !hasData) return;
-        const el = scrollRef.current;
-        if (!el) return;
-        const targetLeft = Math.max(0, (maxX / stepX) * el.clientWidth - el.clientWidth * 0.5);
-        const start = el.scrollLeft;
-        const distance = targetLeft - start;
-        if (Math.abs(distance) < 1) return;
-        const duration = 300;
-        const t0 = performance.now();
-        const tick = (now) => {
-            const p = Math.min((now - t0) / duration, 1);
-            const e = 1 - (1 - p) ** 3;
-            isAutoScrollLockRef.current = true;
-            el.scrollLeft = start + distance * e;
-            if (p < 1) autoScrollRafRef.current = requestAnimationFrame(tick);
-        };
-        autoScrollRafRef.current = requestAnimationFrame(tick);
-        return () => cancelAnimationFrame(autoScrollRafRef.current);
-    }, [tracking, maxX, stepX, hasData]);
-
-    const handleScroll = useCallback(() => {
-        if (isAutoScrollLockRef.current) {
-            isAutoScrollLockRef.current = false;
-            return;
-        }
-        onTrackingChange(false);
-    }, [onTrackingChange]);
-
-
-    if (!hasData) return null;
-
-    const latestPoint = data[data.length - 1];
-
-    return (
-        <Box sx={{ width: '100%', height: '100%', display: 'flex', position: 'relative' }}>
-            {/* Fixed Y-axis panel — does not scroll */}
-            <Box sx={{ width: 50, flexShrink: 0, height: '100%' }}>
-                <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={data} margin={{ top: 4, right: 0, left: 8, bottom: 34 }}>
-                        <YAxis
-                            domain={[animYMin, animYMax]}
-                            ticks={yTicks}
-                            tick={{ fontSize: labelFs, fill: theme.palette.text.secondary }}
-                            stroke={theme.palette.divider}
-                            width={38}
-                        />
-                    </LineChart>
-                </ResponsiveContainer>
-            </Box>
-
-            {/* Scrollable chart body */}
-            <Box
-                ref={scrollRef}
-                onScroll={handleScroll}
-                sx={{ flex: 1, minWidth: 0, height: '100%', overflowX: 'auto', overflowY: 'hidden' }}
-            >
-                <Box sx={{ width: `${pagesX * 100}%`, height: '100%' }}>
-                    <ResponsiveContainer width="100%" height="100%">
-                        <LineChart data={data} margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
-                            <CartesianGrid strokeDasharray="3 3" stroke={alpha(theme.palette.divider, 0.4)} />
-                            <XAxis
-                                dataKey={xKey}
-                                type="number"
-                                domain={[0, animXMax]}
-                                ticks={xTicks}
-                                height={30}
-                                tick={{ fontSize: labelFs, fill: theme.palette.text.secondary }}
-                                stroke={theme.palette.divider}
-                                label={{ value: fieldLabel(xKey), position: 'insideBottom', offset: 2, fontSize: labelFs, fill: theme.palette.text.secondary }}
-                            />
-                            <YAxis domain={[animYMin, animYMax]} hide width={0} />
-                            <Tooltip
-                                contentStyle={{
-                                    backgroundColor: theme.palette.background.paper,
-                                    border: `1px solid ${theme.palette.divider}`,
-                                    borderRadius: 8,
-                                    fontSize: 11,
-                                }}
-                                formatter={(v, name) => [typeof v === 'number' ? v.toFixed(2) : v, fieldLabel(name)]}
-                                labelFormatter={(v) => `${fieldLabel(xKey)}: ${typeof v === 'number' ? v.toFixed(1) : v}`}
-                            />
-                            {lines.map(({ key, color }) => (
-                                <Line
-                                    key={key}
-                                    type="monotone"
-                                    dataKey={key}
-                                    stroke={color}
-                                    dot={false}
-                                    strokeWidth={2}
-                                    isAnimationActive={false}
-                                />
-                            ))}
-                        </LineChart>
-                    </ResponsiveContainer>
-                </Box>
-            </Box>
-
-            {/* Latest-value overlay — top-left of the chart body */}
-            {latestPoint && (
-                <Box sx={{
-                    position: 'absolute',
-                    top: 6,
-                    left: 58,
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'flex-start',
-                    pointerEvents: 'none',
-                    zIndex: 10,
-                }}>
-                    <Box sx={{ display: 'flex', gap: 0.75, flexWrap: 'wrap', alignItems: 'baseline' }}>
-                        {lines.map(({ key, color }) => {
-                            const unit = fieldUnit(key);
-                            const val = typeof latestPoint[key] === 'number' ? latestPoint[key].toFixed(2) : (latestPoint[key] ?? '—');
-                            return (
-                                <Typography key={key} variant="caption" sx={{ fontWeight: 700, color, fontSize: 13, lineHeight: 1.2 }}>
-                                    {val}{unit && <span style={{ fontWeight: 400, fontSize: 10, opacity: 0.85 }}> {unit}</span>}
-                                </Typography>
-                            );
-                        })}
-                    </Box>
-                    <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: 11, lineHeight: 1.3 }}>
-                        {typeof latestPoint[xKey] === 'number' ? latestPoint[xKey].toFixed(1) : (latestPoint[xKey] ?? '—')}
-                        {fieldUnit(xKey) && <span style={{ fontSize: 10, opacity: 0.75 }}> {fieldUnit(xKey)}</span>}
-                    </Typography>
-                </Box>
-            )}
-        </Box>
-    );
-}
-
-const STORAGE_KEY = 'analyse_charts_config';
-
-// Migrate old format { x, y, color } → new { xKey, lines: [{key, color}] }
 function migrateChart(c) {
     if (c.lines) return c;
     return { ...c, xKey: c.x ?? c.xKey, lines: [{ key: c.y, color: c.color ?? CHART_COLORS[0] }] };
@@ -370,7 +72,7 @@ const loadSavedCharts = () => {
             );
             if (migrated.length) return migrated;
         }
-    } catch {}
+    } catch (_) { /* ignore */ }
     return null;
 };
 
@@ -380,22 +82,6 @@ const DEFAULT_CHARTS = [
     { id: 'default-2', xKey: '_elapsed_min', lines: [{ key: 'Pressure', color: '#4fb7d6' }], cols: 3, ratio: '1/1', track: true, favorite: false },
     { id: 'default-3', xKey: '_elapsed_min', lines: [{ key: 'Speed',    color: '#d2b04c' }], cols: 3, ratio: '1/1', track: true, favorite: false },
 ];
-
-function ChartTitle({ chart, sx }) {
-    const x = fieldLabel(chart.xKey);
-    return (
-        <Typography variant="caption" sx={{ fontWeight: 600, lineHeight: 1.2, ...sx }}>
-            {chart.lines.map((l, i) => (
-                <React.Fragment key={l.key}>
-                    {i > 0 && <span style={{ color: 'inherit' }}>, </span>}
-                    <span style={{ color: l.color }}>{fieldLabel(l.key)}</span>
-                </React.Fragment>
-            ))}
-            {' vs '}
-            {x}
-        </Typography>
-    );
-}
 
 export default function AnalyseDashboard() {
     const theme = useTheme();
@@ -409,7 +95,6 @@ export default function AnalyseDashboard() {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(charts));
     }, [charts]);
 
-    // Add-chart form state
     const [newX, setNewX] = useState('_elapsed_min');
     const [newLines, setNewLines] = useState([]);
     const [pendingY, setPendingY] = useState('U_Alt');
@@ -450,6 +135,24 @@ export default function AnalyseDashboard() {
     const updateChart = (id, patch) =>
         setCharts((prev) => prev.map((c) => c.id === id ? { ...c, ...patch } : c));
 
+    const toggleChartFavorite = (chart) => {
+        const newFav = !chart.favorite;
+        updateChart(chart.id, { favorite: newFav });
+        try {
+            const raw = localStorage.getItem(STATION_LEFT_COL_KEY);
+            let items = raw ? JSON.parse(raw) : [];
+            if (!Array.isArray(items)) items = [];
+            if (newFav) {
+                if (!items.find((i) => i.id === chart.id)) {
+                    items = [...items, { id: chart.id, type: 'chart', xKey: chart.xKey, lines: chart.lines }];
+                }
+            } else {
+                items = items.filter((i) => i.id !== chart.id);
+            }
+            localStorage.setItem(STATION_LEFT_COL_KEY, JSON.stringify(items));
+        } catch (_) { /* ignore */ }
+    };
+
     const exportConfig = useCallback(() => {
         const config = { version: 2, charts: chartsRef.current };
         const blob = new Blob([JSON.stringify(config, null, 2)], { type: 'application/json' });
@@ -474,7 +177,7 @@ export default function AnalyseDashboard() {
                     (c) => validKeys.has(c.xKey) && c.lines?.some((l) => validKeys.has(l.key))
                 ).map((c) => ({ ...c, id: `imported-${Date.now()}-${Math.random()}` }));
                 if (imported.length) setCharts(imported);
-            } catch {}
+            } catch (_) { /* ignore */ }
         };
         reader.readAsText(file);
         e.target.value = '';
@@ -538,12 +241,10 @@ export default function AnalyseDashboard() {
 
     return (
         <Container maxWidth="xl" sx={{ py: 1, px: 1 }}>
-            {/* Add chart form — edit mode only */}
             {editMode && (
                 <Paper sx={{ p: 1, borderRadius: 1, mb: 0.5, border: `1px solid ${alpha(theme.palette.primary.main, 0.5)}` }}>
                     <Stack spacing={1}>
                         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ sm: 'flex-end' }}>
-                            {/* X axis */}
                             <FormControl size="small" sx={{ minWidth: 180 }}>
                                 <InputLabel>Axe X</InputLabel>
                                 <Select value={newX} onChange={(e) => setNewX(e.target.value)} label="Axe X">
@@ -553,7 +254,6 @@ export default function AnalyseDashboard() {
                                 </Select>
                             </FormControl>
 
-                            {/* Add a Y series */}
                             <FormControl size="small" sx={{ minWidth: 180 }}>
                                 <InputLabel>Ajouter série Y</InputLabel>
                                 <Select value={pendingY} onChange={(e) => setPendingY(e.target.value)} label="Ajouter série Y">
@@ -573,7 +273,6 @@ export default function AnalyseDashboard() {
                             </Button>
                         </Stack>
 
-                        {/* Series chips — show explicit lines or implicit pendingY preview */}
                         <Stack direction="row" spacing={0.5} flexWrap="wrap">
                             {newLines.length > 0 ? (
                                 newLines.map((l) => (
@@ -597,7 +296,6 @@ export default function AnalyseDashboard() {
                 </Paper>
             )}
 
-            {/* Charts grid */}
             <Box sx={{
                 display: 'grid',
                 gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)', md: 'repeat(12, 1fr)' },
@@ -640,7 +338,6 @@ export default function AnalyseDashboard() {
                                         : '2px solid transparent',
                                 transition: 'outline 0.1s',
                             }}>
-                                {/* Edit toolbar */}
                                 {editMode ? (
                                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, px: 0.5, pt: 0.5, flexShrink: 0, flexWrap: 'wrap' }}>
                                         <DragIndicatorIcon fontSize="small" sx={{ color: theme.palette.text.disabled, cursor: 'grab' }} />
@@ -673,7 +370,7 @@ export default function AnalyseDashboard() {
                                         <Box sx={{ display: 'flex', alignItems: 'center', flexShrink: 0 }}>
                                             <IconButton
                                                 size="small"
-                                                onClick={() => updateChart(chart.id, { favorite: !chart.favorite })}
+                                                onClick={() => toggleChartFavorite(chart)}
                                                 sx={{ p: 0.25, color: chart.favorite ? '#fbbf24' : alpha(theme.palette.text.secondary, 0.3) }}
                                             >
                                                 {chart.favorite
