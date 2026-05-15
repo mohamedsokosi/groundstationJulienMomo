@@ -7,7 +7,7 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 import uvicorn  # noqa: E402
 
 from common.arguments import arguments  # noqa: E402
-from common.logger import get_logger_config, logger  # noqa: E402
+from common.logger import logger  # noqa: E402
 from server.startup import app  # noqa: E402
 
 
@@ -21,7 +21,7 @@ def main() -> None:
             app,
             host=arguments.host,
             port=arguments.port,
-            log_config=get_logger_config(arguments),
+            log_level=arguments.log_level.lower(),
         )
     except KeyboardInterrupt:
         os._exit(0)

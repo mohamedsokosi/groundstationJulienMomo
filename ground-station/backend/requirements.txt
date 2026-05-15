@@ -4,7 +4,3 @@ uvicorn==0.34.0
 
 # Telemetry / MQTT
 paho-mqtt==2.1.0
-
-# Utilities
-PyYAML==6.0.2
-colorlog==6.9.0

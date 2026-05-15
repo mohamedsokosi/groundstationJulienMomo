@@ -48,55 +48,10 @@ export default defineConfig(({ mode }) => {
 
       // Add proxy configuration
       proxy: {
-        '/satimages': {
+        '/api': {
           target: `http://${backendHost}:${backendPort}`,
           changeOrigin: true,
           secure: false,
-        },
-        '/recordings': {
-          target: `http://${backendHost}:${backendPort}`,
-          changeOrigin: true,
-          secure: false,
-        },
-        '/snapshots': {
-          target: `http://${backendHost}:${backendPort}`,
-          changeOrigin: true,
-          secure: false,
-        },
-        '/decoded': {
-          target: `http://${backendHost}:${backendPort}`,
-          changeOrigin: true,
-          secure: false,
-        },
-        '/audio': {
-          target: `http://${backendHost}:${backendPort}`,
-          changeOrigin: true,
-          secure: false,
-        },
-        '/transcriptions': {
-          target: `http://${backendHost}:${backendPort}`,
-          changeOrigin: true,
-          secure: false,
-        },
-        '/api': {  // For regular HTTP API requests
-          target: `http://${backendHost}:${backendPort}`,
-          changeOrigin: true,
-          secure: false,
-        },
-        '/socket.io/': {  // For regular HTTP API requests
-          target: `http://${backendHost}:${backendPort}`,
-          ws: true,
-          changeOrigin: true,
-          secure: false,
-        },
-        '/ws': {
-          target: `http://${backendHost}:5000`,
-          ws: true,
-          changeOrigin: true,
-          secure: false,
-          headers: {
-            'Access-Control-Allow-Origin': '*',
-          }
         },
       },
     },
@@ -111,7 +66,7 @@ export default defineConfig(({ mode }) => {
       rollupOptions: {
         output: {
           manualChunks: {
-            vendor: ['react', 'react-dom', 'react-router-dom'],
+            vendor: ['react', 'react-dom', 'react-router'],
             cesium: ['cesium'],
           },
         },

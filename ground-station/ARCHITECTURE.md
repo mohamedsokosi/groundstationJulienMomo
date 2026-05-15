@@ -20,11 +20,9 @@ ground-station/
 │   ├── pipeline/
 │   │   ├── mqtt_telemetry_receiver.py  # Client MQTT paho, topic icarus2/telemetry/frame.pb
 │   │   └── telemetry_store.py          # Deque en mémoire pour les frames télémétrie
-│   ├── common/
-│   │   ├── appconfig.py      # Chargement data/configs/app_config.json
-│   │   ├── arguments.py      # Parsing CLI (host, port, log-level, log-config)
-│   │   └── logger.py         # Logging colorlog
-│   └── data/configs/app_config.json  # Config (host, port, log_level, log_config)
+│   └── common/
+│       ├── arguments.py      # Parsing CLI (host, port, log-level) + defaults
+│       └── logger.py         # Logging stdlib basicConfig
 │
 ├── frontend/                 # Client React (Vite)
 │   ├── index.html            # Entrée HTML — favicon SAFARI.png
@@ -83,11 +81,7 @@ ground-station/
 │   └── simulators/
 │       └── mqtt_cubesat_simulator.py  # Simulateur MQTT — publie des frames protobuf
 │
-├── config/
-│   └── mosquitto/           # Configuration broker MQTT Eclipse Mosquitto
-│
 ├── Dockerfile               # Build multi-étapes : Node → Python 3.12
-├── docker-compose.mqtt.yml  # Service MQTT (eclipse-mosquitto:2, port 1883)
 ├── LICENSE
 ├── README.md
 └── telemetry.csv            # Données de vol réelles (ICARUS2, 14 août 2025)
@@ -205,7 +199,7 @@ Option B — MQTT live :                                       │
 |---|---|
 | Backend | FastAPI + Uvicorn + paho-mqtt |
 | Sérialisation | Protocol Buffers |
-| Frontend | React 19 + Vite |
+| Frontend | React 19 + Vite + React Router v7 |
 | State | Redux Toolkit |
 | UI | Material-UI v7 |
 | Globe 3D | Cesium |

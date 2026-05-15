@@ -1,77 +1,15 @@
-# Copyright (c) 2025 Efstratios Goudelis
-#
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program. If not, see <https://www.gnu.org/licenses/>.
-
-
 import logging
-import logging.config
-
-import yaml
 
 from .arguments import arguments
 
 
-def get_logger_config(args):
-    """
-    Loads a logging configuration.
-
-    This function retrieves the logging configuration in YAML format
-    from the file path provided in the arguments, converts it to a Python
-    dictionary, and returns it. The configuration is useful for setting up
-    logging behavior in an application.
-
-    :param args: Parsed arguments containing the file path to the logging configuration.
-    :type args: argparse.Namespace
-    :return: Python dictionary with logging configuration.
-    :rtype: dict
-    :raises FileNotFoundError: If the specified logging configuration file cannot be found.
-    :raises yaml.YAMLError: If the YAML configuration file cannot be parsed due to invalid syntax.
-    """
-
-    def yaml_to_json_config(filepath):
-        with open(filepath, "r") as file:
-            return yaml.safe_load(file)
-
-    logging_config = yaml_to_json_config(args.log_config)
-
-    return logging_config
-
-
 def get_logger(args):
-    """
-    Obtains a logger instance configured according to the given logging configuration.
-
-    This function reads the logging configuration from a YAML file specified in the provided
-    arguments, converts it to a JSON-compatible dictionary, and then applies it to configure
-    the Python logging module. It retrieves a logger instance named "ground-station" and logs
-    an informational message containing the provided arguments.
-
-    :param args: The command-line arguments containing the path to the logging
-                 configuration file (YAML format).
-    :type args: argparse.Namespace
-    :return: A logger instance named "ground-station".
-    :rtype: logging.Logger
-    """
-    logging_config = get_logger_config(args)
-
-    logging.config.dictConfig(logging_config)
-
-    log = logging.getLogger("ground-station")
-    log.setLevel(args.log_level)
-
-    return log
+    logging.basicConfig(
+        level=args.log_level,
+        format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
+        datefmt='%H:%M:%S',
+    )
+    return logging.getLogger("ground-station")
 
 
-# setup a logger
 logger = get_logger(arguments)
