@@ -26,12 +26,12 @@ import FileDownloadIcon from '@mui/icons-material/FileDownload';
 import FileUploadIcon from '@mui/icons-material/FileUpload';
 import StarIcon from '@mui/icons-material/Star';
 import StarBorderOutlinedIcon from '@mui/icons-material/StarBorderOutlined';
-import { useTelemetryStream } from './use-telemetry-stream.jsx';
-import { usePageActions } from '../page-actions-context.jsx';
-import { AVAILABLE_FIELDS, CHART_COLORS, fieldLabel } from './chart-fields.js';
-import { enrich } from './chart-logic.js';
-import { TelemetryChart } from './TelemetryChart.jsx';
-import { ChartTitle } from './ChartTitle.jsx';
+import { useTelemetryStream } from '../shared/use-telemetry-stream.jsx';
+import { usePageActions } from '../../page-actions-context.jsx';
+import { AVAILABLE_FIELDS, CHART_COLORS, fieldLabel } from '../shared/chart-fields.js';
+import { enrich } from '../shared/chart-logic.js';
+import { TelemetryChart } from '../shared/telemetryChart.jsx';
+import { ChartTitle } from '../shared/chartTitle.jsx';
 
 const STORAGE_KEY = 'analyse_charts_config';
 const STATION_LEFT_COL_KEY = 'station_left_column_config';

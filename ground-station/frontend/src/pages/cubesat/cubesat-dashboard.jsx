@@ -10,12 +10,12 @@ import {
     Typography,
 } from '@mui/material';
 import { alpha, useTheme } from '@mui/material/styles';
-import { TelemetrySummary } from './telemetry-components.jsx';
+import { TelemetrySummary } from '../shared/telemetry-components.jsx';
 import { CUBESAT_SUBSYSTEMS } from './cubesat-config.js';
 import CubeSatAnnotatedVisual from './cubesat-annotated-visual.jsx';
 import CubeSatSubsystemPanel from './cubesat-subsystem-panel.jsx';
 import { getSubsystemById, getSubsystemStatus } from './cubesat-utils.js';
-import { useTelemetryStream } from './use-telemetry-stream.jsx';
+import { useTelemetryStream } from '../shared/use-telemetry-stream.jsx';
 
 export default function CubeSatDashboard() {
     const theme = useTheme();

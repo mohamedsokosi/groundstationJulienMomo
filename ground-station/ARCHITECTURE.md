@@ -45,31 +45,37 @@ ground-station/
 │       ├── page-actions-context.jsx  # Contexte pour boutons d'action par page
 │       ├── error-page.jsx            # Page d'erreur
 │       └── pages/
-│           ├── telemetry-dashboard.jsx    # /vueGlobe3d — Globe Cesium + timeline
-│           ├── station-dashboard.jsx      # /station — carte + graphes + terminal
-│           ├── analyse-dashboard.jsx      # /analyse — grille de graphes configurables
-│           ├── cubesat-dashboard.jsx      # /cubesat — visualisation annotée CubeSat
-│           ├── rapport-dashboard.jsx      # /rapport — génération de rapport
-│           ├── CesiumViewport.jsx         # Composant globe Cesium (partagé)
-│           ├── TelemetryChart.jsx         # Composant graphe Recharts (partagé)
-│           ├── TelemetryStatsBar.jsx      # Barre de stats télémétrie
-│           ├── TelemetryTerminal.jsx      # Terminal de flux brut
-│           ├── ChartTitle.jsx             # Titre dynamique des graphes
-│           ├── telemetry-components.jsx   # StatisticCard, ChartCard, TelemetrySummary
-│           ├── telemetry-data-source.js   # Parsing CSV/Protobuf, buildTelemetryChartData
-│           ├── telemetry-slice.jsx        # Redux slice — données télémétrie
-│           ├── use-telemetry-stream.jsx   # Hook — chargement, lecture, seek, pause
-│           ├── telemetry-utils.js         # distanceKm, getMqttSourceStat, helpers
-│           ├── telemetry-protobuf.js      # Décodage Protobuf côté frontend
-│           ├── cesium-utils.js            # getTelemetryRecordGeo, imagery providers
-│           ├── chart-fields.js            # AVAILABLE_FIELDS — axes et steps des graphes
-│           ├── chart-logic.js             # FSPL, bilan de liaison, enrich()
-│           ├── cubesat-config.js          # Définition des sous-systèmes CubeSat
-│           ├── cubesat-utils.js           # Helpers statut sous-systèmes
-│           ├── cubesat-annotated-visual.jsx  # SVG annoté du CubeSat
-│           ├── cubesat-subsystem-panel.jsx   # Panneau détail sous-système
-│           ├── useAnimatedDomain.js       # Animation fluide des axes de graphes
-│           └── ground-station-view.css    # Styles globaux (stats bar, globe)
+│           ├── station/
+│           │   └── station-dashboard.jsx      # /station — carte + graphes + terminal
+│           ├── vueGlobe3d/
+│           │   └── telemetry-dashboard.jsx    # /vueGlobe3d — Globe Cesium + timeline
+│           ├── analyse/
+│           │   └── analyse-dashboard.jsx      # /analyse — grille de graphes configurables
+│           ├── cubesat/
+│           │   ├── cubesat-dashboard.jsx      # /cubesat — visualisation annotée CubeSat
+│           │   ├── cubesat-annotated-visual.jsx
+│           │   ├── cubesat-subsystem-panel.jsx
+│           │   ├── cubesat-config.js
+│           │   └── cubesat-utils.js
+│           ├── rapport/
+│           │   └── rapport-dashboard.jsx      # /rapport — génération de rapport
+│           └── shared/                        # Composants et utilitaires partagés
+│               ├── cesiumViewport.jsx         # Globe Cesium
+│               ├── telemetryChart.jsx         # Graphe Recharts
+│               ├── telemetryStatsBar.jsx      # Barre de stats
+│               ├── telemetryTerminal.jsx      # Terminal flux brut
+│               ├── chartTitle.jsx             # Titre dynamique des graphes
+│               ├── telemetry-components.jsx   # StatisticCard, ChartCard, TelemetrySummary
+│               ├── telemetry-slice.jsx        # Redux slice — données télémétrie
+│               ├── use-telemetry-stream.jsx   # Hook — chargement, lecture, seek, pause
+│               ├── telemetry-data-source.js   # Parsing CSV/Protobuf
+│               ├── telemetry-protobuf.js      # Décodage Protobuf
+│               ├── telemetry-utils.js         # distanceKm, getMqttSourceStat, helpers
+│               ├── cesium-utils.js            # getTelemetryRecordGeo, imagery providers
+│               ├── chart-fields.js            # AVAILABLE_FIELDS — axes et steps
+│               ├── chart-logic.js             # FSPL, bilan de liaison, enrich()
+│               ├── useAnimatedDomain.js       # Animation fluide des axes
+│               └── ground-station-view.css    # Styles globaux (stats bar, globe)
 │
 ├── tools/
 │   ├── dev/

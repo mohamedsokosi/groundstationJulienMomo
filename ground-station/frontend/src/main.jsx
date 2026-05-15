@@ -6,11 +6,11 @@ import { store } from './store.jsx';
 import App from './App.jsx';
 import Layout from './layout.jsx';
 import ErrorPage from './error-page.jsx';
-import TelemetryDashboard from './pages/telemetry-dashboard.jsx';
-import CubeSatDashboard from './pages/cubesat-dashboard.jsx';
-import AnalyseDashboard from './pages/analyse-dashboard.jsx';
-import RapportDashboard from './pages/rapport-dashboard.jsx';
-import StationDashboard from './pages/station-dashboard.jsx';
+import TelemetryDashboard from './pages/vueGlobe3d/telemetry-dashboard.jsx';
+import CubeSatDashboard from './pages/cubesat/cubesat-dashboard.jsx';
+import AnalyseDashboard from './pages/analyse/analyse-dashboard.jsx';
+import RapportDashboard from './pages/rapport/rapport-dashboard.jsx';
+import StationDashboard from './pages/station/station-dashboard.jsx';
 
 const router = createBrowserRouter([
     {

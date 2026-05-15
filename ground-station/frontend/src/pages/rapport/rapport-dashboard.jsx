@@ -27,7 +27,7 @@ import DataObjectIcon from '@mui/icons-material/DataObject';
 import GifBoxIcon from '@mui/icons-material/GifBox';
 import SaveIcon from '@mui/icons-material/Save';
 import FolderOpenIcon from '@mui/icons-material/FolderOpen';
-import { useTelemetryStream } from './use-telemetry-stream.jsx';
+import { useTelemetryStream } from '../shared/use-telemetry-stream.jsx';
 
 const LS_KEY = 'rapport_sim_params';
 

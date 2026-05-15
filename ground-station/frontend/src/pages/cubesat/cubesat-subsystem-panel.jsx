@@ -20,14 +20,14 @@ import {
     XAxis,
     YAxis,
 } from 'recharts';
-import { ChartCard, StatisticCard } from './telemetry-components.jsx';
+import { ChartCard, StatisticCard } from '../shared/telemetry-components.jsx';
 import {
     getSubsystemMetrics,
     getSubsystemStatus,
     getSubsystemSummaryMetrics,
     getSubsystemTrendSeries,
 } from './cubesat-utils.js';
-import { formatTelemetryNumber } from './telemetry-utils.js';
+import { formatTelemetryNumber } from '../shared/telemetry-utils.js';
 
 const statusToneStyles = {
     success: { color: '#2e7d32', background: 'rgba(46, 125, 50, 0.12)' },

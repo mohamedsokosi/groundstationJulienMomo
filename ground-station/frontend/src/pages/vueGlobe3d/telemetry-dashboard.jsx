@@ -24,16 +24,16 @@ import {
     normalizeTelemetryHeader,
     toTelemetryNumber,
     distanceKm,
-} from './telemetry-utils.js';
+} from '../shared/telemetry-utils.js';
 import {
     parseTelemetryProtobuf,
     TELEMETRY_PROTOBUF_SOURCE_URL,
     TELEMETRY_SOURCE_URL,
-} from './telemetry-data-source.js';
-import { getTelemetryRecordGeo } from './cesium-utils.js';
-import { CesiumViewport } from './CesiumViewport.jsx';
-import { TelemetryStatsBar } from './TelemetryStatsBar.jsx';
-import './ground-station-view.css';
+} from '../shared/telemetry-data-source.js';
+import { getTelemetryRecordGeo } from '../shared/cesium-utils.js';
+import { CesiumViewport } from '../shared/cesiumViewport.jsx';
+import { TelemetryStatsBar } from '../shared/telemetryStatsBar.jsx';
+import '../shared/ground-station-view.css';
 
 const TELEMETRY_ENDPOINTS = [
     { url: TELEMETRY_PROTOBUF_SOURCE_URL, format: 'protobuf' },

@@ -3,7 +3,7 @@ import {
     formatTelemetryNumber,
     getTelemetryNumber,
     getTelemetryValue,
-} from './telemetry-utils.js';
+} from '../shared/telemetry-utils.js';
 
 export function getSubsystemById(subsystemId) {
     return CUBESAT_SUBSYSTEMS.find((subsystem) => subsystem.id === subsystemId) || CUBESAT_SUBSYSTEMS[0];
