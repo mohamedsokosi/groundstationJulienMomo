@@ -128,7 +128,14 @@ export function TelemetryChart({ data, xKey, lines, tracking, onTrackingChange }
             <Box
                 ref={scrollRef}
                 onScroll={handleScroll}
-                sx={{ flex: 1, minWidth: 0, height: '100%', overflowX: 'auto', overflowY: 'hidden' }}
+                sx={{
+                    flex: 1, minWidth: 0, height: '100%', overflowX: 'scroll', overflowY: 'hidden',
+                    scrollbarWidth: 'auto',
+                    scrollbarColor: '#4a6080 transparent',
+                    '&::-webkit-scrollbar': { height: 14 },
+                    '&::-webkit-scrollbar-track': { background: 'transparent' },
+                    '&::-webkit-scrollbar-thumb': { background: '#4a6080', borderRadius: 4 },
+                }}
             >
                 <Box sx={{ width: `${pagesX * 100}%`, height: '100%' }}>
                     <ResponsiveContainer width="100%" height="100%">

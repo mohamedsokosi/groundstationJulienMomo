@@ -38,11 +38,11 @@ export default function CubeSatDashboard() {
         <Container maxWidth="xl" sx={{ py: 4 }}>
             <Box sx={{ mb: 4 }}>
                 <Typography variant="h4" sx={{ mb: 1.5 }}>
-                    Vue interactive du CubeSat
+                    CubeSat Interactive View
                 </Typography>
                 <Typography variant="body1" color="text.secondary" sx={{ maxWidth: 900 }}>
-                    Explorez les sous-systèmes du CubeSat dans une vue 2D annotée, sélectionnez une zone,
-                    puis consultez les champs de télémétrie déjà disponibles dans le flux actuel.
+                    Explore CubeSat subsystems in an annotated 2D view, select an area,
+                    then view the telemetry fields available in the current stream.
                 </Typography>
 
             </Box>

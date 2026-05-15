@@ -156,7 +156,7 @@ export function TelemetryTerminal() {
                         fontStyle: 'italic',
                         lineHeight: 1.6,
                     }}>
-                        En attente de données...
+                        Waiting for data...
                     </Typography>
                 ) : (
                     lines.map((line) => (

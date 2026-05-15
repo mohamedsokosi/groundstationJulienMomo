@@ -22,10 +22,10 @@ import { PageActionsProvider, usePageActions } from './page-actions-context.jsx'
 
 const SAFARI_HEADER_LOGO = '/SAFARI.png';
 const HEADER_PARTNER_LOGOS = [
-    { src: '/ETS.jpg',    alt: 'ETS',                   href: 'https://www.etsmtl.ca/',             variant: 'square' },
-    { src: '/Lassena.png',alt: 'LASSENA',               href: 'https://lassena.etsmtl.ca/',         variant: 'wide'   },
-    { src: '/CSA.png',    alt: 'Canadian Space Agency', href: 'https://www.asc-csa.gc.ca/eng/',     variant: 'square' },
-    { src: '/seds.png',   alt: 'SEDS Canada',           href: 'https://www.seds.ca/',               variant: 'square' },
+    { src: '/ETS.jpg',    alt: 'ETS',                   variant: 'square' },
+    { src: '/Lassena.png',alt: 'LASSENA',               variant: 'wide'   },
+    { src: '/CSA.png',    alt: 'Canadian Space Agency', variant: 'square' },
+    { src: '/seds.png',   alt: 'SEDS Canada',           variant: 'square' },
 ];
 
 const drawerWidthExpanded  = 240;
@@ -64,31 +64,23 @@ function HeaderPartnerLogos() {
     return (
         <Stack direction="row" alignItems="center" spacing={0.75} sx={{ mx: 1 }}>
             {HEADER_PARTNER_LOGOS.map((logo) => (
-                <Tooltip title={logo.alt} key={logo.alt}>
+                <Box
+                    key={logo.alt}
+                    sx={{
+                        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                        height: 32,
+                        width: logo.variant === 'wide' ? 120 : 32,
+                        borderRadius: 0.75,
+                        backgroundColor: 'rgba(255,255,255,0.08)',
+                    }}
+                >
                     <Box
-                        component="a"
-                        href={logo.href}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        sx={{
-                            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                            height: 32,
-                            width: logo.variant === 'wide' ? 120 : 32,
-                            borderRadius: 0.75,
-                            backgroundColor: 'rgba(255,255,255,0.08)',
-                            textDecoration: 'none',
-                            transition: 'background-color 160ms ease, transform 160ms ease',
-                            '&:hover': { backgroundColor: 'rgba(255,255,255,0.16)', transform: 'translateY(-1px)' },
-                        }}
-                    >
-                        <Box
-                            component="img"
-                            src={logo.src}
-                            alt={logo.alt}
-                            sx={{ display: 'block', maxHeight: 30, maxWidth: logo.variant === 'wide' ? 116 : 30, objectFit: 'contain' }}
-                        />
-                    </Box>
-                </Tooltip>
+                        component="img"
+                        src={logo.src}
+                        alt={logo.alt}
+                        sx={{ display: 'block', maxHeight: 30, maxWidth: logo.variant === 'wide' ? 116 : 30, objectFit: 'contain' }}
+                    />
+                </Box>
             ))}
         </Stack>
     );
@@ -166,7 +158,6 @@ export default function Layout() {
     const navigate  = useNavigate();
     const location  = useLocation();
     const navigation = getNavigation();
-    const [open, setOpen]             = React.useState(false);
     const [mobileOpen, setMobileOpen] = React.useState(false);
 
     const handleNavigation = (segment) => {
@@ -207,12 +198,10 @@ export default function Layout() {
                 {/* Desktop drawer */}
                 <CustomDrawer
                     variant="permanent"
-                    open={open}
-                    onMouseEnter={() => setOpen(true)}
-                    onMouseLeave={() => setOpen(false)}
+                    open={false}
                     sx={{ display: { xs: 'none', sm: 'block' } }}
                 >
-                    <DrawerContent isExpanded={open} {...drawerProps} />
+                    <DrawerContent isExpanded={false} {...drawerProps} />
                 </CustomDrawer>
 
                 <Box component="main" sx={{ flexGrow: 1, mt: '52px', minWidth: 0 }}>

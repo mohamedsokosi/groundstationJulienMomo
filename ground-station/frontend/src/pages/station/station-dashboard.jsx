@@ -411,8 +411,8 @@ export default function StationDashboard() {
                                     </Select>
                                 </FormControl>
                                 <FormControl size="small" sx={{ minWidth: 110 }}>
-                                    <InputLabel>Série Y</InputLabel>
-                                    <Select value={pendingY} onChange={(e) => setPendingY(e.target.value)} label="Série Y">
+                                    <InputLabel>Y Series</InputLabel>
+                                    <Select value={pendingY} onChange={(e) => setPendingY(e.target.value)} label="Y Series">
                                         {AVAILABLE_FIELDS.map((f) => (
                                             <MenuItem key={f.key} value={f.key} disabled={!!newLines.find((l) => l.key === f.key)}>
                                                 {f.label}
@@ -422,7 +422,7 @@ export default function StationDashboard() {
                                 </FormControl>
                                 <Button size="small" variant="outlined" onClick={addLineToForm}
                                     disabled={!!newLines.find((l) => l.key === pendingY)}>
-                                    + Série
+                                    + Series
                                 </Button>
                             </Stack>
                             <Stack direction="row" spacing={0.5} flexWrap="wrap">
@@ -437,7 +437,7 @@ export default function StationDashboard() {
                             </Stack>
                             <Stack direction="row" spacing={0.5}>
                                 <Button size="small" variant="contained" startIcon={<AddIcon />} onClick={addChart} sx={{ flex: 1 }}>
-                                    Graphe
+                                    Chart
                                 </Button>
                                 <Button size="small" variant="outlined" startIcon={<AddIcon />} onClick={addTerminal}
                                     disabled={leftItems.some((i) => i.type === 'terminal')} sx={{ flex: 1 }}>
@@ -451,7 +451,7 @@ export default function StationDashboard() {
                 {leftItems.length === 0 && !editMode && (
                     <Box sx={{ p: 1 }}>
                         <Typography variant="caption" sx={{ color: 'text.disabled', fontSize: 11 }}>
-                            Colonne vide — utilisez Modifier pour ajouter des éléments.
+                            Empty column — use Edit to add items.
                         </Typography>
                     </Box>
                 )}
@@ -469,6 +469,7 @@ export default function StationDashboard() {
                             onDragEnd={handleDragEnd}
                             sx={{
                                 width: '100%', aspectRatio: '2 / 1', flexShrink: 0,
+                                overflow: 'hidden',
                                 opacity: isDragging ? 0.35 : 1,
                                 transition: 'opacity 0.15s',
                                 cursor: editMode ? 'grab' : 'default',

@@ -255,8 +255,8 @@ export default function AnalyseDashboard() {
                             </FormControl>
 
                             <FormControl size="small" sx={{ minWidth: 180 }}>
-                                <InputLabel>Ajouter série Y</InputLabel>
-                                <Select value={pendingY} onChange={(e) => setPendingY(e.target.value)} label="Ajouter série Y">
+                                <InputLabel>Add Y Series</InputLabel>
+                                <Select value={pendingY} onChange={(e) => setPendingY(e.target.value)} label="Add Y Series">
                                     {AVAILABLE_FIELDS.map((f) => (
                                         <MenuItem key={f.key} value={f.key} disabled={!!newLines.find((l) => l.key === f.key)}>
                                             {f.label}
@@ -266,10 +266,10 @@ export default function AnalyseDashboard() {
                             </FormControl>
                             <Button size="small" variant="outlined" startIcon={<AddIcon />} onClick={addLineToForm}
                                 disabled={!!newLines.find((l) => l.key === pendingY)}>
-                                Série
+                                Series
                             </Button>
                             <Button size="small" variant="contained" startIcon={<AddIcon />} onClick={addChart}>
-                                Créer graphique
+                                Create Chart
                             </Button>
                         </Stack>
 
@@ -319,6 +319,7 @@ export default function AnalyseDashboard() {
                                 gridColumn: gridCol(cols),
                                 aspectRatio: ratio,
                                 minWidth: 0,
+                                overflow: 'hidden',
                                 opacity: isDragging ? 0.35 : 1,
                                 transition: 'opacity 0.15s',
                                 cursor: editMode ? 'grab' : 'default',

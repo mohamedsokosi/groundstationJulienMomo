@@ -32,7 +32,7 @@ import { useTelemetryStream } from '../shared/use-telemetry-stream.jsx';
 const LS_KEY = 'rapport_sim_params';
 
 const DEFAULT_PARAMS = {
-    antenneTx: 'Dipôle λ/2',
+    antenneTx: 'λ/2 Dipole',
     antenneRx: 'Yagi-Uda',
     frequencyMHz: 902,
     powerTxDBm: 24,
@@ -41,8 +41,8 @@ const DEFAULT_PARAMS = {
     sensitivityDBm: -130,
 };
 
-const TX_ANTENNAS = ['Dipôle λ/2', 'Monopole λ/4', 'Patch', 'Hélice', 'Yagi-Uda', 'Isotrope'];
-const RX_ANTENNAS = ['Yagi-Uda', 'Dipôle λ/2', 'Patch', 'Hélice', 'Parabolique', 'Isotrope'];
+const TX_ANTENNAS = ['λ/2 Dipole', 'λ/4 Monopole', 'Patch', 'Helix', 'Yagi-Uda', 'Isotropic'];
+const RX_ANTENNAS = ['Yagi-Uda', 'λ/2 Dipole', 'Patch', 'Helix', 'Parabolic', 'Isotropic'];
 const GIF_RESOLUTIONS = ['480p', '720p', '1080p'];
 
 function fsplDB(distM, freqMHz) {
@@ -162,7 +162,7 @@ export default function RapportDashboard() {
 
     // ── Exports ──
     const handleExportConfig = () => {
-        downloadText('rapport-config.json', JSON.stringify(params, null, 2), 'application/json');
+        downloadText('report-config.json', JSON.stringify(params, null, 2), 'application/json');
     };
 
     const handleImportConfig = (e) => {
@@ -186,18 +186,18 @@ export default function RapportDashboard() {
         const keys = Object.keys(chartData[0]);
         const header = keys.join(',');
         const rows = chartData.map((row) => keys.map((k) => row[k] ?? '').join(','));
-        downloadText('telemetrie.csv', [header, ...rows].join('\n'), 'text/csv');
+        downloadText('telemetry.csv', [header, ...rows].join('\n'), 'text/csv');
     };
 
     const handleExportJSON = () => {
         const payload = { params, stats, exportedAt: new Date().toISOString() };
-        downloadText('rapport.json', JSON.stringify(payload, null, 2), 'application/json');
+        downloadText('report.json', JSON.stringify(payload, null, 2), 'application/json');
     };
 
     const handleExportPDF = () => {
         const w = window.open('', '_blank');
         w.document.write(`
-            <html><head><title>Rapport Ground Station</title>
+            <html><head><title>Ground Station Report</title>
             <style>
                 body { font-family: Arial, sans-serif; padding: 40px; color: #111; }
                 h1 { font-size: 24px; margin-bottom: 8px; }
@@ -209,25 +209,25 @@ export default function RapportDashboard() {
                 .stat-val { font-size: 28px; font-weight: bold; }
                 .stat-lbl { font-size: 12px; color: #666; }
             </style></head><body>
-            <h1>Rapport de Simulation — Ground Station</h1>
-            <p style="color:#666;font-size:13px">Généré le ${new Date().toLocaleString('fr-FR')}</p>
-            <h2>Résumé</h2>
+            <h1>Simulation Report — Ground Station</h1>
+            <p style="color:#666;font-size:13px">Generated on ${new Date().toLocaleString('en-US')}</p>
+            <h2>Summary</h2>
             ${stats ? `
             <div class="stat"><div class="stat-val">${stats.nbPoints}</div><div class="stat-lbl">Points</div></div>
-            <div class="stat"><div class="stat-val">${stats.fiabilite}%</div><div class="stat-lbl">Fiabilité</div></div>
-            <div class="stat"><div class="stat-val">${stats.margeMin}/${stats.margeMax} dB</div><div class="stat-lbl">Marge Min/Max</div></div>
-            <div class="stat"><div class="stat-val">${stats.prxMoyen} dBm</div><div class="stat-lbl">Puissance RX Moy.</div></div>
-            ` : '<p>Aucune donnée de télémétrie.</p>'}
-            <h2>Paramètres</h2>
+            <div class="stat"><div class="stat-val">${stats.fiabilite}%</div><div class="stat-lbl">Reliability</div></div>
+            <div class="stat"><div class="stat-val">${stats.margeMin}/${stats.margeMax} dB</div><div class="stat-lbl">Min/Max Margin</div></div>
+            <div class="stat"><div class="stat-val">${stats.prxMoyen} dBm</div><div class="stat-lbl">Avg RX Power</div></div>
+            ` : '<p>No telemetry data.</p>'}
+            <h2>Parameters</h2>
             <table>
-                <tr><th>Paramètre</th><th>Valeur</th></tr>
-                <tr><td>Antenne TX</td><td>${params.antenneTx}</td></tr>
-                <tr><td>Antenne RX</td><td>${params.antenneRx}</td></tr>
-                <tr><td>Fréquence</td><td>${params.frequencyMHz} MHz</td></tr>
-                <tr><td>Puissance TX</td><td>${params.powerTxDBm} dBm</td></tr>
-                <tr><td>Gain TX</td><td>${params.gainTxDBi} dBi</td></tr>
-                <tr><td>Gain RX</td><td>${params.gainRxDBi} dBi</td></tr>
-                <tr><td>Sensibilité RX</td><td>${params.sensitivityDBm} dBm</td></tr>
+                <tr><th>Parameter</th><th>Value</th></tr>
+                <tr><td>TX Antenna</td><td>${params.antenneTx}</td></tr>
+                <tr><td>RX Antenna</td><td>${params.antenneRx}</td></tr>
+                <tr><td>Frequency</td><td>${params.frequencyMHz} MHz</td></tr>
+                <tr><td>TX Power</td><td>${params.powerTxDBm} dBm</td></tr>
+                <tr><td>TX Gain</td><td>${params.gainTxDBi} dBi</td></tr>
+                <tr><td>RX Gain</td><td>${params.gainRxDBi} dBi</td></tr>
+                <tr><td>RX Sensitivity</td><td>${params.sensitivityDBm} dBm</td></tr>
             </table>
             </body></html>
         `);
@@ -245,12 +245,12 @@ export default function RapportDashboard() {
     return (
         <Container maxWidth="xl" sx={{ py: 4 }}>
             <Box sx={{ mb: 5 }}>
-                <Typography variant="h4" sx={{ mb: 1 }}>Rapport</Typography>
+                <Typography variant="h4" sx={{ mb: 1 }}>Report</Typography>
                 <Typography variant="body1" color="text.secondary" sx={{ mb: 2.5 }}>
-                    Résumé de simulation, paramètres RF, exports et génération de rapport.
+                    Simulation summary, RF parameters, exports and report generation.
                 </Typography>
                 <Button variant="contained" component="label" startIcon={<UploadIcon />}>
-                    Charger un CSV
+                    Load CSV
                     <input type="file" accept=".csv" hidden onChange={handleTelemetryUpload} />
                 </Button>
             </Box>
@@ -261,28 +261,28 @@ export default function RapportDashboard() {
                 <Paper sx={{ p: 3, borderRadius: 2 }}>
                     <SectionHeader
                         title="Configuration"
-                        subtitle="Sauvegardez votre configuration actuelle pour la réutiliser ultérieurement, ou importez une configuration existante."
+                        subtitle="Save your current configuration for later reuse, or import an existing one."
                     />
                     <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
                         <Button variant="contained" startIcon={<SaveIcon />} onClick={handleExportConfig}>
-                            Exporter config
+                            Export config
                         </Button>
                         <Button
                             variant="outlined"
                             startIcon={<FolderOpenIcon />}
                             onClick={() => importRef.current?.click()}
                         >
-                            Importer config
+                            Import config
                         </Button>
                         <input ref={importRef} type="file" accept=".json" hidden onChange={handleImportConfig} />
                     </Stack>
                 </Paper>
 
-                {/* ── Générer Rapport ── */}
+                {/* ── Generate Report ── */}
                 <Paper sx={{ p: 3, borderRadius: 2 }}>
                     <SectionHeader
-                        title="Générer Rapport"
-                        subtitle="Générez un rapport complet de la simulation (PDF), exportez les données (CSV/JSON) pour analyse externe, ou exportez un GIF animé haute résolution de la vue Globe 3D Cesium."
+                        title="Generate Report"
+                        subtitle="Generate a complete simulation report (PDF), export data (CSV/JSON) for external analysis, or export a high-resolution animated GIF of the 3D Cesium Globe view."
                     />
 
                     {/* GIF controls */}
@@ -291,15 +291,15 @@ export default function RapportDashboard() {
                         sx={{ p: 2.5, borderRadius: 2, mb: 3, backgroundColor: alpha(theme.palette.divider, 0.04) }}
                     >
                         <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 2 }}>
-                            Options GIF
+                            GIF Options
                         </Typography>
                         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
                             <FormControl size="small" sx={{ minWidth: 160 }}>
-                                <InputLabel>Résolution GIF</InputLabel>
+                                <InputLabel>GIF Resolution</InputLabel>
                                 <Select
                                     value={gifResolution}
                                     onChange={(e) => setGifResolution(e.target.value)}
-                                    label="Résolution GIF"
+                                    label="GIF Resolution"
                                 >
                                     {GIF_RESOLUTIONS.map((r) => (
                                         <MenuItem key={r} value={r}>{r}</MenuItem>
@@ -308,7 +308,7 @@ export default function RapportDashboard() {
                             </FormControl>
                             <TextField
                                 size="small"
-                                label="Pas entre frames"
+                                label="Frame step"
                                 type="number"
                                 value={gifFrameStep}
                                 onChange={(e) => setGifFrameStep(Number(e.target.value))}
@@ -317,7 +317,7 @@ export default function RapportDashboard() {
                             />
                             <TextField
                                 size="small"
-                                label="Délai frame"
+                                label="Frame delay"
                                 type="number"
                                 value={gifFrameDelay}
                                 onChange={(e) => setGifFrameDelay(Number(e.target.value))}
@@ -336,7 +336,7 @@ export default function RapportDashboard() {
                             startIcon={<PictureAsPdfIcon />}
                             onClick={handleExportPDF}
                         >
-                            Exporter PDF
+                            Export PDF
                         </Button>
                         <Button
                             variant="outlined"
@@ -344,77 +344,77 @@ export default function RapportDashboard() {
                             onClick={handleExportCSV}
                             disabled={!hasData}
                         >
-                            Exporter CSV
+                            Export CSV
                         </Button>
                         <Button
                             variant="outlined"
                             startIcon={<DataObjectIcon />}
                             onClick={handleExportJSON}
                         >
-                            Exporter JSON
+                            Export JSON
                         </Button>
-                        <Tooltip title="Nécessite la vue Globe 3D active (fonctionnalité à venir)">
+                        <Tooltip title="Requires the 3D Globe view to be active (coming soon)">
                             <span>
                                 <Button
                                     variant="outlined"
                                     startIcon={<GifBoxIcon />}
                                     disabled
                                 >
-                                    Exporter GIF
+                                    Export GIF
                                 </Button>
                             </span>
                         </Tooltip>
                     </Stack>
                 </Paper>
 
-                {/* ── Résumé de la Simulation ── */}
+                {/* ── Simulation Summary ── */}
                 <Paper sx={{ p: 3, borderRadius: 2 }}>
                     <SectionHeader
-                        title="Résumé de la Simulation"
-                        subtitle={hasData ? 'Calculé à partir des données de télémétrie et des paramètres RF ci-dessous.' : 'Chargez un fichier CSV pour voir les statistiques.'}
+                        title="Simulation Summary"
+                        subtitle={hasData ? 'Calculated from telemetry data and RF parameters below.' : 'Load a CSV file to view statistics.'}
                     />
                     {!hasData && !loading && (
                         <Typography color="text.secondary" sx={{ fontStyle: 'italic' }}>
-                            Aucune donnée disponible.
+                            No data available.
                         </Typography>
                     )}
                     {stats && (
                         <Grid container spacing={2}>
                             <Grid item xs={6} sm={3}>
-                                <StatCard label="Nombre de Points" value={stats.nbPoints} color="#4cbc74" />
+                                <StatCard label="Data Points" value={stats.nbPoints} color="#4cbc74" />
                             </Grid>
                             <Grid item xs={6} sm={3}>
-                                <StatCard label="Fiabilité Moyenne" value={stats.fiabilite} unit="%" color="#4fb7d6" />
+                                <StatCard label="Avg Reliability" value={stats.fiabilite} unit="%" color="#4fb7d6" />
                             </Grid>
                             <Grid item xs={6} sm={3}>
-                                <StatCard label="Marge Min / Max" value={`${stats.margeMin} / ${stats.margeMax}`} unit="dB" color="#d2b04c" />
+                                <StatCard label="Min / Max Margin" value={`${stats.margeMin} / ${stats.margeMax}`} unit="dB" color="#d2b04c" />
                             </Grid>
                             <Grid item xs={6} sm={3}>
-                                <StatCard label="Puissance RX Moyenne" value={stats.prxMoyen} unit="dBm" color="#ee8a22" />
+                                <StatCard label="Avg RX Power" value={stats.prxMoyen} unit="dBm" color="#ee8a22" />
                             </Grid>
                         </Grid>
                     )}
                 </Paper>
 
-                {/* ── Paramètres de Simulation ── */}
+                {/* ── Simulation Parameters ── */}
                 <Paper sx={{ p: 3, borderRadius: 2 }}>
                     <SectionHeader
-                        title="Paramètres de Simulation"
-                        subtitle="Ces valeurs alimentent le calcul du bilan de liaison et les statistiques de fiabilité."
+                        title="Simulation Parameters"
+                        subtitle="These values feed the link budget calculation and reliability statistics."
                     />
                     <Grid container spacing={2.5}>
                         <Grid item xs={12} sm={6} md={4}>
                             <FormControl fullWidth size="small">
-                                <InputLabel>Antenne TX</InputLabel>
-                                <Select value={params.antenneTx} onChange={setParam('antenneTx')} label="Antenne TX">
+                                <InputLabel>TX Antenna</InputLabel>
+                                <Select value={params.antenneTx} onChange={setParam('antenneTx')} label="TX Antenna">
                                     {TX_ANTENNAS.map((a) => <MenuItem key={a} value={a}>{a}</MenuItem>)}
                                 </Select>
                             </FormControl>
                         </Grid>
                         <Grid item xs={12} sm={6} md={4}>
                             <FormControl fullWidth size="small">
-                                <InputLabel>Antenne RX</InputLabel>
-                                <Select value={params.antenneRx} onChange={setParam('antenneRx')} label="Antenne RX">
+                                <InputLabel>RX Antenna</InputLabel>
+                                <Select value={params.antenneRx} onChange={setParam('antenneRx')} label="RX Antenna">
                                     {RX_ANTENNAS.map((a) => <MenuItem key={a} value={a}>{a}</MenuItem>)}
                                 </Select>
                             </FormControl>
@@ -422,7 +422,7 @@ export default function RapportDashboard() {
                         <Grid item xs={12} sm={6} md={4}>
                             <TextField
                                 fullWidth size="small"
-                                label="Fréquence"
+                                label="Frequency"
                                 type="number"
                                 value={params.frequencyMHz}
                                 onChange={setParam('frequencyMHz')}
@@ -432,7 +432,7 @@ export default function RapportDashboard() {
                         <Grid item xs={12} sm={6} md={3}>
                             <TextField
                                 fullWidth size="small"
-                                label="Puissance TX"
+                                label="TX Power"
                                 type="number"
                                 value={params.powerTxDBm}
                                 onChange={setParam('powerTxDBm')}
@@ -442,7 +442,7 @@ export default function RapportDashboard() {
                         <Grid item xs={12} sm={6} md={3}>
                             <TextField
                                 fullWidth size="small"
-                                label="Gain TX"
+                                label="TX Gain"
                                 type="number"
                                 value={params.gainTxDBi}
                                 onChange={setParam('gainTxDBi')}
@@ -452,7 +452,7 @@ export default function RapportDashboard() {
                         <Grid item xs={12} sm={6} md={3}>
                             <TextField
                                 fullWidth size="small"
-                                label="Gain RX"
+                                label="RX Gain"
                                 type="number"
                                 value={params.gainRxDBi}
                                 onChange={setParam('gainRxDBi')}
@@ -462,7 +462,7 @@ export default function RapportDashboard() {
                         <Grid item xs={12} sm={6} md={3}>
                             <TextField
                                 fullWidth size="small"
-                                label="Sensibilité RX"
+                                label="RX Sensitivity"
                                 type="number"
                                 value={params.sensitivityDBm}
                                 onChange={setParam('sensitivityDBm')}

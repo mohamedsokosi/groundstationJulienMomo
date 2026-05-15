@@ -48,7 +48,7 @@ export default function CubeSatSubsystemPanel({
         return (
             <Paper sx={{ p: 3, borderRadius: 2, textAlign: 'center' }}>
                 <Typography color="text.secondary">
-                    Cliquez sur un sous-système pour inspecter sa télémétrie.
+                    Click on a subsystem to inspect its telemetry.
                 </Typography>
             </Paper>
         );

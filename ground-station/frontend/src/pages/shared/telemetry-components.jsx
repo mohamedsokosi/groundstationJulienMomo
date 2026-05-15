@@ -115,7 +115,7 @@ export function TelemetrySummary({ data = [] }) {
         return (
             <Paper sx={{ p: 3, textAlign: 'center' }}>
                 <Typography color="text.secondary">
-                    Aucune donnée disponible
+                    No data available
                 </Typography>
             </Paper>
         );
@@ -146,28 +146,28 @@ export function TelemetrySummary({ data = [] }) {
             </Grid>
             <Grid item xs={12} sm={6} md={2.4}>
                 <StatisticCard 
-                    label="Vitesse Max"
+                    label="Max Speed"
                     value={`${stats.maxSpeed.toFixed(2)} m/s`}
                     color="#FF9800"
                 />
             </Grid>
             <Grid item xs={12} sm={6} md={2.4}>
                 <StatisticCard 
-                    label="Pression Min"
+                    label="Min Pressure"
                     value={`${stats.minPressure.toFixed(1)} hPa`}
                     color="#2196F3"
                 />
             </Grid>
             <Grid item xs={12} sm={6} md={2.4}>
                 <StatisticCard 
-                    label="Satellites Moy"
+                    label="Avg Satellites"
                     value={`${stats.avgSatellites.toFixed(1)}`}
                     color="#9C27B0"
                 />
             </Grid>
             <Grid item xs={12} sm={6} md={2.4}>
                 <StatisticCard 
-                    label="Points de Données"
+                    label="Data Points"
                     value={`${stats.dataPoints}`}
                     color="#F44336"
                 />
