@@ -24,8 +24,7 @@ ground-station/
 │   │   ├── appconfig.py      # Chargement data/configs/app_config.json
 │   │   ├── arguments.py      # Parsing CLI (host, port, log-level, log-config)
 │   │   └── logger.py         # Logging colorlog
-│   └── data/
-│       └── configs/app_config.json  # Config (host, port, log_level, log_config)
+│   └── data/configs/app_config.json  # Config (host, port, log_level, log_config)
 │
 ├── frontend/                 # Client React (Vite)
 │   ├── index.html            # Entrée HTML — favicon SAFARI.png
@@ -34,20 +33,17 @@ ground-station/
 │   ├── public/               # Assets statiques
 │   │   ├── SAFARI.png        # Logo SAFARI (favicon)
 │   │   ├── CSA.png / ETS.jpg / Lassena.png / seds.png  # Logos partenaires (topbar)
-│   │   └── telemetry.csv     # Données de vol statiques (fallback CSV)
+│   │   └── cubesat.png       # Image du CubeSat
 │   └── src/
 │       ├── main.jsx                  # Racine React — router + Redux Provider
 │       ├── App.jsx                   # ThemeProvider + CssBaseline
 │       ├── theme.js                  # Thème MUI dark
-│       ├── theme-configs.js          # Palettes de couleurs (dark, light, etc.)
+│       ├── theme-configs.js          # Palette de couleurs (thème dark)
 │       ├── store.jsx                 # Store Redux (slice telemetry uniquement)
 │       ├── layout.jsx                # Topbar + sidebar hover-expand + <Outlet>
 │       ├── navigation.jsx            # Définition sidebar (5 routes)
 │       ├── page-actions-context.jsx  # Contexte pour boutons d'action par page
 │       ├── error-page.jsx            # Page d'erreur
-│       ├── assets/
-│       │   ├── cubesat-annotated-base.svg
-│       │   └── cubesat.png
 │       └── pages/
 │           ├── telemetry-dashboard.jsx    # /vueGlobe3d — Globe Cesium + timeline
 │           ├── station-dashboard.jsx      # /station — carte + graphes + terminal
@@ -74,9 +70,6 @@ ground-station/
 │           ├── cubesat-subsystem-panel.jsx   # Panneau détail sous-système
 │           ├── useAnimatedDomain.js       # Animation fluide des axes de graphes
 │           └── ground-station-view.css    # Styles globaux (stats bar, globe)
-│
-├── shared/
-│   └── proto/               # Schémas Protocol Buffers (TelemetryFrame, TelemetryBatch)
 │
 ├── tools/
 │   ├── dev/
