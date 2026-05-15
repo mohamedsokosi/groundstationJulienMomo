@@ -20,7 +20,7 @@
 
 
 import {createTheme} from "@mui/material";
-import { getThemeConfig } from './themes/theme-configs.js';
+import { getThemeConfig } from './theme-configs.js';
 
 export function setupTheme(themeName = 'dark') {
     // Get the theme configuration
@@ -36,9 +36,6 @@ export function setupTheme(themeName = 'dark') {
 
     return createTheme({
         palette,
-        cssVariables: {
-            colorSchemeSelector: 'data-toolpad-color-scheme',
-        },
         shape: {
             //borderRadius: 4,
         },
@@ -67,64 +64,6 @@ export function setupTheme(themeName = 'dark') {
         components: {
             MuiCssBaseline: {
                 styleOverrides: (theme) => `
-                    /* React Grid Layout styles */
-                    .react-resizable-handle {
-                        z-index: 1000;
-                    }
-                    .react-grid-item.react-draggable-dragging {
-                        opacity: 0.9;
-                        z-index: 1000;
-                        box-shadow: 0 8px 24px ${theme.palette.mode === 'dark' ? 'rgba(0, 0, 0, 0.6)' : 'rgba(0, 0, 0, 0.3)'};
-                        transition: box-shadow 0.2s ease;
-                    }
-                    .react-grid-draggable {
-                        border-radius: 0;
-                        cursor: grab;
-                        user-select: none;
-                        transition: background-color 0.15s ease, box-shadow 0.15s ease;
-                        background-image:
-                            repeating-linear-gradient(
-                                90deg,
-                                transparent,
-                                transparent 3px,
-                                ${theme.palette.mode === 'dark' ? 'rgba(255, 255, 255, 0.03)' : 'rgba(0, 0, 0, 0.02)'} 3px,
-                                ${theme.palette.mode === 'dark' ? 'rgba(255, 255, 255, 0.03)' : 'rgba(0, 0, 0, 0.02)'} 4px
-                            );
-                    }
-                    .react-grid-draggable:hover {
-                        background-color: ${theme.palette.mode === 'dark' ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.03)'};
-                        box-shadow: inset 0 1px 3px ${theme.palette.mode === 'dark' ? 'rgba(0, 0, 0, 0.3)' : 'rgba(0, 0, 0, 0.1)'};
-                    }
-                    .react-grid-draggable:active {
-                        cursor: grabbing;
-                        background-color: ${theme.palette.mode === 'dark' ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.05)'};
-                        box-shadow: inset 0 2px 4px ${theme.palette.mode === 'dark' ? 'rgba(0, 0, 0, 0.4)' : 'rgba(0, 0, 0, 0.15)'};
-                    }
-
-                    /* Leaflet map styles */
-                    .leaflet-tooltip-bottom::before {
-                        border-bottom-color: ${theme.palette.background.default} !important;
-                    }
-                    .leaflet-tooltip {
-                        opacity: 0.9 !important;
-                    }
-                    .leaflet-control-attribution {
-                        display: none;
-                        background-color: ${theme.palette.background.paper};
-                        color: ${theme.palette.text.secondary};
-                        z-index: 3001;
-                    }
-                    .leaflet-container {
-                        background-color: ${theme.palette.background.default} !important;
-                    }
-                    .leaflet-control-fullscreen {
-                        display: none;
-                    }
-                    .leaflet-link {
-                        right: 8px;
-                        position: absolute;
-                    }
-
                     /* Custom application styles */
                     .window-title-bar {
                         background-color: ${theme.palette.background.paper};

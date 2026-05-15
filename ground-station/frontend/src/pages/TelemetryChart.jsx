@@ -12,7 +12,7 @@ import { Box, Typography } from '@mui/material';
 import { alpha, useTheme } from '@mui/material/styles';
 import { fieldLabel, fieldUnit, fieldStep } from './chart-fields.js';
 import { pagedDomain } from './chart-logic.js';
-import { useAnimatedDomain } from '../hooks/useAnimatedDomain.js';
+import { useAnimatedDomain } from './useAnimatedDomain.js';
 
 export function TelemetryChart({ data, xKey, lines, tracking, onTrackingChange }) {
     const theme = useTheme();

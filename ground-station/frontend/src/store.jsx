@@ -1,5 +1,5 @@
 import { configureStore } from '@reduxjs/toolkit';
-import telemetryReducer from '../pages/telemetry-slice.jsx';
+import telemetryReducer from './pages/telemetry-slice.jsx';
 
 export const store = configureStore({
     reducer: {

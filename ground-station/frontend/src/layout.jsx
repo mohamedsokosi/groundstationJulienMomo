@@ -17,7 +17,7 @@ import {
     styled,
     useTheme,
 } from '@mui/material';
-import { getNavigation } from '../config/navigation.jsx';
+import { getNavigation } from './navigation.jsx';
 import { PageActionsProvider, usePageActions } from './page-actions-context.jsx';
 
 const SAFARI_HEADER_LOGO = '/SAFARI.png';

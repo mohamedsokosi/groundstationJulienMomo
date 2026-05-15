@@ -27,7 +27,7 @@ import FileUploadIcon from '@mui/icons-material/FileUpload';
 import StarIcon from '@mui/icons-material/Star';
 import StarBorderOutlinedIcon from '@mui/icons-material/StarBorderOutlined';
 import { useTelemetryStream } from './use-telemetry-stream.jsx';
-import { usePageActions } from '../layout/page-actions-context.jsx';
+import { usePageActions } from '../page-actions-context.jsx';
 import { AVAILABLE_FIELDS, CHART_COLORS, fieldLabel } from './chart-fields.js';
 import { enrich } from './chart-logic.js';
 import { TelemetryChart } from './TelemetryChart.jsx';
