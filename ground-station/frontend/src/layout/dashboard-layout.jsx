@@ -1,50 +1,34 @@
-import Stack from "@mui/material/Stack";
-import Typography from "@mui/material/Typography";
-import PropTypes from "prop-types";
-import * as React from "react";
-import { Outlet, useNavigate, useLocation } from "react-router";
+import * as React from 'react';
+import { Outlet, useNavigate, useLocation } from 'react-router';
 import {
     AppBar,
-    Avatar,
     Box,
-    Button,
-    CssBaseline,
     Divider,
     Drawer,
-    IconButton,
     List,
     ListItem,
     ListItemButton,
     ListItemIcon,
     ListItemText,
-    MenuItem,
-    MenuList,
+    Stack,
     Toolbar,
-    useTheme,
+    Tooltip,
+    Typography,
     styled,
-} from "@mui/material";
-import { Account, AccountPopoverFooter, AccountPreview, SignOutButton } from "@toolpad/core";
-import { stringAvatar } from "../shared/common.jsx";
-import Grid from "@mui/material/Grid";
-import { useCallback, useEffect, useRef, useState } from "react";
-import CheckIcon from '@mui/icons-material/Check';
-import { useSocket } from "../shared/socket.jsx";
-import { useDispatch, useSelector } from "react-redux";
-import { useTranslation } from 'react-i18next';
-import Tooltip from "@mui/material/Tooltip";
-import ConnectionOverlay from "./reconnecting-overlay.jsx";
-import VersionUpdateOverlay from "./version-update-overlay.jsx";
-import { getNavigation } from "../config/navigation.jsx";
+    useTheme,
+} from '@mui/material';
+import { getNavigation } from '../config/navigation.jsx';
 import { PageActionsProvider, usePageActions } from './page-actions-context.jsx';
 
-const SAFARI_HEADER_LOGO = "/SAFARI.png";
+const SAFARI_HEADER_LOGO = '/SAFARI.png';
 const HEADER_PARTNER_LOGOS = [
-    { src: "/ETS.jpg", alt: "ETS", href: "https://www.etsmtl.ca/", variant: "square" },
-    { src: "/Lassena.png", alt: "LASSENA", href: "https://lassena.etsmtl.ca/", variant: "wide" },
-    { src: "/CSA.png", alt: "Canadian Space Agency", href: "https://www.asc-csa.gc.ca/eng/", variant: "square" },
-    { src: "/seds.png", alt: "SEDS Canada", href: "https://www.seds.ca/", variant: "square" },
+    { src: '/ETS.jpg',    alt: 'ETS',                   href: 'https://www.etsmtl.ca/',             variant: 'square' },
+    { src: '/Lassena.png',alt: 'LASSENA',               href: 'https://lassena.etsmtl.ca/',         variant: 'wide'   },
+    { src: '/CSA.png',    alt: 'Canadian Space Agency', href: 'https://www.asc-csa.gc.ca/eng/',     variant: 'square' },
+    { src: '/seds.png',   alt: 'SEDS Canada',           href: 'https://www.seds.ca/',               variant: 'square' },
 ];
-const drawerWidthExpanded = 240;
+
+const drawerWidthExpanded  = 240;
 const drawerWidthCollapsed = 56;
 
 const openedMixin = (theme) => ({
@@ -71,26 +55,10 @@ const CustomDrawer = styled(Drawer, { shouldForwardProp: (prop) => prop !== 'ope
         flexShrink: 0,
         whiteSpace: 'nowrap',
         boxSizing: 'border-box',
-        ...(open && { ...openedMixin(theme), '& .MuiDrawer-paper': openedMixin(theme) }),
+        ...(open  && { ...openedMixin(theme), '& .MuiDrawer-paper': openedMixin(theme) }),
         ...(!open && { ...closedMixin(theme), '& .MuiDrawer-paper': closedMixin(theme) }),
     }),
 );
-
-const CustomAppBar = styled(AppBar, {
-    shouldForwardProp: (prop) => prop !== 'open',
-})(({ theme, open }) => ({
-    zIndex: theme.zIndex.drawer + 1,
-}));
-
-function ToolbarActions() {
-    const { node } = usePageActions();
-    return (
-        <Stack direction="row" alignItems="center" sx={{ padding: "6px 0px 0px 0px" }}>
-            {node}
-            <HeaderPartnerLogos />
-        </Stack>
-    );
-}
 
 function HeaderPartnerLogos() {
     return (
@@ -103,31 +71,21 @@ function HeaderPartnerLogos() {
                         target="_blank"
                         rel="noopener noreferrer"
                         sx={{
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
+                            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
                             height: 32,
                             width: logo.variant === 'wide' ? 120 : 32,
                             borderRadius: 0.75,
-                            backgroundColor: 'rgba(255, 255, 255, 0.08)',
+                            backgroundColor: 'rgba(255,255,255,0.08)',
                             textDecoration: 'none',
                             transition: 'background-color 160ms ease, transform 160ms ease',
-                            '&:hover': {
-                                backgroundColor: 'rgba(255, 255, 255, 0.16)',
-                                transform: 'translateY(-1px)',
-                            },
+                            '&:hover': { backgroundColor: 'rgba(255,255,255,0.16)', transform: 'translateY(-1px)' },
                         }}
                     >
                         <Box
                             component="img"
                             src={logo.src}
                             alt={logo.alt}
-                            sx={{
-                                display: 'block',
-                                maxHeight: 30,
-                                maxWidth: logo.variant === 'wide' ? 116 : 30,
-                                objectFit: 'contain',
-                            }}
+                            sx={{ display: 'block', maxHeight: 30, maxWidth: logo.variant === 'wide' ? 116 : 30, objectFit: 'contain' }}
                         />
                     </Box>
                 </Tooltip>
@@ -136,154 +94,30 @@ function HeaderPartnerLogos() {
     );
 }
 
-function CustomAppTitle() {
+function AppTitle() {
     return (
-        <Grid container direction="row">
-            <Grid row={1} column={1} sx={{ display: 'flex', alignItems: 'center' }}>
-                <Stack direction="row" alignItems="center" spacing={2}>
-                    <Box display={{ xs: "none", sm: "block" }}>
-                        <Box display="flex" alignItems="center" gap={1}>
-                            <img
-                                src={SAFARI_HEADER_LOGO}
-                                alt="SAFARI"
-                                style={{ height: 30, width: 54, objectFit: 'cover', borderRadius: 4 }}
-                            />
-                            <Typography variant="h6">Ground Station</Typography>
-                        </Box>
-                    </Box>
-                </Stack>
-            </Grid>
-        </Grid>
+        <Box display="flex" alignItems="center" gap={1}>
+            <img src={SAFARI_HEADER_LOGO} alt="SAFARI" style={{ height: 30, width: 54, objectFit: 'cover', borderRadius: 4 }} />
+            <Typography variant="h6">Ground Station</Typography>
+        </Box>
     );
 }
 
-function AccountSidebarPreview(props) {
-    const { handleClick, open, mini } = props;
+function ToolbarActions() {
+    const { node } = usePageActions();
     return (
-        <Stack direction="column" p={0}>
-            <Divider />
-            <AccountPreview variant={mini ? 'condensed' : 'expanded'} handleClick={handleClick} open={open} />
+        <Stack direction="row" alignItems="center">
+            {node}
+            <HeaderPartnerLogos />
         </Stack>
     );
 }
 
-AccountSidebarPreview.propTypes = {
-    handleClick: PropTypes.func,
-    mini: PropTypes.bool.isRequired,
-    open: PropTypes.bool,
-};
-
-const accounts = [
-    { id: 1, name: 'Efstratios Goudelis', email: 'sgoudelis@nerv.home', image: null },
-];
-
-function SidebarFooterAccountPopover() {
+function DrawerContent({ isExpanded, navigation, onNavigate, isActive }) {
     return (
-        <Stack direction="column" sx={{ pl: '0px', pr: '0px' }}>
-            <Typography variant="body2" mx={2} mt={1}>Accounts</Typography>
-            <MenuList>
-                {accounts.map((account) => (
-                    <MenuItem key={account.id} component="button" sx={{ justifyContent: 'flex-start', width: '100%', columnGap: 2 }}>
-                        <ListItemIcon>
-                            <Avatar {...stringAvatar('My Name')} />
-                        </ListItemIcon>
-                        <ListItemText
-                            sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', width: '100%' }}
-                            primary={account.name}
-                            secondary={account.email}
-                        />
-                    </MenuItem>
-                ))}
-            </MenuList>
-            <Divider />
-            <AccountPopoverFooter>
-                <SignOutButton />
-            </AccountPopoverFooter>
-        </Stack>
-    );
-}
-
-function SidebarFooterAccount({ mini }) {
-    const PreviewComponent = React.useMemo(() => createPreviewComponent(mini), [mini]);
-    return (
-        <Account
-            slots={{ preview: PreviewComponent, popoverContent: SidebarFooterAccountPopover }}
-            slotProps={{
-                popover: {
-                    transformOrigin: { horizontal: 'left', vertical: 'bottom' },
-                    anchorOrigin: { horizontal: 'right', vertical: 'bottom' },
-                    disableAutoFocus: true,
-                    slotProps: {
-                        paper: {
-                            elevation: 0,
-                            sx: {
-                                overflow: 'visible',
-                                mt: 1,
-                                '&::before': {
-                                    content: '""', display: 'block', position: 'absolute',
-                                    bottom: 10, left: 0, width: 10, height: 10,
-                                    bgcolor: 'background.paper',
-                                    transform: 'translate(-50%, -50%) rotate(45deg)', zIndex: 0,
-                                },
-                            },
-                        },
-                    },
-                },
-            }}
-        />
-    );
-}
-
-SidebarFooterAccount.propTypes = { mini: PropTypes.bool.isRequired };
-
-const createPreviewComponent = (mini) => {
-    function PreviewComponent(props) {
-        return <AccountSidebarPreview {...props} mini={mini} />;
-    }
-    return PreviewComponent;
-};
-
-export default function Layout() {
-    const theme = useTheme();
-    const navigate = useNavigate();
-    const location = useLocation();
-    const [open, setOpen] = React.useState(false);
-    const [mobileOpen, setMobileOpen] = React.useState(false);
-    const [navigation, setNavigation] = React.useState(getNavigation());
-    const { t } = useTranslation();
-    const { connected, initialDataLoading, hasVersionChanged } = useSelector((state) => ({
-        connected: state.dashboard.connected,
-        initialDataLoading: state.dashboard.initialDataLoading,
-        hasVersionChanged: state.version.hasVersionChanged,
-    }));
-
-    React.useEffect(() => {
-        setNavigation(getNavigation());
-    }, [t]);
-
-    const handleDrawerToggle = () => {
-        if (window.innerWidth < 600) setMobileOpen(!mobileOpen);
-        else setOpen(!open);
-    };
-
-    const handleMobileDrawerClose = () => setMobileOpen(false);
-
-    const handleNavigation = (segment) => {
-        navigate(`/${segment}`);
-        if (window.innerWidth < 600) setMobileOpen(false);
-    };
-
-    const isActiveRoute = (segment) => {
-        const currentPath = location.pathname.slice(1);
-        if (segment === '' && currentPath === '') return true;
-        if (segment && currentPath.startsWith(segment)) return true;
-        return false;
-    };
-
-    const drawerContent = (isExpanded) => (
         <>
             <Toolbar />
-            <Box component="nav" role="navigation" aria-label="Main navigation" sx={{ overflow: 'auto', mt: 1 }}>
+            <Box component="nav" sx={{ overflow: 'auto', mt: 1 }}>
                 <List>
                     {navigation.map((item, index) => {
                         if (item.kind === 'header') {
@@ -297,16 +131,21 @@ export default function Layout() {
                         }
                         if (item.kind === 'divider') return <Divider key={index} sx={{ my: 1 }} />;
 
-                        const isActive = isActiveRoute(item.segment);
+                        const active = isActive(item.segment);
                         return (
                             <ListItem key={index} disablePadding sx={{ display: 'block' }}>
                                 <Tooltip title={!isExpanded ? item.title : ''} placement="right" disableFocusListener disableTouchListener>
                                     <ListItemButton
-                                        onClick={() => handleNavigation(item.segment)}
-                                        selected={isActive}
-                                        sx={{ minHeight: 40, justifyContent: isExpanded ? 'flex-start' : 'center', px: isExpanded ? 2 : 0, py: 0.75, display: 'flex', alignItems: 'center' }}
+                                        onClick={() => onNavigate(item.segment)}
+                                        selected={active}
+                                        sx={{
+                                            minHeight: 40,
+                                            justifyContent: isExpanded ? 'flex-start' : 'center',
+                                            px: isExpanded ? 2 : 0,
+                                            py: 0.75,
+                                        }}
                                     >
-                                        <ListItemIcon sx={{ minWidth: 0, mr: isExpanded ? 2 : 0, display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+                                        <ListItemIcon sx={{ minWidth: 0, mr: isExpanded ? 2 : 0, display: 'flex', justifyContent: 'center' }}>
                                             {item.icon}
                                         </ListItemIcon>
                                         {isExpanded && (
@@ -321,44 +160,63 @@ export default function Layout() {
             </Box>
         </>
     );
+}
+
+export default function Layout() {
+    const navigate  = useNavigate();
+    const location  = useLocation();
+    const navigation = getNavigation();
+    const [open, setOpen]             = React.useState(false);
+    const [mobileOpen, setMobileOpen] = React.useState(false);
+
+    const handleNavigation = (segment) => {
+        navigate(`/${segment}`);
+        setMobileOpen(false);
+    };
+
+    const isActive = (segment) => {
+        const current = location.pathname.slice(1);
+        return segment ? current.startsWith(segment) : current === '';
+    };
+
+    const drawerProps = { navigation, onNavigate: handleNavigation, isActive };
 
     return (
         <PageActionsProvider>
             <Box sx={{ display: 'flex', minHeight: '100vh', overflow: 'hidden' }}>
-                <CssBaseline />
-                <CustomAppBar position="fixed" open={open}>
+                <AppBar position="fixed" sx={{ zIndex: (t) => t.zIndex.drawer + 1 }}>
                     <Toolbar>
                         <Box sx={{ flexGrow: 1 }}>
-                            <CustomAppTitle />
+                            <AppTitle />
                         </Box>
                         <ToolbarActions />
                     </Toolbar>
-                </CustomAppBar>
+                </AppBar>
 
+                {/* Mobile drawer */}
                 <Drawer
                     variant="temporary"
                     open={mobileOpen}
-                    onClose={handleMobileDrawerClose}
+                    onClose={() => setMobileOpen(false)}
                     ModalProps={{ keepMounted: true }}
-                    PaperProps={{ role: 'navigation', 'aria-label': 'Mobile navigation' }}
-                    sx={{ display: { xs: 'block', sm: 'none' }, '& .MuiDrawer-paper': { width: drawerWidthExpanded, boxSizing: 'border-box' } }}
+                    sx={{ display: { xs: 'block', sm: 'none' }, '& .MuiDrawer-paper': { width: drawerWidthExpanded } }}
                 >
-                    {drawerContent(true)}
+                    <DrawerContent isExpanded {...drawerProps} />
                 </Drawer>
 
+                {/* Desktop drawer */}
                 <CustomDrawer
                     variant="permanent"
                     open={open}
-                    PaperProps={{ role: 'navigation', 'aria-label': 'Desktop navigation' }}
-                    ModalProps={{ disableEnforceFocus: true, disableAutoFocus: true }}
-                    sx={{ display: { xs: 'none', sm: 'block' }, flexShrink: 0 }}
+                    onMouseEnter={() => setOpen(true)}
+                    onMouseLeave={() => setOpen(false)}
+                    sx={{ display: { xs: 'none', sm: 'block' } }}
                 >
-                    {drawerContent(open)}
+                    <DrawerContent isExpanded={open} {...drawerProps} />
                 </CustomDrawer>
 
                 <Box component="main" sx={{ flexGrow: 1, mt: '52px', minWidth: 0 }}>
-                    {connected && !initialDataLoading ? <Outlet /> : <ConnectionOverlay />}
-                    {hasVersionChanged && <VersionUpdateOverlay />}
+                    <Outlet />
                 </Box>
             </Box>
         </PageActionsProvider>

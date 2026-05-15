@@ -1,26 +1,28 @@
 import { useEffect, useRef, useState } from 'react';
 
-export function useAnimatedDomain(target, duration = 700) {
-    const valueRef = useRef(target);
-    const [displayed, setDisplayed] = useState(target);
+export function useAnimatedDomain(target, duration = 300) {
+    const [value, setValue] = useState(target);
     const rafRef = useRef(null);
+    const startRef = useRef(null);
+    const fromRef = useRef(target);
 
     useEffect(() => {
-        if (target === valueRef.current) return;
+        if (target === value) return;
         cancelAnimationFrame(rafRef.current);
-        const from = valueRef.current;
-        const t0 = performance.now();
-        const tick = (now) => {
-            const p = Math.min((now - t0) / duration, 1);
-            const e = p < 0.5 ? 4 * p * p * p : 1 - (-2 * p + 2) ** 3 / 2;
-            const v = from + (target - from) * e;
-            valueRef.current = v;
-            setDisplayed(v);
-            if (p < 1) rafRef.current = requestAnimationFrame(tick);
-        };
-        rafRef.current = requestAnimationFrame(tick);
-        return () => cancelAnimationFrame(rafRef.current);
-    }, [target, duration]);
+        fromRef.current = value;
+        startRef.current = null;
 
-    return displayed;
+        const animate = (now) => {
+            if (!startRef.current) startRef.current = now;
+            const p = Math.min((now - startRef.current) / duration, 1);
+            const e = 1 - (1 - p) ** 3;
+            setValue(fromRef.current + (target - fromRef.current) * e);
+            if (p < 1) rafRef.current = requestAnimationFrame(animate);
+        };
+        rafRef.current = requestAnimationFrame(animate);
+        return () => cancelAnimationFrame(rafRef.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [target]);
+
+    return value;
 }
