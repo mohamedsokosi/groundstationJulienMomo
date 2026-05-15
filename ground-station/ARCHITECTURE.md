@@ -72,6 +72,7 @@ ground-station/
 │           ├── cubesat-utils.js           # Helpers statut sous-systèmes
 │           ├── cubesat-annotated-visual.jsx  # SVG annoté du CubeSat
 │           ├── cubesat-subsystem-panel.jsx   # Panneau détail sous-système
+│           ├── useAnimatedDomain.js       # Animation fluide des axes de graphes
 │           └── ground-station-view.css    # Styles globaux (stats bar, globe)
 │
 ├── shared/
@@ -88,6 +89,8 @@ ground-station/
 │
 ├── Dockerfile               # Build multi-étapes : Node → Python 3.12
 ├── docker-compose.mqtt.yml  # Service MQTT (eclipse-mosquitto:2, port 1883)
+├── LICENSE
+├── README.md
 └── telemetry.csv            # Données de vol réelles (ICARUS2, 14 août 2025)
 ```
 

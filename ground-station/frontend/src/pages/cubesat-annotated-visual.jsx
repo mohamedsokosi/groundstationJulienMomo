@@ -9,7 +9,7 @@ import {
     Tooltip,
     Typography,
 } from '@mui/material';
-import cubesatBaseImage from '../assets/cubesat.png';
+const cubesatBaseImage = '/cubesat.png';
 import { CUBESAT_SUBSYSTEMS, CUBESAT_VIEWBOX } from './cubesat-config.js';
 
 function getPolygonPath(points = []) {
