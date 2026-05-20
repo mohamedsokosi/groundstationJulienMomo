@@ -11,6 +11,7 @@ import {
     setTelemetryMode,
     setTelemetrySourceData,
 } from './telemetry-slice.jsx';
+
 import {
     buildTelemetryChartData,
     createTelemetryStreamPoint,
@@ -18,6 +19,8 @@ import {
     parseTelemetryCsv,
     parseTelemetryProtobuf,
     readTextFile,
+    TELEMETRY_MQTT_DISPLAY_POINTS,
+    TELEMETRY_MQTT_FRAMES_URL,
     TELEMETRY_PROTOBUF_SOURCE_URL,
     TELEMETRY_SOURCE_URL,
     TELEMETRY_STREAM_INTERVAL_MS,
@@ -43,6 +46,7 @@ export function useTelemetryStream({
 } = {}) {
     const dispatch = useDispatch();
     const telemetry = useSelector((state) => state.telemetry || defaultTelemetryState);
+    const sourceMode = useSelector((state) => state.telemetry?.sourceMode ?? 'csv');
     const intervalRef = useRef(null);
     const currentIndexRef = useRef(0);
     const currentStreamIndexRef = useRef(0);
@@ -265,7 +269,9 @@ export function useTelemetryStream({
         }
     }, [dispatch, startStream]);
 
+    // CSV mode: load once and animate through records.
     useEffect(() => {
+        if (sourceMode !== 'csv') return;
         if (!autoStart) return stopStream;
 
         if (telemetry.sourceData?.length > 0) {
@@ -282,9 +288,56 @@ export function useTelemetryStream({
         }
 
         return stopStream;
-        // Intentionally omit telemetry playback state to avoid restarting on every tick.
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [autoStart, loadFromUrl, sourceUrl, startStream, stopStream]);
+    }, [autoStart, sourceMode, loadFromUrl, sourceUrl, startStream, stopStream]);
+
+    // MQTT live mode: poll every second and immediately replace telemetryData with
+    // the latest window of frames — one dispatch, one render, no artificial delay.
+    useEffect(() => {
+        if (sourceMode !== 'mqtt') return;
+
+        stopStream();
+        dispatch(clearTelemetryData());
+
+        const live = { shownCount: 0 };
+
+        const poll = async () => {
+            try {
+                const response = await fetch(TELEMETRY_MQTT_FRAMES_URL, { cache: 'no-store' });
+                if (!response.ok) return;
+                const rows = parseTelemetryProtobuf(await response.arrayBuffer());
+
+                if (rows.length === 0) {
+                    if (live.shownCount > 0) {
+                        live.shownCount = 0;
+                        dispatch(clearTelemetryData());
+                    }
+                    return;
+                }
+
+                if (rows.length === live.shownCount) return;
+
+                const receivedAt = Date.now();
+                const stamped = rows.map((r, i) => ({
+                    ...r, _received_at: receivedAt, streamIndex: i, sourceIndex: i,
+                }));
+
+                dispatch(setTelemetrySourceData(stamped));
+                dispatch(setTelemetryData(stamped.slice(-TELEMETRY_MQTT_DISPLAY_POINTS)));
+                dispatch(setPlaybackState({ playbackIndex: rows.length, streamIndex: rows.length }));
+                live.shownCount = rows.length;
+            } catch (_) { /* silent on network errors */ }
+        };
+
+        void poll();
+        const pollId = setInterval(poll, 1000);
+
+        return () => {
+            clearInterval(pollId);
+            dispatch(clearTelemetryData());
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [sourceMode, stopStream, dispatch]);
 
     const chartData = useMemo(() => buildTelemetryChartData(telemetry.telemetryData), [telemetry.telemetryData]);
 
@@ -299,6 +352,7 @@ export function useTelemetryStream({
         playbackIndex: telemetry.playbackIndex,
         isPlaying,
         speedMs,
+        sourceMode,
         setSpeedMs,
         loadRows,
         loadFromFile,

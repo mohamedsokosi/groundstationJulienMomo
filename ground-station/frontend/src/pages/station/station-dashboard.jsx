@@ -35,17 +35,29 @@ const getRecordClock = (record, fallback) =>
 
 const SPEED_PRESETS = [2000, 1000, 500, 250, 60];
 
-const TimelineControls = ({ currentLabel, endLabel, isPlaying, onReset, onSeek, onSpeedChange, onTogglePlay, progress, speedMs, startLabel }) => {
+function MqttClock() {
+    const [time, setTime] = React.useState(() => new Date().toLocaleTimeString());
+    React.useEffect(() => {
+        const id = setInterval(() => setTime(new Date().toLocaleTimeString()), 1000);
+        return () => clearInterval(id);
+    }, []);
+    return <span className="gs-timecode" style={{ color: '#66bb6a' }}>{time}</span>;
+}
+
+const TimelineControls = ({ currentLabel, endLabel, hasData, isPlaying, mqttMode, onReset, onSeek, onSpeedChange, onTogglePlay, progress, speedMs, startLabel }) => {
     const isAutoSpeed = !SPEED_PRESETS.includes(speedMs);
     return (
-        <footer className="gs-timeline" aria-label="Timeline player">
-            <button className="gs-play-button" onClick={onTogglePlay} type="button">
+        <footer className="gs-timeline" aria-label="Timeline player" style={mqttMode ? { opacity: 0.45, pointerEvents: 'none' } : undefined}>
+            <button className="gs-play-button" onClick={onTogglePlay} type="button" disabled={mqttMode}>
                 {isPlaying ? 'PAUSE' : 'PLAY'}
             </button>
-            <button className="gs-reset-button" onClick={onReset} type="button" aria-label="Reset timeline">
+            <button className="gs-reset-button" onClick={onReset} type="button" aria-label="Reset timeline" disabled={mqttMode}>
                 RESET
             </button>
-            <span className="gs-timecode">{startLabel}</span>
+            {mqttMode && !hasData
+                ? <MqttClock />
+                : <span className="gs-timecode">{startLabel}</span>
+            }
             <input
                 className="gs-range"
                 max="100"
@@ -53,13 +65,18 @@ const TimelineControls = ({ currentLabel, endLabel, isPlaying, onReset, onSeek, 
                 onChange={(e) => onSeek(Number(e.target.value))}
                 type="range"
                 value={progress}
+                disabled={mqttMode}
                 aria-label="Playback position"
             />
-            <span className="gs-timecode">{currentLabel || endLabel}</span>
+            {mqttMode && !hasData
+                ? <span className="gs-timecode" style={{ color: '#66bb6a' }}>Waiting for MQTT...</span>
+                : <span className="gs-timecode">{currentLabel || endLabel}</span>
+            }
             <select
                 className="gs-speed-select"
                 onChange={(e) => onSpeedChange(Number(e.target.value))}
                 value={speedMs}
+                disabled={mqttMode}
                 aria-label="Vitesse lecture"
             >
                 {isAutoSpeed && <option value={speedMs}>auto ({speedMs}ms)</option>}
@@ -67,6 +84,11 @@ const TimelineControls = ({ currentLabel, endLabel, isPlaying, onReset, onSeek, 
                     <option key={ms} value={ms}>{ms}ms</option>
                 ))}
             </select>
+            {mqttMode && (
+                <span className="gs-timecode" style={{ marginLeft: 8, color: '#66bb6a', fontWeight: 600 }}>
+                    ● MQTT LIVE
+                </span>
+            )}
         </footer>
     );
 };
@@ -116,6 +138,7 @@ export default function StationDashboard() {
         playbackIndex,
         isPlaying,
         speedMs,
+        sourceMode,
         setSpeedMs,
         pauseStream,
         resumeStream,
@@ -584,18 +607,21 @@ export default function StationDashboard() {
                     />
                 </Box>
 
-                <TimelineControls
-                    currentLabel={currentLabel}
-                    endLabel={endLabel}
-                    isPlaying={isPlaying}
-                    onReset={handleReset}
-                    onSeek={handleSeek}
-                    onSpeedChange={setSpeedMs}
-                    onTogglePlay={handleTogglePlay}
-                    progress={progress}
-                    speedMs={speedMs}
-                    startLabel={startLabel}
-                />
+                {sourceMode !== 'mqtt' && (
+                    <TimelineControls
+                        currentLabel={currentLabel}
+                        endLabel={endLabel}
+                        hasData={hasData}
+                        isPlaying={isPlaying}
+                        onReset={handleReset}
+                        onSeek={handleSeek}
+                        onSpeedChange={setSpeedMs}
+                        onTogglePlay={handleTogglePlay}
+                        progress={progress}
+                        speedMs={speedMs}
+                        startLabel={startLabel}
+                    />
+                )}
 
                 <Box sx={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'row', gap: 0.5 }}>
                     {BOTTOM_CHART_DEFS.map((chart, i) => (

@@ -122,6 +122,24 @@ async def get_telemetry_protobuf():
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/api/telemetry/mqtt/frames")
+async def get_mqtt_only_frames():
+    """Returns only MQTT-received frames as protobuf. Empty batch if no MQTT data yet."""
+    try:
+        frames = telemetry_store.get_frames()
+        return Response(
+            content=encode_telemetry_batch(frames),
+            media_type=TELEMETRY_PROTOBUF_MEDIA_TYPE,
+            headers={
+                "Cache-Control": "no-store",
+                "X-Protobuf-Schema": TELEMETRY_PROTOBUF_SCHEMA,
+            },
+        )
+    except Exception as e:
+        logger.error(f"Error serving MQTT frames: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/api/telemetry/mqtt/status")
 async def get_telemetry_mqtt_status():
     config = get_mqtt_config()

@@ -11,12 +11,16 @@ import {
     ListItemIcon,
     ListItemText,
     Stack,
+    ToggleButton,
+    ToggleButtonGroup,
     Toolbar,
     Tooltip,
     Typography,
     styled,
     useTheme,
 } from '@mui/material';
+import { useDispatch, useSelector } from 'react-redux';
+import { setSourceMode } from './pages/shared/telemetry-slice.jsx';
 import { getNavigation } from './navigation.jsx';
 import { PageActionsProvider, usePageActions } from './page-actions-context.jsx';
 
@@ -95,11 +99,51 @@ function AppTitle() {
     );
 }
 
+function TelemetrySourceToggle() {
+    const dispatch = useDispatch();
+    const sourceMode = useSelector((state) => state.telemetry?.sourceMode ?? 'csv');
+
+    return (
+        <ToggleButtonGroup
+            value={sourceMode}
+            exclusive
+            onChange={(_, value) => { if (value) dispatch(setSourceMode(value)); }}
+            size="small"
+            sx={{ mr: 1.5 }}
+        >
+            <ToggleButton value="csv" sx={{ px: 1.5, fontSize: '0.75rem' }}>
+                CSV
+            </ToggleButton>
+            <ToggleButton value="mqtt" sx={{ px: 1.5, fontSize: '0.75rem', gap: 0.75 }}>
+                <Box
+                    sx={{
+                        width: 7,
+                        height: 7,
+                        borderRadius: '50%',
+                        bgcolor: sourceMode === 'mqtt' ? 'success.main' : 'grey.600',
+                        flexShrink: 0,
+                        ...(sourceMode === 'mqtt' && {
+                            boxShadow: '0 0 0 2px rgba(102,187,106,0.35)',
+                            animation: 'mqtt-pulse 1.8s ease-in-out infinite',
+                            '@keyframes mqtt-pulse': {
+                                '0%, 100%': { boxShadow: '0 0 0 2px rgba(102,187,106,0.35)' },
+                                '50%':       { boxShadow: '0 0 0 5px rgba(102,187,106,0)' },
+                            },
+                        }),
+                    }}
+                />
+                MQTT Live
+            </ToggleButton>
+        </ToggleButtonGroup>
+    );
+}
+
 function ToolbarActions() {
     const { node } = usePageActions();
     return (
         <Stack direction="row" alignItems="center">
             {node}
+            <TelemetrySourceToggle />
             <HeaderPartnerLogos />
         </Stack>
     );

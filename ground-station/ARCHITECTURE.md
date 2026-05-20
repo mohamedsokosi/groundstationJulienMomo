@@ -1,120 +1,146 @@
 # Architecture — Ground Station
 
-## Vue d'ensemble
+## Overview
 
-Application web temps réel de suivi de ballon stratosphérique (projet ICARUS2).  
-Stack : **FastAPI + Python** (backend) · **React + Redux + Cesium** (frontend) · **MQTT** (télémétrie live).
+Real-time web application for stratospheric balloon tracking (ICARUS2 project).  
+Stack: **FastAPI + Python** (backend) · **React + Redux + Cesium** (frontend) · **MQTT** (live telemetry).
 
 ---
 
-## Structure des dossiers
+## Full Hardware Pipeline
+
+```
+┌─────────────────────────┐
+│   Raspberry Pi Pico     │  Replays ICARUS2 flight data (96 records)
+│   (Telemetry Sender)    │  from embedded CSV via CFDP-wrapped UART
+└────────────┬────────────┘
+             │  UART Serial1 — GPIO0/TX → GPIO15/RX
+             │  115200 baud
+             ▼
+┌─────────────────────────┐
+│   Raspberry Pi 4B       │  Receives UART frames, decodes CFDP,
+│   (gs-modem)            │  publishes protobuf frames to MQTT broker
+└────────────┬────────────┘
+             │  MQTT — topic: icarus2/telemetry/frame.pb
+             │  port 1883
+             ▼
+┌─────────────────────────┐
+│   Ground Station        │  FastAPI backend + React frontend
+│   (this application)    │  displays telemetry live
+└─────────────────────────┘
+```
+
+---
+
+## Folder Structure
 
 ```
 ground-station/
-├── backend/                  # Serveur Python (FastAPI)
-│   ├── app.py                # Point d'entrée — démarre Uvicorn
-│   ├── logconfig.yaml        # Configuration logging (colorlog)
+├── backend/                  # Python server (FastAPI)
+│   ├── app.py                # Entry point — starts Uvicorn
+│   ├── logconfig.yaml        # Logging configuration (colorlog)
 │   ├── server/
-│   │   ├── startup.py        # App FastAPI, routes HTTP, CORS, fichiers statiques
-│   │   └── telemetry_protobuf.py  # Encodage/décodage Protocol Buffers
+│   │   ├── startup.py        # FastAPI app, HTTP routes, CORS, static files
+│   │   └── telemetry_protobuf.py  # Protocol Buffers encode/decode
 │   ├── pipeline/
-│   │   ├── mqtt_telemetry_receiver.py  # Client MQTT paho, topic icarus2/telemetry/frame.pb
-│   │   └── telemetry_store.py          # Deque en mémoire pour les frames télémétrie
+│   │   ├── mqtt_telemetry_receiver.py  # paho MQTT client, topic icarus2/telemetry/frame.pb
+│   │   └── telemetry_store.py          # In-memory deque for telemetry frames
 │   └── common/
-│       ├── arguments.py      # Parsing CLI (host, port, log-level) + defaults
-│       └── logger.py         # Logging stdlib basicConfig
+│       ├── arguments.py      # CLI argument parsing (host, port, log-level) + defaults
+│       └── logger.py         # stdlib logging basicConfig
 │
-├── frontend/                 # Client React (Vite)
-│   ├── index.html            # Entrée HTML — favicon SAFARI.png
-│   ├── vite.config.js        # Build Vite + plugin Cesium + proxy backend
-│   ├── package.json          # Dépendances : React, MUI, Redux, Cesium, Recharts
-│   ├── public/               # Assets statiques
-│   │   ├── SAFARI.png        # Logo SAFARI (favicon)
-│   │   ├── CSA.png / ETS.jpg / Lassena.png / seds.png  # Logos partenaires (topbar)
-│   │   └── cubesat.png       # Image du CubeSat
+├── frontend/                 # React client (Vite)
+│   ├── index.html            # HTML entry — favicon SAFARI.png
+│   ├── vite.config.js        # Vite build + Cesium plugin + backend proxy
+│   ├── package.json          # Dependencies: React, MUI, Redux, Cesium, Recharts
+│   ├── public/               # Static assets
+│   │   ├── SAFARI.png        # SAFARI logo (favicon)
+│   │   ├── CSA.png / ETS.jpg / Lassena.png / seds.png  # Partner logos (topbar)
+│   │   └── cubesat.png       # CubeSat image
 │   └── src/
-│       ├── main.jsx                  # Racine React — router + Redux Provider
+│       ├── main.jsx                  # React root — router + Redux Provider
 │       ├── App.jsx                   # ThemeProvider + CssBaseline
-│       ├── theme.js                  # Thème MUI dark
-│       ├── theme-configs.js          # Palette de couleurs (thème dark)
-│       ├── store.jsx                 # Store Redux (slice telemetry uniquement)
-│       ├── layout.jsx                # Topbar + sidebar hover-expand + <Outlet>
-│       ├── navigation.jsx            # Définition sidebar (5 routes)
-│       ├── page-actions-context.jsx  # Contexte pour boutons d'action par page
-│       ├── error-page.jsx            # Page d'erreur
+│       ├── theme.js                  # MUI dark theme
+│       ├── theme-configs.js          # Color palette (dark theme)
+│       ├── store.jsx                 # Redux store (telemetry slice only)
+│       ├── layout.jsx                # Topbar + hover-expand sidebar + <Outlet>
+│       ├── navigation.jsx            # Sidebar definition (5 routes)
+│       ├── page-actions-context.jsx  # Context for per-page action buttons
+│       ├── error-page.jsx            # Error page
 │       └── pages/
 │           ├── station/
-│           │   └── station-dashboard.jsx      # /station — carte + graphes + terminal
+│           │   └── station-dashboard.jsx      # /station — map + charts + terminal
 │           ├── vueGlobe3d/
-│           │   └── telemetry-dashboard.jsx    # /vueGlobe3d — Globe Cesium + timeline
+│           │   └── telemetry-dashboard.jsx    # /vueGlobe3d — Cesium globe + timeline
 │           ├── analyse/
-│           │   └── analyse-dashboard.jsx      # /analyse — grille de graphes configurables
+│           │   └── analyse-dashboard.jsx      # /analyse — configurable chart grid
 │           ├── cubesat/
-│           │   ├── cubesat-dashboard.jsx      # /cubesat — visualisation annotée CubeSat
+│           │   ├── cubesat-dashboard.jsx      # /cubesat — annotated CubeSat view
 │           │   ├── cubesat-annotated-visual.jsx
 │           │   ├── cubesat-subsystem-panel.jsx
 │           │   ├── cubesat-config.js
 │           │   └── cubesat-utils.js
 │           ├── rapport/
-│           │   └── rapport-dashboard.jsx      # /rapport — génération de rapport
-│           └── shared/                        # Composants et utilitaires partagés
-│               ├── cesiumViewport.jsx         # Globe Cesium
-│               ├── telemetryChart.jsx         # Graphe Recharts
-│               ├── telemetryStatsBar.jsx      # Barre de stats
-│               ├── telemetryTerminal.jsx      # Terminal flux brut
-│               ├── chartTitle.jsx             # Titre dynamique des graphes
+│           │   └── rapport-dashboard.jsx      # /rapport — mission report generation
+│           └── shared/                        # Shared components and utilities
+│               ├── cesiumViewport.jsx         # Cesium globe
+│               ├── telemetryChart.jsx         # Recharts chart
+│               ├── telemetryStatsBar.jsx      # Stats bar
+│               ├── telemetryTerminal.jsx      # Raw stream terminal
+│               ├── chartTitle.jsx             # Dynamic chart title
 │               ├── telemetry-components.jsx   # StatisticCard, ChartCard, TelemetrySummary
-│               ├── telemetry-slice.jsx        # Redux slice — données télémétrie
-│               ├── use-telemetry-stream.jsx   # Hook — chargement, lecture, seek, pause
-│               ├── telemetry-data-source.js   # Parsing CSV/Protobuf
-│               ├── telemetry-protobuf.js      # Décodage Protobuf
+│               ├── telemetry-slice.jsx        # Redux slice — telemetry data
+│               ├── use-telemetry-stream.jsx   # Hook — load, playback, seek, pause
+│               ├── telemetry-data-source.js   # CSV/Protobuf parsing
+│               ├── telemetry-protobuf.js      # Protobuf decoding
 │               ├── telemetry-utils.js         # distanceKm, getMqttSourceStat, helpers
 │               ├── cesium-utils.js            # getTelemetryRecordGeo, imagery providers
-│               ├── chart-fields.js            # AVAILABLE_FIELDS — axes et steps
-│               ├── chart-logic.js             # FSPL, bilan de liaison, enrich()
-│               ├── useAnimatedDomain.js       # Animation fluide des axes
-│               └── ground-station-view.css    # Styles globaux (stats bar, globe)
+│               ├── chart-fields.js            # AVAILABLE_FIELDS — axes and steps
+│               ├── chart-logic.js             # FSPL, link budget, enrich()
+│               ├── useAnimatedDomain.js       # Smooth axis animation
+│               └── ground-station-view.css    # Global styles (stats bar, globe)
 │
 ├── tools/
 │   ├── dev/
-│   │   └── start-local.sh   # Démarrage local (MQTT, Simulator, Restart)
+│   │   └── start-local.sh   # Local startup (MQTT, Simulator, Restart)
 │   └── simulators/
-│       └── mqtt_cubesat_simulator.py  # Simulateur MQTT — publie des frames protobuf
+│       └── mqtt_cubesat_simulator.py  # MQTT simulator — publishes protobuf frames
 │
-├── Dockerfile               # Build multi-étapes : Node → Python 3.12
+├── Dockerfile               # Multi-stage build: Node → Python 3.12
 ├── LICENSE
 ├── README.md
-└── telemetry.csv            # Données de vol réelles (ICARUS2, 14 août 2025)
+└── telemetry.csv            # Real flight data (ICARUS2, 2025-08-14)
 ```
 
 ---
 
-## Routes de l'application
+## Application Routes
 
-| Route | Composant | Description |
+| Route | Component | Description |
 |---|---|---|
-| `/` | redirect | Redirige vers `/station` |
-| `/station` | `StationDashboard` | Vue opérateur : carte Cesium + graphes configurables + terminal |
-| `/vueGlobe3d` | `TelemetryDashboard` | Globe Cesium 3D, trajectoire, barre de stats, timeline |
-| `/analyse` | `AnalyseDashboard` | Grille de graphes Recharts entièrement configurables |
-| `/cubesat` | `CubeSatDashboard` | Image annotée du CubeSat, sous-systèmes, télémétrie |
-| `/rapport` | `RapportDashboard` | Génération de rapport de mission |
+| `/` | redirect | Redirects to `/station` |
+| `/station` | `StationDashboard` | Operator view: Cesium map + configurable charts + terminal |
+| `/vueGlobe3d` | `TelemetryDashboard` | 3D Cesium globe, trajectory, stats bar, timeline |
+| `/analyse` | `AnalyseDashboard` | Fully configurable Recharts grid |
+| `/cubesat` | `CubeSatDashboard` | Annotated CubeSat image, subsystems, telemetry |
+| `/rapport` | `RapportDashboard` | Mission report generation |
 
 ---
 
-## Flux de données
+## Data Flow
 
-### Télémétrie (CSV / MQTT)
+### Telemetry (CSV / MQTT)
 
 ```
-Option A — CSV fallback :
+Option A — CSV fallback:
   GET /api/telemetry.pb  ──────────────────────────────────►
                                                              │
-Option B — MQTT live :                                       │
-  Broker MQTT :1883                                          │
-    └─► mqtt_telemetry_receiver.py (thread daemon)          │
-          └─► telemetry_store (deque maxlen=5000)            │
-               └─► GET /api/telemetry.pb ──────────────────►│
+Option B — MQTT live (hardware pipeline):                    │
+  Pico (UART) → Raspberry Pi 4B                             │
+    └─► MQTT Broker :1883                                    │
+          └─► mqtt_telemetry_receiver.py (daemon thread)    │
+                └─► telemetry_store (deque maxlen=5000)      │
+                     └─► GET /api/telemetry.pb ────────────►│
                                                              ▼
                                           use-telemetry-stream.jsx (hook)
                                             fetchInterval 2s
@@ -125,12 +151,12 @@ Option B — MQTT live :                                       │
                                                              ▼
                                           buildTelemetryChartData()
                                             _elapsed_s / _elapsed_min ← m-time CSV
-                                            champs GPS, altitude, vitesse, temp
+                                            GPS, altitude, speed, temp fields
                                                              │
                                                              ▼
                                           enrich() (chart-logic.js)
                                             _fspl     ← Free Space Path Loss
-                                            _bilan    ← Bilan de liaison (dBm)
+                                            _bilan    ← Link budget (dBm)
                                                              │
                                                              ▼
                                           TelemetryChart / CesiumViewport / TelemetryStatsBar
@@ -138,70 +164,70 @@ Option B — MQTT live :                                       │
 
 ---
 
-## État Redux
+## Redux State
 
-| Slice | Contenu |
+| Slice | Contents |
 |---|---|
 | `telemetry` | `telemetryData`, `sourceData`, `playbackIndex`, `streamIndex`, `mode`, `loading`, `error` |
 
 ---
 
-## API HTTP (backend FastAPI)
+## HTTP API (FastAPI backend)
 
-| Méthode | Endpoint | Description |
+| Method | Endpoint | Description |
 |---|---|---|
-| `GET` | `/api/telemetry.csv` | Fichier CSV de télémétrie courant |
-| `GET` | `/api/telemetry.pb` | Frames télémétrie en Protocol Buffers (MQTT ou CSV) |
-| `GET` | `/api/telemetry/mqtt/status` | Statut du broker MQTT |
-| `POST` | `/api/telemetry/mqtt/clear` | Vide le store MQTT |
+| `GET` | `/api/telemetry.csv` | Current telemetry CSV file |
+| `GET` | `/api/telemetry.pb` | Telemetry frames as Protocol Buffers (MQTT or CSV) |
+| `GET` | `/api/telemetry/mqtt/status` | MQTT broker status |
+| `POST` | `/api/telemetry/mqtt/clear` | Clear the MQTT store |
 | `GET` | `/*` | SPA fallback → `dist/index.html` |
 
 ---
 
-## Calculs de physique (chart-logic.js)
+## Physics Calculations (chart-logic.js)
 
-| Champ | Formule | Unité / Step |
+| Field | Formula | Unit / Step |
 |---|---|---|
-| `_fspl` | `20·log₁₀(4π·d·f / c)` avec f=437 MHz | dB |
+| `_fspl` | `20·log₁₀(4π·d·f / c)` with f=437 MHz | dB |
 | `_bilan` | `TX(30 dBm) + TX_gain(8) − FSPL + RX_gain(10)` | dBm |
 | `_elapsed_s` | `(timestamp_CSV − t₀) / 1000` | s · step 10 000 |
 | `_elapsed_min` | `_elapsed_s / 60` | min · step 60 |
 
 ---
 
-## Démarrage local
+## Local Startup
 
 ```bash
 ./tools/dev/start-local.sh -Restart -Mqtt -Simulator
 ```
 
-| Option | Effet |
+| Option | Effect |
 |---|---|
-| `-Restart` | Arrête les processus sur les ports 5000 et 5173 avant de redémarrer |
-| `-Mqtt` | Démarre le broker Mosquitto local (port 1883) |
-| `-Simulator` | Lance `mqtt_cubesat_simulator.py` (publie les frames CSV via MQTT) |
+| `-Restart` | Kills processes on ports 5000 and 5173 before restarting |
+| `-Mqtt` | Starts local Mosquitto broker (port 1883) |
+| `-Simulator` | Runs `mqtt_cubesat_simulator.py` (publishes CSV frames over MQTT) |
 
-### Variables d'environnement clés
+### Key Environment Variables
 
-| Variable | Défaut | Description |
+| Variable | Default | Description |
 |---|---|---|
-| `VITE_CESIUM_ION_TOKEN` | (`.env.local`) | Token Cesium Ion pour le fond de carte |
-| `MQTT_TELEMETRY_ENABLED` | `0` | `1` pour activer la réception MQTT |
-| `MQTT_BROKER_HOST` | `localhost` | Hôte du broker MQTT |
-| `MQTT_BROKER_PORT` | `1883` | Port MQTT |
-| `MQTT_TELEMETRY_TOPIC` | `icarus2/telemetry/frame.pb` | Topic de télémétrie |
+| `VITE_CESIUM_ION_TOKEN` | (`.env.local`) | Cesium Ion token for the base map |
+| `MQTT_TELEMETRY_ENABLED` | `0` | Set to `1` to enable MQTT reception |
+| `MQTT_BROKER_HOST` | `localhost` | MQTT broker host |
+| `MQTT_BROKER_PORT` | `1883` | MQTT port |
+| `MQTT_TELEMETRY_TOPIC` | `icarus2/telemetry/frame.pb` | Telemetry topic |
 
 ---
 
-## Stack technique
+## Tech Stack
 
-| Catégorie | Technologie |
+| Category | Technology |
 |---|---|
 | Backend | FastAPI + Uvicorn + paho-mqtt |
-| Sérialisation | Protocol Buffers |
+| Serialization | Protocol Buffers |
 | Frontend | React 19 + Vite + React Router v7 |
 | State | Redux Toolkit |
 | UI | Material-UI v7 |
-| Globe 3D | Cesium |
-| Graphes | Recharts |
-| Conteneurisation | Docker |
+| 3D Globe | Cesium |
+| Charts | Recharts |
+| Containerization | Docker |

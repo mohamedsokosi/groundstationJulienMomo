@@ -28,6 +28,7 @@ const initialState = {
     playbackIndex: 0,
     streamIndex: 0,
     mode: 'stream',
+    sourceMode: 'mqtt',
 };
 
 const telemetrySlice = createSlice({
@@ -95,20 +96,24 @@ const telemetrySlice = createSlice({
             state.error = null;
             state.mode = 'stream';
         },
+        setSourceMode: (state, action) => {
+            state.sourceMode = action.payload === 'mqtt' ? 'mqtt' : 'csv';
+        },
     },
 });
 
-export const { 
+export const {
     setTelemetrySourceData,
-    setTelemetryData, 
+    setTelemetryData,
     appendTelemetryPoint,
-    setLoading, 
-    setError, 
+    setLoading,
+    setError,
     setSelectedPoint,
     setPlaybackState,
     setTelemetryMode,
     resetTelemetryStream,
-    clearTelemetryData 
+    clearTelemetryData,
+    setSourceMode,
 } = telemetrySlice.actions;
 
 export default telemetrySlice.reducer;

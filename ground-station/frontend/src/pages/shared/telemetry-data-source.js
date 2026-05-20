@@ -8,8 +8,15 @@ import { decodeTelemetryRowsFromProtobuf } from './telemetry-protobuf.js';
 
 export const TELEMETRY_SOURCE_URL = '/api/telemetry.csv';
 export const TELEMETRY_PROTOBUF_SOURCE_URL = '/api/telemetry.pb';
+export const TELEMETRY_MQTT_FRAMES_URL = '/api/telemetry/mqtt/frames';
 export const TELEMETRY_STREAM_INTERVAL_MS = 500;
 export const TELEMETRY_MIN_STREAM_POINTS = 500;
+export const TELEMETRY_MQTT_POLL_MS = 3000;
+// How fast to drain queued MQTT frames into the display (one frame per tick).
+// 400 ms ≈ matches the Pico's ~250 ms packet interval with a small buffer.
+export const TELEMETRY_MQTT_DRAIN_MS = 400;
+// Max points kept in the live display window (prevents unbounded growth on loop).
+export const TELEMETRY_MQTT_DISPLAY_POINTS = 300;
 
 export function parseTelemetryCsv(text) {
     const lines = text
@@ -47,11 +54,33 @@ export function parseTelemetryProtobuf(buffer) {
 }
 
 function parseRowTimestamp(item) {
-    const raw = item['m-time'] ?? item['Ublox UTC'] ?? item['Ublox_UTC'] ?? '';
-    if (!raw) return null;
-    const d = new Date(raw);
-    const ms = d.getTime();
-    return Number.isFinite(ms) ? ms : null;
+    // 1. m-time: "8/14/2025 10:15" (M/D/YYYY H:MM) — parsed explicitly to work in all browsers
+    const mtime = item['m-time'] ?? item['m_time'] ?? '';
+    if (mtime) {
+        const m = String(mtime).match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{2})(?::(\d{2}))?/);
+        if (m) {
+            const ms = new Date(+m[3], +m[1] - 1, +m[2], +m[4], +m[5], +(m[6] || 0)).getTime();
+            if (Number.isFinite(ms)) return ms;
+        }
+        const iso = new Date(mtime).getTime();
+        if (Number.isFinite(iso)) return iso;
+    }
+
+    // 2. Ublox UTC: "09:15:32" (HH:MM:SS time-only) — combine with today's date
+    const gnss = item['Ublox UTC'] ?? item['Ublox_UTC'] ?? item['gnssTimeUtc'] ?? '';
+    if (gnss) {
+        const t = String(gnss).match(/^(\d{2}):(\d{2}):(\d{2})/);
+        if (t) {
+            const now = new Date();
+            const ms = new Date(now.getFullYear(), now.getMonth(), now.getDate(), +t[1], +t[2], +t[3]).getTime();
+            if (Number.isFinite(ms)) return ms;
+        }
+    }
+
+    // 3. Reception timestamp injected when MQTT frames are loaded (fallback)
+    if (item._received_at && Number.isFinite(item._received_at)) return item._received_at;
+
+    return null;
 }
 
 export function buildTelemetryChartData(data = []) {
