@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { Box, Button, Checkbox, Chip, FormControl, IconButton, InputLabel, MenuItem, Paper, Select, Stack, Typography } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import CheckIcon from '@mui/icons-material/Check';
@@ -66,9 +66,10 @@ export default function StationDashboard() {
         hasData,
     } = useTelemetryStream();
 
+    const deferredChartData = useDeferredValue(chartData);
     const enrichedData = useMemo(
-        () => (chartData?.length ? chartData.map(enrich) : []),
-        [chartData],
+        () => (deferredChartData?.length ? deferredChartData.map(enrich) : []),
+        [deferredChartData],
     );
 
     const trajectoryRecords = useMemo(
