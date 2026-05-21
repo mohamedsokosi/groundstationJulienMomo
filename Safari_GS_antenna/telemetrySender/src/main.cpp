@@ -9,7 +9,7 @@
 #define CFDP_SPACECRAFT_ID 1
 #define CFDP_GROUNDSTATION_ID 2
 
-#define PACKET_DELAY_MS 250
+#define PACKET_DELAY_MS 1000
 #define FILE_REPEAT_DELAY_MS 10000
 
 void send_csv_line_as_cfdp(const char *csv_line) {

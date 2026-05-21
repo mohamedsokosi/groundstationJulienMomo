@@ -10,6 +10,23 @@ import {
 import { getTelemetryNumber, toTelemetryNumber } from './telemetry-utils.js';
 
 export const DEFAULT_CENTER = [48.55, -81.35];
+export const DEFAULT_GS_POSITION = { lat: DEFAULT_CENTER[0], lon: DEFAULT_CENTER[1] };
+export const GS_POSITION_KEY = 'station_ground_station_position';
+
+export function loadGroundStationPosition() {
+    try {
+        const saved = localStorage.getItem(GS_POSITION_KEY);
+        if (saved) {
+            const parsed = JSON.parse(saved);
+            if (typeof parsed.lat === 'number' && typeof parsed.lon === 'number') return parsed;
+        }
+    } catch (_) { /* ignore */ }
+    return DEFAULT_GS_POSITION;
+}
+
+export function saveGroundStationPosition(pos) {
+    try { localStorage.setItem(GS_POSITION_KEY, JSON.stringify(pos)); } catch (_) { /* ignore */ }
+}
 export const MAP_CAMERA_HEIGHT = 180000;
 export const MAP_CAMERA_PITCH = -48;
 export const MAP_CAMERA_HEADING = 32;

@@ -4,12 +4,47 @@ import { useSelector } from 'react-redux';
 
 const TERMINAL_FIELDS = ['U_Alt', 'Speed', 'Vert_speed', 'Pressure', '#_Sat', 'U_Lat', 'U_Long'];
 
+const VARIANT_CONFIG = {
+    telemetry: { label: 'TÉLÉMÉTRIE LIVE', headerColor: '#5cc8ff', lineColor: '#59d98b', border: '#1d2430' },
+    verbose:   { label: 'VERBOSE',         headerColor: '#fbbf24', lineColor: '#fbbf24', border: '#2a2010' },
+    errors:    { label: 'ERREURS',         headerColor: '#f87171', lineColor: '#f87171', border: '#2a1010' },
+};
+
 function fmtTime(d) {
     const p = (v) => String(v).padStart(2, '0');
     return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
 }
 
-export function TelemetryTerminal() {
+function formatLine(variant, pt) {
+    if (variant === 'verbose') {
+        return Object.entries(pt)
+            .filter(([k, v]) => !k.startsWith('_') && v !== undefined && v !== null && v !== '')
+            .map(([k, v]) => `${k}=${typeof v === 'number' ? v.toFixed(3) : v}`)
+            .join('  ') || '[vide]';
+    }
+    return TERMINAL_FIELDS
+        .filter((k) => pt[k] !== undefined && pt[k] !== null && pt[k] !== '')
+        .map((k) => {
+            const v = typeof pt[k] === 'number' ? pt[k].toFixed(2) : pt[k];
+            return `${k}=${v}`;
+        })
+        .join('  ') || '[vide]';
+}
+
+function detectErrors(pt) {
+    const issues = [];
+    const lat = Number(pt['U_Lat']);
+    const lon = Number(pt['U_Long']);
+    if (!lat || !lon) issues.push('GPS_LOST');
+    const sat = Number(pt['#_Sat']);
+    if (!Number.isNaN(sat) && sat < 4) issues.push(`LOW_SAT(${sat})`);
+    if (pt['U_Alt'] === undefined || pt['U_Alt'] === null || pt['U_Alt'] === '') issues.push('ALT_MISSING');
+    if (pt['Pressure'] === undefined || pt['Pressure'] === null || pt['Pressure'] === '') issues.push('PRESSURE_MISSING');
+    return issues;
+}
+
+export function TelemetryTerminal({ variant = 'telemetry' }) {
+    const cfg = VARIANT_CONFIG[variant] ?? VARIANT_CONFIG.telemetry;
     const data = useSelector((state) => state.telemetry?.telemetryData ?? []);
     const [lines, setLines] = useState([]);
     const prevLengthRef = useRef(0);
@@ -36,22 +71,32 @@ export function TelemetryTerminal() {
 
         const now = new Date();
         const ts = fmtTime(now);
-        const newLines = newPoints.map((pt) => {
-            const text = TERMINAL_FIELDS
-                .filter((k) => pt[k] !== undefined && pt[k] !== null && pt[k] !== '')
-                .map((k) => {
-                    const v = typeof pt[k] === 'number' ? pt[k].toFixed(2) : pt[k];
-                    return `${k}=${v}`;
-                })
-                .join('  ');
-            return { id: `${Date.now()}-${Math.random()}`, ts, text: text || '[vide]' };
-        });
 
+        const newLines = [];
+        for (const pt of newPoints) {
+            if (variant === 'errors') {
+                const issues = detectErrors(pt);
+                if (issues.length === 0) continue;
+                newLines.push({
+                    id: `${Date.now()}-${Math.random()}`,
+                    ts,
+                    text: `[${issues.join(', ')}]  ${formatLine('telemetry', pt)}`,
+                });
+            } else {
+                newLines.push({
+                    id: `${Date.now()}-${Math.random()}`,
+                    ts,
+                    text: formatLine(variant, pt),
+                });
+            }
+        }
+
+        if (newLines.length === 0) return;
         setLines((prev) => {
             const next = [...prev, ...newLines];
             return next.length > 500 ? next.slice(next.length - 500) : next;
         });
-    }, [data]);
+    }, [data, variant]);
 
     useEffect(() => {
         if (!autoScroll) return;
@@ -76,6 +121,8 @@ export function TelemetryTerminal() {
         prevLengthRef.current = 0;
     }, []);
 
+    const emptyMsg = variant === 'errors' ? 'No errors detected.' : 'Waiting for data...';
+
     return (
         <Paper sx={{
             width: '100%',
@@ -85,7 +132,7 @@ export function TelemetryTerminal() {
             borderRadius: 1,
             overflow: 'hidden',
             bgcolor: '#050a0f',
-            border: '1px solid #1d2430',
+            border: `1px solid ${cfg.border}`,
         }}>
             <Box sx={{
                 flexShrink: 0,
@@ -93,18 +140,18 @@ export function TelemetryTerminal() {
                 alignItems: 'center',
                 px: 1,
                 py: 0.25,
-                borderBottom: '1px solid #1d2430',
+                borderBottom: `1px solid ${cfg.border}`,
                 gap: 0.75,
             }}>
                 <Typography sx={{
                     fontFamily: 'Consolas, "Courier New", monospace',
                     fontSize: 10,
                     fontWeight: 700,
-                    color: '#5cc8ff',
+                    color: cfg.headerColor,
                     letterSpacing: 0,
                     lineHeight: 1,
                 }}>
-                    TÉLÉMÉTRIE LIVE
+                    {cfg.label}
                 </Typography>
                 <Box sx={{ flex: 1 }} />
                 <Box sx={{
@@ -127,7 +174,7 @@ export function TelemetryTerminal() {
                         fontFamily: 'Consolas, monospace',
                         fontWeight: 700,
                         color: '#a8b3c4',
-                        '&:hover': { color: '#5cc8ff', bgcolor: 'transparent' },
+                        '&:hover': { color: cfg.headerColor, bgcolor: 'transparent' },
                     }}
                 >
                     CLR
@@ -156,7 +203,7 @@ export function TelemetryTerminal() {
                         fontStyle: 'italic',
                         lineHeight: 1.6,
                     }}>
-                        Waiting for data...
+                        {emptyMsg}
                     </Typography>
                 ) : (
                     lines.map((line) => (
@@ -173,7 +220,7 @@ export function TelemetryTerminal() {
                             <Typography component="span" sx={{
                                 fontFamily: 'Consolas, "Courier New", monospace',
                                 fontSize: 10,
-                                color: '#59d98b',
+                                color: cfg.lineColor,
                                 wordBreak: 'break-all',
                                 lineHeight: 'inherit',
                             }}>

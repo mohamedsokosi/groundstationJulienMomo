@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
     ArcType,
     CallbackProperty,
@@ -31,7 +31,36 @@ import {
     MAP_ZOOM_FACTOR,
 } from './cesium-utils.js';
 
-export const RightControlPanel = ({ onZoomIn, onZoomOut, options, onToggle }) => {
+const GS_INPUT_STYLE = {
+    width: '100%', height: 24, padding: '0 6px',
+    border: '1px solid #293241', borderLeft: '3px solid #59d98b',
+    borderRadius: 4, color: '#59d98b', background: '#0d141e',
+    fontSize: 11, fontFamily: 'Consolas, monospace',
+    outline: 'none', boxSizing: 'border-box',
+};
+
+export const RightControlPanel = ({ groundStationPos, onGroundStationChange, onZoomIn, onZoomOut, options, onToggle }) => {
+    const [showGsForm, setShowGsForm] = useState(false);
+    const [draftLat, setDraftLat] = useState(() => String(groundStationPos.lat));
+    const [draftLon, setDraftLon] = useState(() => String(groundStationPos.lon));
+    const prevPosRef = useRef(groundStationPos);
+
+    useEffect(() => {
+        if (prevPosRef.current !== groundStationPos) {
+            setDraftLat(String(groundStationPos.lat));
+            setDraftLon(String(groundStationPos.lon));
+            prevPosRef.current = groundStationPos;
+        }
+    }, [groundStationPos]);
+
+    const handleApply = () => {
+        const lat = parseFloat(draftLat);
+        const lon = parseFloat(draftLon);
+        if (!Number.isNaN(lat) && !Number.isNaN(lon) && lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180) {
+            onGroundStationChange({ lat, lon });
+        }
+    };
+
     const controls = [
         { key: 'follow',     label: 'Suivre CubeSat' },
         { key: 'trajectory', label: 'Trajectoire'    },
@@ -54,12 +83,49 @@ export const RightControlPanel = ({ onZoomIn, onZoomOut, options, onToggle }) =>
                         {control.label} {options[control.key] ? 'ON' : 'OFF'}
                     </button>
                 ))}
+                <button
+                    className={`gs-cyan-button${showGsForm ? ' is-on' : ''}`}
+                    onClick={() => setShowGsForm((v) => !v)}
+                    type="button"
+                >
+                    Position GS {showGsForm ? '▲' : '▼'}
+                </button>
+                {showGsForm && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4, paddingTop: 2 }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                            <span style={{ fontSize: 9, color: '#a8b3c4', fontFamily: 'Consolas', letterSpacing: 0 }}>LAT</span>
+                            <input
+                                type="number" step="0.0001" min="-90" max="90"
+                                value={draftLat}
+                                onChange={(e) => setDraftLat(e.target.value)}
+                                style={GS_INPUT_STYLE}
+                            />
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                            <span style={{ fontSize: 9, color: '#a8b3c4', fontFamily: 'Consolas', letterSpacing: 0 }}>LON</span>
+                            <input
+                                type="number" step="0.0001" min="-180" max="180"
+                                value={draftLon}
+                                onChange={(e) => setDraftLon(e.target.value)}
+                                style={GS_INPUT_STYLE}
+                            />
+                        </div>
+                        <button
+                            className="gs-cyan-button is-on"
+                            onClick={handleApply}
+                            type="button"
+                            style={{ marginTop: 2 }}
+                        >
+                            Appliquer
+                        </button>
+                    </div>
+                )}
             </div>
         </aside>
     );
 };
 
-export const CesiumViewport = ({ currentRecord, firstRecord, hasData, loading, mapOptions, onToggleMapOption, trajectoryRecords }) => {
+export const CesiumViewport = ({ currentRecord, groundStationPos, onGroundStationChange, hasData, loading, mapOptions, onToggleMapOption, trajectoryRecords }) => {
     const containerRef = useRef(null);
     const viewerRef = useRef(null);
     const satelliteEntityRef = useRef(null);
@@ -202,8 +268,8 @@ export const CesiumViewport = ({ currentRecord, firstRecord, hasData, loading, m
         const positions = trajectoryRecords.map(getCesiumRecordPosition).filter(Boolean);
         const currentPosition = getCesiumRecordPosition(currentRecord);
         const groundPosition = getCesiumGroundPosition(currentRecord);
-        const startPosition = getCesiumRecordPosition(firstRecord);
-        const linkPositions = startPosition && currentPosition ? [startPosition, currentPosition] : [];
+        const gsCartesian = Cartesian3.fromDegrees(groundStationPos.lon, groundStationPos.lat, 0);
+        const linkPositions = currentPosition ? [gsCartesian, currentPosition] : [];
         const verticalPositions = groundPosition && currentPosition ? [groundPosition, currentPosition] : [];
 
         // FIX 1: Update refs BEFORE entities read them (CallbackProperty reads on next frame).
@@ -225,18 +291,27 @@ export const CesiumViewport = ({ currentRecord, firstRecord, hasData, loading, m
         }
         trajectoryEntityRef.current.show = mapOptions.trajectory && positions.length > 1;
 
-        // --- Start point (green dot = ground station / depart) ---
+        // --- Ground station (green dot + "GS" label) — fixed configurable position ---
         if (!startEntityRef.current) {
             startEntityRef.current = viewer.entities.add({
-                name: 'Depart trajectoire',
-                position: startPosition ?? Cartesian3.fromDegrees(0, 0, 0),
+                name: 'Station Sol',
+                position: gsCartesian,
                 point: { pixelSize: 11, color: Color.LIME, outlineColor: Color.WHITE, outlineWidth: 1 },
+                label: {
+                    text: 'GS',
+                    font: '10px Consolas',
+                    fillColor: Color.LIME,
+                    outlineColor: Color.BLACK,
+                    outlineWidth: 3,
+                    style: LabelStyle.FILL_AND_OUTLINE,
+                    verticalOrigin: VerticalOrigin.BOTTOM,
+                    pixelOffset: new Cartesian2(0, -14),
+                },
             });
+        } else {
+            startEntityRef.current.position = gsCartesian;
         }
-        if (startPosition) {
-            startEntityRef.current.position = startPosition;
-        }
-        startEntityRef.current.show = Boolean(startPosition);
+        startEntityRef.current.show = true;
 
         // --- CubeSat current position (red dot) ---
         if (!satelliteEntityRef.current) {
@@ -317,7 +392,7 @@ export const CesiumViewport = ({ currentRecord, firstRecord, hasData, loading, m
                 setThreeDCameraView(viewer, currentGeo.lon, currentGeo.lat, cameraHeightRef.current);
             }
         }
-    }, [currentRecord, firstRecord, mapOptions.follow, mapOptions.linkBeam, mapOptions.trajectory, trajectoryRecords]);
+    }, [currentRecord, groundStationPos, mapOptions.follow, mapOptions.linkBeam, mapOptions.trajectory, trajectoryRecords]);
 
     return (
         <section
@@ -327,6 +402,8 @@ export const CesiumViewport = ({ currentRecord, firstRecord, hasData, loading, m
         >
             <div ref={containerRef} className="gs-cesium-viewer" />
             <RightControlPanel
+                groundStationPos={groundStationPos}
+                onGroundStationChange={onGroundStationChange}
                 onToggle={onToggleMapOption}
                 onZoomIn={() => handleZoom('in')}
                 onZoomOut={() => handleZoom('out')}

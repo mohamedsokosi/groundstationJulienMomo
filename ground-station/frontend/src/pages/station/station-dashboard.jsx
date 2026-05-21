@@ -20,78 +20,9 @@ import { ChartTitle } from '../shared/chartTitle.jsx';
 import { CesiumViewport } from '../shared/cesiumViewport.jsx';
 import { TelemetryStatsBar } from '../shared/telemetryStatsBar.jsx';
 import { TelemetryTerminal } from '../shared/telemetryTerminal.jsx';
-import { getTelemetryRecordGeo } from '../shared/cesium-utils.js';
+import { getTelemetryRecordGeo, loadGroundStationPosition, saveGroundStationPosition } from '../shared/cesium-utils.js';
 import '../shared/ground-station-view.css';
 
-const formatClock = (value, fallback) => {
-    if (!value) return fallback;
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return fallback;
-    return date.toLocaleTimeString('fr-CA', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
-};
-
-const getRecordClock = (record, fallback) =>
-    formatClock(record?.['m-time'] || record?.m_time || record?.['Ublox UTC'] || record?.Ublox_UTC, fallback);
-
-const SPEED_PRESETS = [2000, 1000, 500, 250, 60];
-
-function MqttClock() {
-    const [time, setTime] = React.useState(() => new Date().toLocaleTimeString());
-    React.useEffect(() => {
-        const id = setInterval(() => setTime(new Date().toLocaleTimeString()), 1000);
-        return () => clearInterval(id);
-    }, []);
-    return <span className="gs-timecode" style={{ color: '#66bb6a' }}>{time}</span>;
-}
-
-const TimelineControls = ({ currentLabel, endLabel, hasData, isPlaying, mqttMode, onReset, onSeek, onSpeedChange, onTogglePlay, progress, speedMs, startLabel }) => {
-    const isAutoSpeed = !SPEED_PRESETS.includes(speedMs);
-    return (
-        <footer className="gs-timeline" aria-label="Timeline player" style={mqttMode ? { opacity: 0.45, pointerEvents: 'none' } : undefined}>
-            <button className="gs-play-button" onClick={onTogglePlay} type="button" disabled={mqttMode}>
-                {isPlaying ? 'PAUSE' : 'PLAY'}
-            </button>
-            <button className="gs-reset-button" onClick={onReset} type="button" aria-label="Reset timeline" disabled={mqttMode}>
-                RESET
-            </button>
-            {mqttMode && !hasData
-                ? <MqttClock />
-                : <span className="gs-timecode">{startLabel}</span>
-            }
-            <input
-                className="gs-range"
-                max="100"
-                min="0"
-                onChange={(e) => onSeek(Number(e.target.value))}
-                type="range"
-                value={progress}
-                disabled={mqttMode}
-                aria-label="Playback position"
-            />
-            {mqttMode && !hasData
-                ? <span className="gs-timecode" style={{ color: '#66bb6a' }}>Waiting for MQTT...</span>
-                : <span className="gs-timecode">{currentLabel || endLabel}</span>
-            }
-            <select
-                className="gs-speed-select"
-                onChange={(e) => onSpeedChange(Number(e.target.value))}
-                value={speedMs}
-                disabled={mqttMode}
-                aria-label="Vitesse lecture"
-            >
-                {isAutoSpeed && <option value={speedMs}>auto ({speedMs}ms)</option>}
-                {SPEED_PRESETS.map((ms) => (
-                    <option key={ms} value={ms}>{ms}ms</option>
-                ))}
-            </select>
-            {mqttMode && (
-                <span className="gs-timecode" style={{ marginLeft: 8, color: '#66bb6a', fontWeight: 600 }}>
-                    ● MQTT LIVE
-                </span>
-            )}
-        </footer>
-    );
-};
 
 const MQTT_STATUS_URL = '/api/telemetry/mqtt/status';
 const MQTT_STATUS_POLL_MS = 2000;
@@ -122,44 +53,18 @@ function loadLeftColumnItems() {
             if (Array.isArray(parsed) && parsed.length > 0) return parsed;
         }
     } catch (_) { /* ignore */ }
-    const favs = loadFavoriteCharts().map((c) => ({
+    return loadFavoriteCharts().map((c) => ({
         id: c.id, type: 'chart', xKey: c.xKey, lines: c.lines,
     }));
-    return [...favs, { id: 'terminal-default', type: 'terminal' }];
 }
 
 export default function StationDashboard() {
     const theme = useTheme();
     const {
         chartData,
-        sourceData,
         loading,
         hasData,
-        playbackIndex,
-        isPlaying,
-        speedMs,
-        sourceMode,
-        setSpeedMs,
-        pauseStream,
-        resumeStream,
-        seekTo,
-        resetStream,
     } = useTelemetryStream();
-
-    const handleTogglePlay = useCallback(() => {
-        if (isPlaying) pauseStream();
-        else resumeStream();
-    }, [isPlaying, pauseStream, resumeStream]);
-
-    const handleSeek = useCallback((pct) => seekTo(pct), [seekTo]);
-    const handleReset = useCallback(() => resetStream(), [resetStream]);
-
-    const progress = sourceData.length > 0
-        ? Math.min(100, Math.round((playbackIndex / sourceData.length) * 100))
-        : 0;
-    const startLabel = getRecordClock(sourceData[0], '--:--:--');
-    const endLabel = getRecordClock(sourceData[sourceData.length - 1], '--:--:--');
-    const currentLabel = getRecordClock(chartData[chartData.length - 1], startLabel);
 
     const enrichedData = useMemo(
         () => (chartData?.length ? chartData.map(enrich) : []),
@@ -207,12 +112,19 @@ export default function StationDashboard() {
     const [newX, setNewX] = useState('_elapsed_min');
     const [pendingY, setPendingY] = useState('U_Alt');
     const [newLines, setNewLines] = useState([]);
+    const [newTerminalVariant, setNewTerminalVariant] = useState('telemetry');
     const dragSrcId = useRef(null);
     const [dragOverId, setDragOverId] = useState(null);
     const [favouriteIds, setFavouriteIds] = useState(() =>
         new Set(loadFavoriteCharts().map((c) => c.id))
     );
     const [mapOptions, setMapOptions] = useState({ follow: false, trajectory: true, linkBeam: true });
+    const [groundStationPos, setGroundStationPos] = useState(loadGroundStationPosition);
+
+    const handleGroundStationChange = useCallback((pos) => {
+        setGroundStationPos(pos);
+        saveGroundStationPosition(pos);
+    }, []);
     const [trackingStates, setTrackingStates] = useState(() =>
         Object.fromEntries(
             loadLeftColumnItems().filter((i) => i.type === 'chart').map((i) => [i.id, true])
@@ -325,8 +237,9 @@ export default function StationDashboard() {
     };
 
     const addTerminal = () => {
-        if (leftItems.some((i) => i.type === 'terminal')) return;
-        setLeftItems((prev) => [...prev, { id: `terminal-${Date.now()}`, type: 'terminal' }]);
+        const variant = newTerminalVariant;
+        if (leftItems.some((i) => i.type === 'terminal' && (i.terminalVariant ?? 'telemetry') === variant)) return;
+        setLeftItems((prev) => [...prev, { id: `terminal-${Date.now()}`, type: 'terminal', terminalVariant: variant }]);
     };
 
     const removeItem = (id) => {
@@ -462,8 +375,19 @@ export default function StationDashboard() {
                                 <Button size="small" variant="contained" startIcon={<AddIcon />} onClick={addChart} sx={{ flex: 1 }}>
                                     Chart
                                 </Button>
+                            </Stack>
+                            <Stack direction="row" spacing={0.5}>
+                                <FormControl size="small" sx={{ minWidth: 130 }}>
+                                    <InputLabel>Type terminal</InputLabel>
+                                    <Select value={newTerminalVariant} onChange={(e) => setNewTerminalVariant(e.target.value)} label="Type terminal">
+                                        <MenuItem value="telemetry">Télémétrie</MenuItem>
+                                        <MenuItem value="verbose">Verbose</MenuItem>
+                                        <MenuItem value="errors">Erreurs</MenuItem>
+                                    </Select>
+                                </FormControl>
                                 <Button size="small" variant="outlined" startIcon={<AddIcon />} onClick={addTerminal}
-                                    disabled={leftItems.some((i) => i.type === 'terminal')} sx={{ flex: 1 }}>
+                                    disabled={leftItems.some((i) => i.type === 'terminal' && (i.terminalVariant ?? 'telemetry') === newTerminalVariant)}
+                                    sx={{ flex: 1 }}>
                                     Terminal
                                 </Button>
                             </Stack>
@@ -570,7 +494,7 @@ export default function StationDashboard() {
                                             </IconButton>
                                         </Box>
                                     )}
-                                    <TelemetryTerminal />
+                                    <TelemetryTerminal variant={item.terminalVariant ?? 'telemetry'} />
                                 </Box>
                             )}
                         </Box>
@@ -598,7 +522,8 @@ export default function StationDashboard() {
                 <Box sx={{ flex: 3, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
                     <CesiumViewport
                         currentRecord={currentRecord}
-                        firstRecord={firstRecord}
+                        groundStationPos={groundStationPos}
+                        onGroundStationChange={handleGroundStationChange}
                         hasData={hasData}
                         loading={loading}
                         mapOptions={mapOptions}
@@ -607,21 +532,6 @@ export default function StationDashboard() {
                     />
                 </Box>
 
-                {sourceMode !== 'mqtt' && (
-                    <TimelineControls
-                        currentLabel={currentLabel}
-                        endLabel={endLabel}
-                        hasData={hasData}
-                        isPlaying={isPlaying}
-                        onReset={handleReset}
-                        onSeek={handleSeek}
-                        onSpeedChange={setSpeedMs}
-                        onTogglePlay={handleTogglePlay}
-                        progress={progress}
-                        speedMs={speedMs}
-                        startLabel={startLabel}
-                    />
-                )}
 
                 <Box sx={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'row', gap: 0.5 }}>
                     {BOTTOM_CHART_DEFS.map((chart, i) => (
