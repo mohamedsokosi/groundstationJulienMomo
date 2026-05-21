@@ -21,6 +21,8 @@ export function enrich(row) {
 
 export function pagedDomain(maxVal, minVal, step) {
     const hi = (Math.floor(maxVal / step + 0.5) + 1) * step;
-    const lo = minVal < 0 ? -(Math.floor(-minVal / step + 0.5) + 1) * step : 0;
+    const lo = minVal < 0
+        ? -(Math.floor(-minVal / step + 0.5) + 1) * step
+        : Math.floor(minVal / step) * step;
     return [lo, hi];
 }

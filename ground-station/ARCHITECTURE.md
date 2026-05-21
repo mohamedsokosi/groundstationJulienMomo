@@ -11,15 +11,16 @@ Stack: **FastAPI + Python** (backend) · **React + Redux + Cesium** (frontend) �
 
 ```
 ┌─────────────────────────┐
-│   Raspberry Pi Pico     │  Replays ICARUS2 flight data (96 records)
-│   (Telemetry Sender)    │  from embedded CSV via CFDP-wrapped UART
+│   Raspberry Pi Pico     │  Replays ICARUS2 flight data (7,681 records @ 1 s)
+│   (Telemetry Sender)    │  from embedded CSV via CFDP-wrapped USB serial
 └────────────┬────────────┘
-             │  UART Serial1 — GPIO0/TX → GPIO15/RX
+             │  USB CDC — /dev/ttyACM0
              │  115200 baud
              ▼
 ┌─────────────────────────┐
-│   Raspberry Pi 4B       │  Receives UART frames, decodes CFDP,
-│   (gs-modem)            │  publishes protobuf frames to MQTT broker
+│   Raspberry Pi 4B       │  uart_mqtt_bridge.py:
+│   (gs-modem)            │  strips CFDP header, encodes protobuf,
+│                         │  publishes to local MQTT broker
 └────────────┬────────────┘
              │  MQTT — topic: icarus2/telemetry/frame.pb
              │  port 1883
@@ -44,7 +45,7 @@ ground-station/
 │   │   └── telemetry_protobuf.py  # Protocol Buffers encode/decode
 │   ├── pipeline/
 │   │   ├── mqtt_telemetry_receiver.py  # paho MQTT client, topic icarus2/telemetry/frame.pb
-│   │   └── telemetry_store.py          # In-memory deque for telemetry frames
+│   │   └── telemetry_store.py          # In-memory deque for telemetry frames (maxlen 5000)
 │   └── common/
 │       ├── arguments.py      # CLI argument parsing (host, port, log-level) + defaults
 │       └── logger.py         # stdlib logging basicConfig
@@ -89,9 +90,9 @@ ground-station/
 │               ├── telemetryTerminal.jsx      # Raw stream terminal
 │               ├── chartTitle.jsx             # Dynamic chart title
 │               ├── telemetry-components.jsx   # StatisticCard, ChartCard, TelemetrySummary
-│               ├── telemetry-slice.jsx        # Redux slice — telemetry data
+│               ├── telemetry-slice.jsx        # Redux slice — telemetry data (default: mqtt)
 │               ├── use-telemetry-stream.jsx   # Hook — load, playback, seek, pause
-│               ├── telemetry-data-source.js   # CSV/Protobuf parsing
+│               ├── telemetry-data-source.js   # CSV/Protobuf parsing, MQTT display limit 5000
 │               ├── telemetry-protobuf.js      # Protobuf decoding
 │               ├── telemetry-utils.js         # distanceKm, getMqttSourceStat, helpers
 │               ├── cesium-utils.js            # getTelemetryRecordGeo, imagery providers
@@ -102,14 +103,14 @@ ground-station/
 │
 ├── tools/
 │   ├── dev/
-│   │   └── start-local.sh   # Local startup (MQTT, Simulator, Restart)
+│   │   └── start-local.sh   # Local startup (MQTT, Simulator, Restart, BrokerHost)
 │   └── simulators/
 │       └── mqtt_cubesat_simulator.py  # MQTT simulator — publishes protobuf frames
 │
 ├── Dockerfile               # Multi-stage build: Node → Python 3.12
 ├── LICENSE
 ├── README.md
-└── telemetry.csv            # Real flight data (ICARUS2, 2025-08-14)
+└── telemetry.csv            # Real flight data (ICARUS2, 2025-08-14, 7,681 rows @ 1 s)
 ```
 
 ---
@@ -135,18 +136,19 @@ ground-station/
 Option A — CSV fallback:
   GET /api/telemetry.pb  ──────────────────────────────────►
                                                              │
-Option B — MQTT live (hardware pipeline):                    │
-  Pico (UART) → Raspberry Pi 4B                             │
-    └─► MQTT Broker :1883                                    │
-          └─► mqtt_telemetry_receiver.py (daemon thread)    │
-                └─► telemetry_store (deque maxlen=5000)      │
-                     └─► GET /api/telemetry.pb ────────────►│
+Option B — MQTT live (hardware pipeline, default):           │
+  Pico (USB /dev/ttyACM0) → Raspberry Pi 4B                │
+    └─► uart_mqtt_bridge.py                                  │
+          └─► MQTT Broker :1883                              │
+                └─► mqtt_telemetry_receiver.py (daemon)     │
+                      └─► telemetry_store (deque 5000)      │
+                           └─► GET /api/telemetry/mqtt/frames ──►
+                                                             │
                                                              ▼
                                           use-telemetry-stream.jsx (hook)
-                                            fetchInterval 2s
+                                            polls every 1 s
                                             parseTelemetryProtobuf()
-                                            → Redux store (telemetryData)
-                                            startStream() → setInterval
+                                            → Redux store (telemetryData, max 5000)
                                                              │
                                                              ▼
                                           buildTelemetryChartData()
@@ -157,6 +159,7 @@ Option B — MQTT live (hardware pipeline):                    │
                                           enrich() (chart-logic.js)
                                             _fspl     ← Free Space Path Loss
                                             _bilan    ← Link budget (dBm)
+                                            _distance ← vertical distance (m)
                                                              │
                                                              ▼
                                           TelemetryChart / CesiumViewport / TelemetryStatsBar
@@ -168,7 +171,7 @@ Option B — MQTT live (hardware pipeline):                    │
 
 | Slice | Contents |
 |---|---|
-| `telemetry` | `telemetryData`, `sourceData`, `playbackIndex`, `streamIndex`, `mode`, `loading`, `error` |
+| `telemetry` | `telemetryData`, `sourceData`, `playbackIndex`, `streamIndex`, `mode`, `sourceMode` (default `'mqtt'`), `loading`, `error` |
 
 ---
 
@@ -177,8 +180,9 @@ Option B — MQTT live (hardware pipeline):                    │
 | Method | Endpoint | Description |
 |---|---|---|
 | `GET` | `/api/telemetry.csv` | Current telemetry CSV file |
-| `GET` | `/api/telemetry.pb` | Telemetry frames as Protocol Buffers (MQTT or CSV) |
-| `GET` | `/api/telemetry/mqtt/status` | MQTT broker status |
+| `GET` | `/api/telemetry.pb` | Telemetry frames as Protocol Buffers (MQTT store or CSV fallback) |
+| `GET` | `/api/telemetry/mqtt/frames` | MQTT store frames as Protocol Buffers (live only) |
+| `GET` | `/api/telemetry/mqtt/status` | MQTT broker connection status |
 | `POST` | `/api/telemetry/mqtt/clear` | Clear the MQTT store |
 | `GET` | `/*` | SPA fallback → `dist/index.html` |
 
@@ -190,8 +194,8 @@ Option B — MQTT live (hardware pipeline):                    │
 |---|---|---|
 | `_fspl` | `20·log₁₀(4π·d·f / c)` with f=437 MHz | dB |
 | `_bilan` | `TX(30 dBm) + TX_gain(8) − FSPL + RX_gain(10)` | dBm |
-| `_elapsed_s` | `(timestamp_CSV − t₀) / 1000` | s · step 10 000 |
-| `_elapsed_min` | `_elapsed_s / 60` | min · step 60 |
+| `_elapsed_s` | `(timestamp_CSV − t₀) / 1000` | s · step 10 |
+| `_elapsed_min` | `_elapsed_s / 60` | min · step 1 |
 
 ---
 
@@ -203,9 +207,20 @@ Option B — MQTT live (hardware pipeline):                    │
 
 | Option | Effect |
 |---|---|
-| `-Restart` | Kills processes on ports 5000 and 5173 before restarting |
+| `-Restart` | Kills processes on backend/frontend ports before restarting |
 | `-Mqtt` | Starts local Mosquitto broker (port 1883) |
 | `-Simulator` | Runs `mqtt_cubesat_simulator.py` (publishes CSV frames over MQTT) |
+| `-BrokerHost <ip>` | Use an external MQTT broker (e.g. the Raspberry Pi 4B) |
+| `-BackendPort <p>` | Override backend port (default 5000) |
+| `-FrontendPort <p>` | Override frontend port (default 5173) |
+
+### Connecting to the Raspberry Pi 4B broker
+
+```bash
+./tools/dev/start-local.sh -Restart -Mqtt -BrokerHost <RPi-IP>
+```
+
+The ground station backend will subscribe to `icarus2/telemetry/frame.pb` on the RPi's mosquitto broker. The RPi must have `listener 1883` + `allow_anonymous true` in its mosquitto config.
 
 ### Key Environment Variables
 
@@ -216,6 +231,7 @@ Option B — MQTT live (hardware pipeline):                    │
 | `MQTT_BROKER_HOST` | `localhost` | MQTT broker host |
 | `MQTT_BROKER_PORT` | `1883` | MQTT port |
 | `MQTT_TELEMETRY_TOPIC` | `icarus2/telemetry/frame.pb` | Telemetry topic |
+| `MQTT_TELEMETRY_STORE_MAXLEN` | `5000` | Max frames kept in backend store |
 
 ---
 
@@ -224,7 +240,7 @@ Option B — MQTT live (hardware pipeline):                    │
 | Category | Technology |
 |---|---|
 | Backend | FastAPI + Uvicorn + paho-mqtt |
-| Serialization | Protocol Buffers |
+| Serialization | Protocol Buffers (hand-coded, no .proto file) |
 | Frontend | React 19 + Vite + React Router v7 |
 | State | Redux Toolkit |
 | UI | Material-UI v7 |

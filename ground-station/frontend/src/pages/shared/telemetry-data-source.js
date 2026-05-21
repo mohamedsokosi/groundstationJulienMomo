@@ -15,8 +15,8 @@ export const TELEMETRY_MQTT_POLL_MS = 3000;
 // How fast to drain queued MQTT frames into the display (one frame per tick).
 // 400 ms ≈ matches the Pico's ~250 ms packet interval with a small buffer.
 export const TELEMETRY_MQTT_DRAIN_MS = 400;
-// Max points kept in the live display window (prevents unbounded growth on loop).
-export const TELEMETRY_MQTT_DISPLAY_POINTS = 300;
+// Max points kept in the live display window — match backend store_maxlen (5000).
+export const TELEMETRY_MQTT_DISPLAY_POINTS = 5000;
 
 export function parseTelemetryCsv(text) {
     const lines = text
