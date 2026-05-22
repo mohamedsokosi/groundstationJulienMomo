@@ -63,6 +63,21 @@ const telemetrySlice = createSlice({
 
             state.error = null;
         },
+        appendTelemetryPoints: (state, action) => {
+            const { points, maxPoints = 500 } = action.payload || {};
+            if (!points?.length) return;
+            for (const point of points) {
+                const last = state.telemetryData[state.telemetryData.length - 1];
+                if (last !== undefined && point.streamIndex <= last.streamIndex) {
+                    state.telemetryData = [];
+                }
+                state.telemetryData.push(point);
+            }
+            if (state.telemetryData.length > maxPoints) {
+                state.telemetryData = state.telemetryData.slice(-maxPoints);
+            }
+            state.error = null;
+        },
         setLoading: (state, action) => {
             state.loading = action.payload;
         },
@@ -106,6 +121,7 @@ export const {
     setTelemetrySourceData,
     setTelemetryData,
     appendTelemetryPoint,
+    appendTelemetryPoints,
     setLoading,
     setError,
     setSelectedPoint,

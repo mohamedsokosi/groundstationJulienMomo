@@ -1,4 +1,5 @@
 import React, { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
+import { useDispatch } from 'react-redux';
 import { Box, Button, Checkbox, Chip, FormControl, IconButton, InputLabel, MenuItem, Paper, Select, Stack, Typography } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import CheckIcon from '@mui/icons-material/Check';
@@ -7,10 +8,12 @@ import DragIndicatorIcon from '@mui/icons-material/DragIndicator';
 import EditIcon from '@mui/icons-material/Edit';
 import FileDownloadIcon from '@mui/icons-material/FileDownload';
 import FileUploadIcon from '@mui/icons-material/FileUpload';
+import WifiOffIcon from '@mui/icons-material/WifiOff';
 import StarIcon from '@mui/icons-material/Star';
 import StarBorderOutlinedIcon from '@mui/icons-material/StarBorderOutlined';
 import { alpha, useTheme } from '@mui/material/styles';
 import { useTelemetryStream } from '../shared/use-telemetry-stream.jsx';
+import { appendTelemetryPoint } from '../shared/telemetry-slice.jsx';
 import { usePageActions } from '../../page-actions-context.jsx';
 import { distanceKm, getMqttSourceStat, getTelemetryNumber, toTelemetryNumber } from '../shared/telemetry-utils.js';
 import { AVAILABLE_FIELDS, CHART_COLORS, fieldLabel } from '../shared/chart-fields.js';
@@ -60,12 +63,20 @@ function loadLeftColumnItems() {
 
 export default function StationDashboard() {
     const theme = useTheme();
+    const dispatch = useDispatch();
     const {
         chartData,
         loading,
         hasData,
+        pauseMqtt,
+        resumeMqtt,
     } = useTelemetryStream();
 
+    // Defer the heavy chartData → enrichedData pipeline so it yields to Cesium
+    // and user input. Safe to defer now that the upstream is fixed: stable
+    // _epoch_ms means the X axis never plateaus, and batched appendTelemetryPoints
+    // means at most 1 Redux update per second — plenty of headroom between
+    // urgent renders for the deferred render to flush.
     const deferredChartData = useDeferredValue(chartData);
     const enrichedData = useMemo(
         () => (deferredChartData?.length ? deferredChartData.map(enrich) : []),
@@ -105,6 +116,42 @@ export default function StationDashboard() {
         timer = setTimeout(poll, 0);
         return () => { cancelled = true; clearTimeout(timer); };
     }, []);
+
+    const [blackoutActive, setBlackoutActive] = useState(false);
+    const lastDataPointRef = useRef(null);
+    lastDataPointRef.current = chartData[chartData.length - 1] ?? null;
+
+    useEffect(() => {
+        if (!blackoutActive) {
+            resumeMqtt();
+            return;
+        }
+        pauseMqtt();
+        const id = setInterval(() => {
+            const base = lastDataPointRef.current;
+            if (!base) return;
+            // Read streamIndex from the latest frame each tick rather than a captured
+            // closure counter. Otherwise an in-flight MQTT poll that completes after
+            // pauseMqtt() (the pause check runs before its await) can push
+            // lastDataPoint.streamIndex past the closure counter, triggering
+            // appendTelemetryPoint's collision guard and wiping telemetryData.
+            dispatch(appendTelemetryPoint({
+                point: {
+                    ...base,
+                    _blackout: true,
+                    _received_at: Date.now(),
+                    'm-time': undefined,
+                    'm_time': undefined,
+                    'Ublox UTC': undefined,
+                    'Ublox_UTC': undefined,
+                    gnssTimeUtc: undefined,
+                    streamIndex: (base.streamIndex ?? 0) + 1,
+                },
+                maxPoints: 5000,
+            }));
+        }, 1000);
+        return () => clearInterval(id);
+    }, [blackoutActive, pauseMqtt, resumeMqtt, dispatch]);
 
     const { setNode } = usePageActions();
 
@@ -293,6 +340,18 @@ export default function StationDashboard() {
     useEffect(() => {
         setNode(
             <Stack direction="row" spacing={1} sx={{ mr: 1 }}>
+                <Button
+                    variant={blackoutActive ? 'contained' : 'outlined'}
+                    size="small"
+                    startIcon={<WifiOffIcon />}
+                    onClick={() => setBlackoutActive((v) => !v)}
+                    color={blackoutActive ? 'error' : 'inherit'}
+                    sx={blackoutActive
+                        ? { animation: 'mqtt-blink 1.2s step-start infinite', '@keyframes mqtt-blink': { '50%': { opacity: 0.55 } } }
+                        : { color: 'white', borderColor: 'rgba(255,255,255,0.5)', '&:hover': { borderColor: 'white' } }}
+                >
+                    {blackoutActive ? 'Coupure active' : 'Simuler coupure'}
+                </Button>
                 <Button variant="outlined" size="small" startIcon={<FileUploadIcon />} onClick={exportConfig}
                     sx={{ color: 'white', borderColor: 'rgba(255,255,255,0.5)', '&:hover': { borderColor: 'white' } }}>
                     Exporter
@@ -315,7 +374,7 @@ export default function StationDashboard() {
             </Stack>
         );
         return () => setNode(null);
-    }, [editMode, exportConfig, importConfig, setNode]);
+    }, [blackoutActive, editMode, exportConfig, importConfig, setNode]);
 
     return (
         <Box sx={{

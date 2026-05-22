@@ -13,10 +13,16 @@ export function computeLinkBudget(fspl) {
     return +(TX_DBM + TX_GAIN_DBI - fspl + RX_GAIN_DBI).toFixed(2);
 }
 
+// Mutates the input row to attach derived fields. Safe because callers pass
+// freshly-built chartData items (not raw Redux state). Avoids ~200k property
+// writes per second vs. spreading all ~50 fields just to add 3.
 export function enrich(row) {
     const alt = parseFloat(row['U_Alt'] ?? row['U Alt']) || 0;
     const fspl = computeFSPL(alt);
-    return { ...row, _fspl: fspl, _bilan: computeLinkBudget(fspl), _distance: alt };
+    row._fspl = fspl;
+    row._bilan = computeLinkBudget(fspl);
+    row._distance = alt;
+    return row;
 }
 
 export function pagedDomain(maxVal, minVal, step) {

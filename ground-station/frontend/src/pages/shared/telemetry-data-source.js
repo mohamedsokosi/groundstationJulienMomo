@@ -53,7 +53,7 @@ export function parseTelemetryProtobuf(buffer) {
     return decodeTelemetryRowsFromProtobuf(buffer);
 }
 
-function parseRowTimestamp(item) {
+export function parseRowTimestamp(item) {
     // 1. m-time: "8/14/2025 10:15" (M/D/YYYY H:MM) — parsed explicitly to work in all browsers
     const mtime = item['m-time'] ?? item['m_time'] ?? '';
     if (mtime) {
@@ -84,16 +84,48 @@ function parseRowTimestamp(item) {
 }
 
 export function buildTelemetryChartData(data = []) {
-    const epochMs = data.length > 0 ? parseRowTimestamp(data[0]) : null;
+    // Prefer _epoch_ms stamped at session start so the epoch stays fixed as the
+    // display window slides (avoids X-axis plateau once 5000-frame window fills).
+    const epochMs = data.length > 0 ? (data[0]._epoch_ms ?? parseRowTimestamp(data[0])) : null;
+
+    // Tracks the last real-frame elapsed time so blackout frames can advance
+    // from it at +1 s per frame instead of using _received_at (wall-clock time
+    // vs mission epoch = ~9-month delta = 40 000+ min jump).
+    let lastRealElapsed = null;
+    let blackoutCount = 0;
+    // Accumulates the mission-time gap created by every blackout (frames arrived
+    // at the backend during the pause are skipped as "lost packets"). Post-blackout
+    // real frames subtract this offset so the X axis continues from where the
+    // dashed line ended instead of jumping forward.
+    let blackoutOffsetSec = 0;
 
     return data.map((item, index) => {
         const timeIndex = toTelemetryNumber(item.streamIndex, index);
         let elapsedSeconds;
-        if (epochMs !== null) {
-            const t = parseRowTimestamp(item);
-            elapsedSeconds = t !== null ? (t - epochMs) / 1000 : timeIndex * (TELEMETRY_STREAM_INTERVAL_MS / 1000);
+        if (item._blackout) {
+            blackoutCount += 1;
+            elapsedSeconds = (lastRealElapsed ?? 0) + blackoutCount;
         } else {
-            elapsedSeconds = timeIndex * (TELEMETRY_STREAM_INTERVAL_MS / 1000);
+            let rawElapsed;
+            if (epochMs !== null) {
+                const t = parseRowTimestamp(item);
+                rawElapsed = t !== null
+                    ? (t - epochMs) / 1000 - blackoutOffsetSec
+                    : timeIndex * (TELEMETRY_STREAM_INTERVAL_MS / 1000);
+            } else {
+                rawElapsed = timeIndex * (TELEMETRY_STREAM_INTERVAL_MS / 1000);
+            }
+            // First real frame after blackout: pin it to (lastBlackoutElapsed + 1)
+            // and roll the resulting offset into blackoutOffsetSec so subsequent
+            // frames stay smooth.
+            if (blackoutCount > 0) {
+                const expected = (lastRealElapsed ?? 0) + blackoutCount + 1;
+                blackoutOffsetSec += rawElapsed - expected;
+                rawElapsed = expected;
+            }
+            blackoutCount = 0;
+            elapsedSeconds = rawElapsed;
+            lastRealElapsed = elapsedSeconds;
         }
 
         return {

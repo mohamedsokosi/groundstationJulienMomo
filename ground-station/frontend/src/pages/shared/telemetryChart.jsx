@@ -21,6 +21,39 @@ export function TelemetryChart({ data, xKey, lines, tracking, onTrackingChange }
     const autoScrollRafRef = useRef(null);
     const hasData = !!data?.length && !!lines?.length;
 
+    const hasBlackout = data.some((d) => d._blackout);
+
+    const transformedData = useMemo(() => {
+        if (!hasBlackout) return data;
+        let lastNormalIdx = -1;
+        for (let i = data.length - 1; i >= 0; i--) {
+            if (!data[i]._blackout) { lastNormalIdx = i; break; }
+        }
+        return data.map((d, i) => {
+            const isGhost = Boolean(d._blackout);
+            const isConnect = i === lastNormalIdx;
+            const out = { ...d };
+            for (const { key } of lines) {
+                out[`${key}_normal`] = isGhost ? undefined : d[key];
+                out[`${key}_ghost`]  = (isGhost || isConnect) ? d[key] : undefined;
+            }
+            return out;
+        });
+    }, [data, lines, hasBlackout]);
+
+    // Decimate to at most 800 points for SVG rendering. Domain/width are based on the full
+    // dataset above, so the chart scrolls correctly over the full time range.
+    const MAX_RENDER_POINTS = 800;
+    const renderData = useMemo(() => {
+        const src = hasBlackout ? transformedData : data;
+        if (src.length <= MAX_RENDER_POINTS) return src;
+        const step = Math.ceil(src.length / MAX_RENDER_POINTS);
+        const out = [];
+        for (let i = 0; i < src.length - 1; i += step) out.push(src[i]);
+        out.push(src[src.length - 1]); // always include the latest point
+        return out;
+    }, [data, transformedData, hasBlackout]);
+
     const labelFs = theme.typography.caption.fontSize;
 
     const { maxX, minY, maxY } = useMemo(() => {
@@ -139,7 +172,7 @@ export function TelemetryChart({ data, xKey, lines, tracking, onTrackingChange }
             >
                 <Box sx={{ width: `${pagesX * 100}%`, height: '100%' }}>
                     <ResponsiveContainer width="100%" height="100%">
-                        <LineChart data={data} margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
+                        <LineChart data={renderData} margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
                             <CartesianGrid strokeDasharray="3 3" stroke={alpha(theme.palette.divider, 0.4)} />
                             <XAxis
                                 dataKey={xKey}
@@ -159,20 +192,26 @@ export function TelemetryChart({ data, xKey, lines, tracking, onTrackingChange }
                                     borderRadius: 8,
                                     fontSize: 11,
                                 }}
-                                formatter={(v, name) => [typeof v === 'number' ? v.toFixed(2) : v, fieldLabel(name)]}
+                                formatter={(v, name) => {
+                                    const cleanKey = name.replace(/_normal$|_ghost$/, '');
+                                    return [typeof v === 'number' ? v.toFixed(2) : v, fieldLabel(cleanKey)];
+                                }}
                                 labelFormatter={(v) => `${fieldLabel(xKey)}: ${typeof v === 'number' ? v.toFixed(1) : v}`}
                             />
-                            {lines.map(({ key, color }) => (
-                                <Line
-                                    key={key}
-                                    type="monotone"
-                                    dataKey={key}
-                                    stroke={color}
-                                    dot={false}
-                                    strokeWidth={2}
-                                    isAnimationActive={false}
-                                />
-                            ))}
+                            {hasBlackout
+                                ? lines.flatMap(({ key, color }) => [
+                                    <Line key={`${key}_normal`} type="monotone" dataKey={`${key}_normal`}
+                                        stroke={color} dot={false} strokeWidth={2}
+                                        isAnimationActive={false} connectNulls={false} />,
+                                    <Line key={`${key}_ghost`} type="monotone" dataKey={`${key}_ghost`}
+                                        stroke="#ff3030" dot={false} strokeWidth={2}
+                                        isAnimationActive={false} connectNulls={false} />,
+                                ])
+                                : lines.map(({ key, color }) => (
+                                    <Line key={key} type="monotone" dataKey={key} stroke={color}
+                                        dot={false} strokeWidth={2} isAnimationActive={false} />
+                                ))
+                            }
                         </LineChart>
                     </ResponsiveContainer>
                 </Box>

@@ -137,6 +137,8 @@ export const CesiumViewport = ({ currentRecord, groundStationPos, onGroundStatio
     const trajectoryPositionsRef = useRef([]);
     const linkPositionsRef = useRef([]);
     const verticalPositionsRef = useRef([]);
+    const prevTrajLengthRef = useRef(0);
+    const lastTrajGeoKeyRef = useRef(null);
     // FIX 2: initializedRef lives inside the viewer lifecycle, not across remounts.
     // It is reset to false whenever the viewer is (re)created.
     const initializedRef = useRef(false);
@@ -258,6 +260,8 @@ export const CesiumViewport = ({ currentRecord, groundStationPos, onGroundStatio
             verticalLineEntityRef.current = null;
             groundProjectionEntityRef.current = null;
             initializedRef.current = false;
+            prevTrajLengthRef.current = 0;
+            lastTrajGeoKeyRef.current = null;
         };
     }, []);
 
@@ -265,15 +269,42 @@ export const CesiumViewport = ({ currentRecord, groundStationPos, onGroundStatio
         const viewer = viewerRef.current;
         if (!viewer || viewer.isDestroyed()) return;
 
-        const positions = trajectoryRecords.map(getCesiumRecordPosition).filter(Boolean);
+        // Incremental trajectory: only convert newly arrived GPS positions to Cartesian3.
+        // Converting all N records on every poll (O(n) trig math per second) is the main
+        // cause of Cesium map lag. We detect changes via GPS key and only process new records.
+        const lastTraj = trajectoryRecords[trajectoryRecords.length - 1];
+        const newGeoKey = lastTraj ? `${lastTraj['U_Lat']}-${lastTraj['U_Long']}` : null;
+
+        if (trajectoryRecords.length < prevTrajLengthRef.current) {
+            // Data was reset — clear cached positions
+            trajectoryPositionsRef.current = [];
+            prevTrajLengthRef.current = 0;
+            lastTrajGeoKeyRef.current = null;
+        }
+        if (newGeoKey !== lastTrajGeoKeyRef.current) {
+            if (trajectoryRecords.length > prevTrajLengthRef.current) {
+                // Growing: append only positions that haven't been converted yet
+                const newPos = trajectoryRecords
+                    .slice(prevTrajLengthRef.current)
+                    .map(getCesiumRecordPosition)
+                    .filter(Boolean);
+                trajectoryPositionsRef.current = [...trajectoryPositionsRef.current, ...newPos];
+            } else if (lastTraj) {
+                // Sliding window (deque full): 1 new frame at end, 1 old evicted at front
+                const p = getCesiumRecordPosition(lastTraj);
+                if (p) trajectoryPositionsRef.current = [...trajectoryPositionsRef.current, p];
+            }
+            prevTrajLengthRef.current = trajectoryRecords.length;
+            lastTrajGeoKeyRef.current = newGeoKey;
+        }
+
         const currentPosition = getCesiumRecordPosition(currentRecord);
         const groundPosition = getCesiumGroundPosition(currentRecord);
         const gsCartesian = Cartesian3.fromDegrees(groundStationPos.lon, groundStationPos.lat, 0);
         const linkPositions = currentPosition ? [gsCartesian, currentPosition] : [];
         const verticalPositions = groundPosition && currentPosition ? [groundPosition, currentPosition] : [];
 
-        // FIX 1: Update refs BEFORE entities read them (CallbackProperty reads on next frame).
-        trajectoryPositionsRef.current = positions;
+        // Update refs BEFORE entities read them (CallbackProperty reads on next frame).
         linkPositionsRef.current = linkPositions;
         verticalPositionsRef.current = verticalPositions;
 
@@ -289,7 +320,7 @@ export const CesiumViewport = ({ currentRecord, groundStationPos, onGroundStatio
                 },
             });
         }
-        trajectoryEntityRef.current.show = mapOptions.trajectory && positions.length > 1;
+        trajectoryEntityRef.current.show = mapOptions.trajectory && trajectoryPositionsRef.current.length > 1;
 
         // --- Ground station (green dot + "GS" label) — fixed configurable position ---
         if (!startEntityRef.current) {
@@ -378,7 +409,7 @@ export const CesiumViewport = ({ currentRecord, groundStationPos, onGroundStatio
         groundProjectionEntityRef.current.show = Boolean(groundPosition);
 
         // --- Initial camera fit (runs once after first trajectory data arrives) ---
-        if (!initializedRef.current && positions.length > 1) {
+        if (!initializedRef.current && trajectoryPositionsRef.current.length > 1) {
             initializedRef.current = true;
             const cameraView = getTrajectoryCameraView(trajectoryRecords);
             setThreeDCameraView(viewer, cameraView.lon, cameraView.lat, cameraView.height);

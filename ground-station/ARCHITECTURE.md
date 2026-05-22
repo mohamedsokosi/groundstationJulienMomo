@@ -65,16 +65,19 @@ ground-station/
 │       ├── theme-configs.js          # Color palette (dark theme)
 │       ├── store.jsx                 # Redux store (telemetry slice only)
 │       ├── layout.jsx                # Topbar + hover-expand sidebar + <Outlet>
+│       │                             # CSV/MQTT toggle hidden on /station and /vueGlobe3d
 │       ├── navigation.jsx            # Sidebar definition (5 routes)
 │       ├── page-actions-context.jsx  # Context for per-page action buttons
 │       ├── error-page.jsx            # Error page
 │       └── pages/
 │           ├── station/
-│           │   └── station-dashboard.jsx      # /station — map + charts + terminal
+│           │   └── station-dashboard.jsx      # /station — MQTT-only operator view
+│           │                                  # Cesium map + configurable chart/terminal panels
+│           │                                  # Blackout simulation button
 │           ├── vueGlobe3d/
-│           │   └── telemetry-dashboard.jsx    # /vueGlobe3d — Cesium globe + timeline
+│           │   └── telemetry-dashboard.jsx    # /vueGlobe3d — MQTT-only Cesium globe
 │           ├── analyse/
-│           │   └── analyse-dashboard.jsx      # /analyse — configurable chart grid
+│           │   └── analyse-dashboard.jsx      # /analyse — configurable chart grid (CSV or MQTT)
 │           ├── cubesat/
 │           │   ├── cubesat-dashboard.jsx      # /cubesat — annotated CubeSat view
 │           │   ├── cubesat-annotated-visual.jsx
@@ -84,18 +87,19 @@ ground-station/
 │           ├── rapport/
 │           │   └── rapport-dashboard.jsx      # /rapport — mission report generation
 │           └── shared/                        # Shared components and utilities
-│               ├── cesiumViewport.jsx         # Cesium globe
-│               ├── telemetryChart.jsx         # Recharts chart
+│               ├── cesiumViewport.jsx         # Cesium globe + RightControlPanel (zoom, GS position)
+│               ├── telemetryChart.jsx         # Recharts chart (decimated to 800 pts for rendering)
 │               ├── telemetryStatsBar.jsx      # Stats bar
-│               ├── telemetryTerminal.jsx      # Raw stream terminal
+│               ├── telemetryTerminal.jsx      # Raw stream terminal (variants: telemetry/verbose/errors)
 │               ├── chartTitle.jsx             # Dynamic chart title
 │               ├── telemetry-components.jsx   # StatisticCard, ChartCard, TelemetrySummary
-│               ├── telemetry-slice.jsx        # Redux slice — telemetry data (default: mqtt)
-│               ├── use-telemetry-stream.jsx   # Hook — load, playback, seek, pause
+│               ├── telemetry-slice.jsx        # Redux slice — telemetry data (default sourceMode: mqtt)
+│               ├── use-telemetry-stream.jsx   # Hook — load, playback, seek, pause, MQTT incremental poll
 │               ├── telemetry-data-source.js   # CSV/Protobuf parsing, MQTT display limit 5000
 │               ├── telemetry-protobuf.js      # Protobuf decoding
 │               ├── telemetry-utils.js         # distanceKm, getMqttSourceStat, helpers
 │               ├── cesium-utils.js            # getTelemetryRecordGeo, imagery providers
+│               │                             # loadGroundStationPosition / saveGroundStationPosition
 │               ├── chart-fields.js            # AVAILABLE_FIELDS — axes and steps
 │               ├── chart-logic.js             # FSPL, link budget, enrich()
 │               ├── useAnimatedDomain.js       # Smooth axis animation
@@ -120,50 +124,125 @@ ground-station/
 | Route | Component | Description |
 |---|---|---|
 | `/` | redirect | Redirects to `/station` |
-| `/station` | `StationDashboard` | Operator view: Cesium map + configurable charts + terminal |
-| `/vueGlobe3d` | `TelemetryDashboard` | 3D Cesium globe, trajectory, stats bar, timeline |
+| `/station` | `StationDashboard` | Operator view: Cesium map + configurable left column (charts + terminals) + blackout simulation |
+| `/vueGlobe3d` | `TelemetryDashboard` | 3D Cesium globe, trajectory, stats bar |
 | `/analyse` | `AnalyseDashboard` | Fully configurable Recharts grid |
 | `/cubesat` | `CubeSatDashboard` | Annotated CubeSat image, subsystems, telemetry |
 | `/rapport` | `RapportDashboard` | Mission report generation |
+
+### MQTT-only routes
+`/station` and `/vueGlobe3d` are MQTT-only. The CSV/MQTT source toggle in the topbar is hidden on these routes. The Redux `sourceMode` defaults to `'mqtt'`.
 
 ---
 
 ## Data Flow
 
-### Telemetry (CSV / MQTT)
+### Telemetry (MQTT live — default for /station and /vueGlobe3d)
 
 ```
-Option A — CSV fallback:
-  GET /api/telemetry.pb  ──────────────────────────────────►
-                                                             │
-Option B — MQTT live (hardware pipeline, default):           │
-  Pico (USB /dev/ttyACM0) → Raspberry Pi 4B                │
-    └─► uart_mqtt_bridge.py                                  │
-          └─► MQTT Broker :1883                              │
-                └─► mqtt_telemetry_receiver.py (daemon)     │
-                      └─► telemetry_store (deque 5000)      │
-                           └─► GET /api/telemetry/mqtt/frames ──►
-                                                             │
-                                                             ▼
-                                          use-telemetry-stream.jsx (hook)
-                                            polls every 1 s
-                                            parseTelemetryProtobuf()
-                                            → Redux store (telemetryData, max 5000)
-                                                             │
-                                                             ▼
-                                          buildTelemetryChartData()
-                                            _elapsed_s / _elapsed_min ← m-time CSV
-                                            GPS, altitude, speed, temp fields
-                                                             │
-                                                             ▼
-                                          enrich() (chart-logic.js)
-                                            _fspl     ← Free Space Path Loss
-                                            _bilan    ← Link budget (dBm)
-                                            _distance ← vertical distance (m)
-                                                             │
-                                                             ▼
-                                          TelemetryChart / CesiumViewport / TelemetryStatsBar
+Pico (USB /dev/ttyACM0) → Raspberry Pi 4B
+  └─► uart_mqtt_bridge.py
+        └─► MQTT Broker :1883
+              └─► mqtt_telemetry_receiver.py (daemon)
+                    └─► telemetry_store (deque maxlen 5000)
+                         └─► GET /api/telemetry/mqtt/frames ──►
+                                                              │
+                                                              ▼
+                                         use-telemetry-stream.jsx (hook)
+                                           polls every 1 s
+                                           content-fingerprint change detection
+                                           (detects sliding window when deque is full)
+                                           stamps _epoch_ms on every frame at session
+                                           start so the X-axis epoch never drifts as the
+                                           5000-frame window slides
+                                           initial load → setTelemetryData (all frames)
+                                           incremental → appendTelemetryPoints (batched,
+                                           one Redux update per poll instead of per frame)
+                                           pauseMqtt / resumeMqtt (for blackout simulation)
+                                           resumeMqtt marks skipMqttBacklogRef so the
+                                           next poll discards frames received during the
+                                           pause (simulated lost packets)
+                                                              │
+                                                              ▼
+                                         buildTelemetryChartData()
+                                           _elapsed_s / _elapsed_min ← m-time (protobuf field)
+                                           GPS, altitude, speed, temp fields
+                                                              │
+                                                              ▼
+                                         enrich() (chart-logic.js)
+                                           _fspl     ← Free Space Path Loss
+                                           _bilan    ← Link budget (dBm)
+                                           _distance ← vertical distance (m)
+                                                              │
+                                                              ▼
+                                         TelemetryChart (≤800 pts decimated)
+                                         CesiumViewport (incremental trajectory)
+                                         TelemetryStatsBar
 ```
+
+### Telemetry (CSV / other routes)
+
+```
+GET /api/telemetry.pb  →  parseTelemetryProtobuf()  →  loadRows()  →  startStream()
+  (fallback: GET /api/telemetry.csv  →  parseTelemetryCsv())
+```
+
+---
+
+## /station — Left Column Panel System
+
+The left column (25% width) is fully configurable by the operator via the **Modifier** menu:
+
+- **Chart panels** — any X/Y field combination from `AVAILABLE_FIELDS`; draggable, deletable, starred (synced with `/analyse` favorites)
+- **Terminal panels** — three variants, at most one of each:
+  - `telemetry` — key telemetry fields, green
+  - `verbose` — all non-internal fields, yellow
+  - `errors` — anomaly detection only (GPS lost, low sat count, missing altitude/pressure), red
+
+Configuration persisted in `localStorage` (`station_left_column_config`). Favorite charts synced with `/analyse` via `analyse_charts_config`.
+
+---
+
+## /station — Blackout Simulation
+
+The **"Simuler coupure"** button in the topbar:
+
+1. Calls `pauseMqtt()` — the MQTT poll skips fetches while paused.
+2. Every 1 s, injects a phantom data point via `appendTelemetryPoint`:
+   - Copies the last real data point's field values (frozen Y values, plus `_epoch_ms`)
+   - Sets `_blackout: true`
+   - `streamIndex` advances from `lastDataPoint.streamIndex + 1`
+3. `buildTelemetryChartData` recognizes blackout frames and advances their
+   `_elapsed_s` by exactly +1 s per frame from the last real frame's elapsed
+   time — bypassing `parseRowTimestamp` entirely. This avoids the 40 000-min
+   X-axis jump that would otherwise result from `_received_at` (May 2026 wall
+   clock) minus the mission epoch (Aug 2025).
+4. Charts visualize the blackout period:
+   - **Normal series** stops at the last real point (solid line, normal color)
+   - **Ghost series** continues as a solid red line (`#ff3030`) at the frozen Y value
+   - No background fill — the blackout segment is just a red continuation of the line
+5. Deactivating the button:
+   - `resumeMqtt()` sets `skipMqttBacklogRef = true`. The next MQTT poll updates
+     `live.shownCount` to the current backend count without dispatching the
+     piled-up frames (simulated lost packets) and syncs `live.globalStreamIdx`
+     past the blackout frames' stream indexes.
+   - Phantom injection stops.
+   - `buildTelemetryChartData` tracks `blackoutOffsetSec`: the first real
+     frame after the blackout is pinned to `lastBlackoutElapsed + 1` and the
+     resulting offset is subtracted from every subsequent frame, so the X
+     axis continues smoothly from where the dashed line ended.
+
+---
+
+## Ground Station Position
+
+Configurable via the **"Position GS ▼"** button in the Cesium right-panel (both `/station` and `/vueGlobe3d`):
+
+- Persisted in `localStorage` under key `station_ground_station_position`
+- Shared between both routes via `loadGroundStationPosition()` / `saveGroundStationPosition()` from `cesium-utils.js`
+- Default: `{ lat: 48.55, lon: -81.35 }` (ICARUS2 launch site)
+- Cesium entity: green dot + "GS" label, always visible regardless of telemetry state
+- Link beam (green line) drawn from GS position to current CubeSat position
 
 ---
 
@@ -194,8 +273,20 @@ Option B — MQTT live (hardware pipeline, default):           │
 |---|---|---|
 | `_fspl` | `20·log₁₀(4π·d·f / c)` with f=437 MHz | dB |
 | `_bilan` | `TX(30 dBm) + TX_gain(8) − FSPL + RX_gain(10)` | dBm |
-| `_elapsed_s` | `(timestamp_CSV − t₀) / 1000` | s · step 10 |
-| `_elapsed_min` | `_elapsed_s / 60` | min · step 1 |
+| `_elapsed_s` | `(timestamp − epoch) / 1000` — `epoch = data[0]._epoch_ms` (stable) or `parseRowTimestamp(data[0])`. Blackout frames use `lastRealElapsed + N` instead | s · step 10 |
+| `_elapsed_min` | `_elapsed_s / 60` | min · step 10 (ticks at 1, 2, 3… min) |
+
+---
+
+## Performance Notes
+
+| Component | Technique |
+|---|---|
+| MQTT poll | Content-fingerprint change detection — detects new frames even when backend deque is full (sliding window); only dispatches new frames via `appendTelemetryPoints` (batched, one Redux update per poll) instead of replacing all 5000 |
+| Stable epoch | First MQTT frame's mission time is stored in `live.epochMs` and stamped on every subsequent frame as `_epoch_ms`. `buildTelemetryChartData` uses `data[0]._epoch_ms` so the X-axis origin doesn't drift as old frames are evicted from the 5000-frame display window |
+| Cesium trajectory | Incremental: only converts newly arrived GPS points to `Cartesian3`; O(1) per poll instead of O(n). Cached in `trajectoryPositionsRef`. Resets on data clear. |
+| TelemetryChart | Decimates data to ≤800 points for SVG path rendering; full dataset still used for domain/axis/scroll computation |
+| Chart enrichment | `enrichedData = useDeferredValue(chartData).map(enrich)` yields to Cesium/UI under load. Safe from starvation here because the upstream is stable: `_epoch_ms` keeps the X axis growing and `appendTelemetryPoints` batches all new frames into one Redux update per poll (≤1 Hz), giving the deferred render time to flush between urgent renders. `enrich` mutates the row in place rather than spreading 50 fields to add 3 |
 
 ---
 

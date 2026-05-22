@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import {
     appendTelemetryPoint,
+    appendTelemetryPoints,
     clearTelemetryData,
     resetTelemetryStream,
     setError,
@@ -18,6 +19,7 @@ import {
     getTelemetryStreamLimit,
     parseTelemetryCsv,
     parseTelemetryProtobuf,
+    parseRowTimestamp,
     readTextFile,
     TELEMETRY_MQTT_DISPLAY_POINTS,
     TELEMETRY_MQTT_FRAMES_URL,
@@ -51,6 +53,22 @@ export function useTelemetryStream({
     const currentIndexRef = useRef(0);
     const currentStreamIndexRef = useRef(0);
     const sourceDataRef = useRef([]);
+    const mqttPausedRef = useRef(false);
+    // Tracks the highest streamIndex currently in telemetryData (updated every render).
+    // The MQTT poll reads this to sync live.globalStreamIdx after a blackout, where
+    // station-dashboard injects blackout frames with its own counter and advances
+    // streamIndex past live.globalStreamIdx.
+    const lastStreamIdxRef = useRef(-1);
+    // When set, the next MQTT poll discards everything currently in the backend store
+    // (treating it as "lost packets") and only dispatches frames received after this point.
+    const skipMqttBacklogRef = useRef(false);
+    const pauseMqtt = useCallback(() => { mqttPausedRef.current = true; }, []);
+    const resumeMqtt = useCallback(() => {
+        // Resuming from an actual pause (blackout) → discard the packets that arrived
+        // during the pause so the chart continues from the end of the dashed line.
+        if (mqttPausedRef.current) skipMqttBacklogRef.current = true;
+        mqttPausedRef.current = false;
+    }, []);
 
     // speedMsRef is what the running interval actually uses.
     // speedMs state is only for UI display — changing it does NOT recreate startStream.
@@ -59,6 +77,7 @@ export function useTelemetryStream({
     const [isPlaying, setIsPlaying] = useState(false);
 
     sourceDataRef.current = telemetry.sourceData;
+    lastStreamIdxRef.current = telemetry.telemetryData[telemetry.telemetryData.length - 1]?.streamIndex ?? -1;
 
     const stopStream = useCallback(() => {
         if (intervalRef.current) {
@@ -291,17 +310,27 @@ export function useTelemetryStream({
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [autoStart, sourceMode, loadFromUrl, sourceUrl, startStream, stopStream]);
 
-    // MQTT live mode: poll every second and immediately replace telemetryData with
-    // the latest window of frames — one dispatch, one render, no artificial delay.
+    // MQTT live mode: poll every second and incrementally append new frames.
+    // Uses content-based change detection to handle sliding-window deque (fixed-size backend store).
     useEffect(() => {
         if (sourceMode !== 'mqtt') return;
 
         stopStream();
         dispatch(clearTelemetryData());
 
-        const live = { shownCount: 0 };
+        // globalStreamIdx is monotonically increasing so appendTelemetryPoint never resets the store.
+        // epochMs is fixed at session start so _elapsed_s/_elapsed_min don't drift when the
+        // display window slides (epoch would otherwise shift by 1s per evicted frame).
+        const live = { shownCount: 0, lastRowKey: '', globalStreamIdx: 0, epochMs: null };
+
+        const rowKey = (rows) => {
+            const r = rows[rows.length - 1];
+            if (!r) return '';
+            return `${r['m-time'] ?? r.m_time ?? ''}-${r.sequenceNumber ?? ''}-${r.U_Alt ?? ''}`;
+        };
 
         const poll = async () => {
+            if (mqttPausedRef.current) return;
             try {
                 const response = await fetch(TELEMETRY_MQTT_FRAMES_URL, { cache: 'no-store' });
                 if (!response.ok) return;
@@ -310,22 +339,82 @@ export function useTelemetryStream({
                 if (rows.length === 0) {
                     if (live.shownCount > 0) {
                         live.shownCount = 0;
+                        live.lastRowKey = '';
+                        live.globalStreamIdx = 0;
                         dispatch(clearTelemetryData());
                     }
                     return;
                 }
 
-                if (rows.length === live.shownCount) return;
+                const key = rowKey(rows);
+
+                // Resuming from a blackout: mark whatever piled up in the backend store
+                // as already-seen without dispatching it. Those frames are "lost packets".
+                // The next poll will dispatch only genuinely new frames received after now.
+                if (skipMqttBacklogRef.current) {
+                    skipMqttBacklogRef.current = false;
+                    live.shownCount = rows.length;
+                    live.lastRowKey = key;
+                    if (lastStreamIdxRef.current >= live.globalStreamIdx) {
+                        live.globalStreamIdx = lastStreamIdxRef.current + 1;
+                    }
+                    return;
+                }
+
+                // Backend store was cleared/restarted
+                if (rows.length < live.shownCount) {
+                    live.shownCount = 0;
+                    live.lastRowKey = '';
+                    live.globalStreamIdx = 0;
+                    dispatch(clearTelemetryData());
+                }
+
+                // No change: same count AND same last-row fingerprint.
+                // Checking count alone misses the sliding-window case where the backend deque
+                // is full — count stays at 5000 while one old frame is evicted and one new arrives.
+                if (rows.length === live.shownCount && key === live.lastRowKey) return;
 
                 const receivedAt = Date.now();
-                const stamped = rows.map((r, i) => ({
-                    ...r, _received_at: receivedAt, streamIndex: i, sourceIndex: i,
-                }));
 
-                dispatch(setTelemetrySourceData(stamped));
-                dispatch(setTelemetryData(stamped.slice(-TELEMETRY_MQTT_DISPLAY_POINTS)));
-                dispatch(setPlaybackState({ playbackIndex: rows.length, streamIndex: rows.length }));
+                if (live.shownCount === 0) {
+                    // Initial load: fix the session epoch from the first frame's mission time.
+                    // All subsequent frames carry this same _epoch_ms so the X-axis origin stays
+                    // stable even after the 5000-frame display window starts sliding.
+                    live.epochMs = parseRowTimestamp(rows[0]) ?? receivedAt;
+                    const stamped = rows.map((r, i) => ({
+                        ...r, _received_at: receivedAt, _epoch_ms: live.epochMs,
+                        streamIndex: live.globalStreamIdx + i,
+                    }));
+                    live.globalStreamIdx += rows.length;
+                    dispatch(setTelemetryData(stamped.slice(-TELEMETRY_MQTT_DISPLAY_POINTS)));
+                } else {
+                    // Sync in case blackout frames were injected while the poll was paused:
+                    // those frames advance streamIndex past live.globalStreamIdx, and the
+                    // collision guard would otherwise wipe telemetryData on resume.
+                    if (lastStreamIdxRef.current >= live.globalStreamIdx) {
+                        live.globalStreamIdx = lastStreamIdxRef.current + 1;
+                    }
+                    // Incremental: only dispatch genuinely new rows.
+                    // Growing phase: new rows appended at end of deque.
+                    // Sliding window: deque full — 1 old evicted, 1 new at end.
+                    const newCount = rows.length > live.shownCount
+                        ? rows.length - live.shownCount
+                        : 1;
+                    const newFrames = rows.slice(-newCount).map((row) => ({
+                        ...row, _received_at: receivedAt, _epoch_ms: live.epochMs,
+                        streamIndex: live.globalStreamIdx++,
+                    }));
+                    if (newFrames.length > 0) {
+                        dispatch(appendTelemetryPoints({
+                            points: newFrames,
+                            maxPoints: TELEMETRY_MQTT_DISPLAY_POINTS,
+                        }));
+                    }
+                }
+
+                dispatch(setPlaybackState({ playbackIndex: rows.length, streamIndex: live.globalStreamIdx }));
                 live.shownCount = rows.length;
+                live.lastRowKey = key;
             } catch (_) { /* silent on network errors */ }
         };
 
@@ -362,5 +451,7 @@ export function useTelemetryStream({
         resumeStream,
         seekTo,
         resetStream,
+        pauseMqtt,
+        resumeMqtt,
     };
 }

@@ -92,9 +92,13 @@ export function TelemetryTerminal({ variant = 'telemetry' }) {
         }
 
         if (newLines.length === 0) return;
+        // Tight caps so the visible terminal never needs a scrollbar:
+        // verbose lines are very wide (all fields), telemetry lines moderate,
+        // errors keep history since they're rare.
+        const maxLines = variant === 'errors' ? 500 : variant === 'verbose' ? 1 : 5;
         setLines((prev) => {
             const next = [...prev, ...newLines];
-            return next.length > 500 ? next.slice(next.length - 500) : next;
+            return next.length > maxLines ? next.slice(next.length - maxLines) : next;
         });
     }, [data, variant]);
 
