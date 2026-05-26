@@ -256,30 +256,33 @@ Configuration persisted in `localStorage` (`station_left_column_config`). Favori
 
 ---
 
-## /station — Real Outage Detection
+## Real Outage Detection (all routes)
 
 A real outage (Raspberry Pi unplugged, broker unreachable) is detected from the
 frontend in two complementary ways:
 
-**Live detection** — `useTelemetryStream` exposes `lastMqttFrameAt`, updated each time a
-real MQTT frame is dispatched. The station dashboard runs a 1 s watchdog; if
-`Date.now() - lastMqttFrameAt > 3 s`, it sets `autoOutageActive` and starts
-the **same phantom-frame injection** as the manual simulation (`_blackout: true`
-frames at the last real Y values, +1 s per frame). Phantom frames also carry
-`_realOutage: true` (read from fresh refs so the flag stays accurate even if
-the operator toggles the manual button during the auto outage) so the errors
-terminal can label the cause. The MQTT poll keeps running (no `pauseMqtt`) so
-the moment real frames resume, `lastMqttFrameAt` refreshes, `autoOutageActive`
-clears, injection stops, and `buildTelemetryChartData`'s `blackoutOffsetSec`
-smooths the X axis past the gap.
+**Live detection** — centralized inside `useTelemetryStream` so every consumer
+(`/station`, `/analyse`, `/vueGlobe3d`…) gets the red ghost line without
+re-implementing the watchdog. The hook tracks `lastMqttFrameAt` (updated each
+time a real MQTT frame is dispatched). A 1 s watchdog flips
+`autoOutageActive = true` when `Date.now() - lastMqttFrameAt > 3 s`. While
+active, a second effect injects phantom `appendTelemetryPoint` frames every
+1 s (`_blackout: true`, `_realOutage: true`, frozen Y values, `streamIndex`
+read fresh from `lastFrameRef.current` so it always increments past whatever's
+in Redux). The injection skips while `mqttPausedRef.current === true` —
+during a manual blackout the station-dashboard owns injection (with
+`_realOutage: false`) and we mustn't double-inject. The MQTT poll itself keeps
+running during a real outage (no `pauseMqtt`), so the moment real frames
+return `lastMqttFrameAt` refreshes, `autoOutageActive` clears, injection
+stops, and `buildTelemetryChartData`'s `blackoutOffsetSec` smooths the X axis
+past the gap.
 
-The injection interval callback also re-reads the outage refs at fire time
-(`if (!autoOutageActiveRef.current && !blackoutActiveRef.current) return;`)
-because the React commit that flips them to false happens *before* the
-passive-effect cleanup that calls `clearInterval`. Without this guard, a timer
-already in the macrotask queue would fire after the refs are false and inject
-a phantom with stale `_realOutage: false`, making the errors terminal log a
-spurious `[BLACKOUT_SIM]` immediately after `[TELEMETRY_RESUMED]`.
+Why centralize? Previously the watchdog and injection lived in
+`station-dashboard.jsx`. Visiting `/analyse` directly with the Pi unplugged
+showed a frozen chart instead of the red ghost line, because no component
+mounted on that route triggered the injection. Moving it into the hook means
+the chart truth comes from Redux for every page that calls
+`useTelemetryStream`, no matter which one the operator opens first.
 
 **Replay reconstruction** — phantom frames live only in Redux, so a page
 refresh wipes them and the red ghost line would otherwise vanish from past

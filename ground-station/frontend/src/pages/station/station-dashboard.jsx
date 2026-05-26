@@ -69,7 +69,6 @@ export default function StationDashboard() {
         hasData,
         pauseMqtt,
         resumeMqtt,
-        lastMqttFrameAt,
     } = useTelemetryStream();
 
     // chartData is now produced by a Web Worker (telemetry-worker.js) and is
@@ -114,41 +113,12 @@ export default function StationDashboard() {
     }, []);
 
     const [blackoutActive, setBlackoutActive] = useState(false);
-    // Auto-detected real outage (Pi/broker unreachable): triggered when no MQTT
-    // frame has been dispatched for REAL_OUTAGE_THRESHOLD_MS while we have data.
-    // Drives the same phantom-frame injection as the manual blackout simulation
-    // so the X axis keeps advancing instead of freezing.
-    const [autoOutageActive, setAutoOutageActive] = useState(false);
-    const REAL_OUTAGE_THRESHOLD_MS = 3000;
     const lastDataPointRef = useRef(null);
     lastDataPointRef.current = chartData[chartData.length - 1] ?? null;
-    // Fresh-read refs so the phantom-injection interval (which doesn't restart
-    // when these flags flip) labels each phantom frame's `_realOutage` correctly.
-    const blackoutActiveRef = useRef(blackoutActive);
-    const autoOutageActiveRef = useRef(autoOutageActive);
-    blackoutActiveRef.current = blackoutActive;
-    autoOutageActiveRef.current = autoOutageActive;
 
-    // Watch the MQTT frame heartbeat. After the first real frame has arrived,
-    // flip autoOutageActive whenever we go silent (or recover).
-    useEffect(() => {
-        if (!lastMqttFrameAt) {
-            setAutoOutageActive(false);
-            return;
-        }
-        const tick = () => {
-            const stale = Date.now() - lastMqttFrameAt > REAL_OUTAGE_THRESHOLD_MS;
-            setAutoOutageActive((prev) => (prev === stale ? prev : stale));
-        };
-        tick();
-        const id = setInterval(tick, 1000);
-        return () => clearInterval(id);
-    }, [lastMqttFrameAt]);
-
-    const outageActive = blackoutActive || autoOutageActive;
-
-    // Manual blackout: pause/resume the MQTT poll. Real outages never pause —
-    // the broker is silent, so the poll naturally returns no new frames.
+    // Manual blackout: pause/resume the MQTT poll. Real outages are now handled
+    // inside useTelemetryStream (centralized auto-injection), so this effect
+    // only handles the operator-driven simulation.
     useEffect(() => {
         if (blackoutActive) {
             pauseMqtt();
@@ -157,29 +127,15 @@ export default function StationDashboard() {
     }, [blackoutActive, pauseMqtt, resumeMqtt]);
 
     useEffect(() => {
-        if (!outageActive) return;
+        if (!blackoutActive) return;
         const id = setInterval(() => {
-            // Race guard: when real frames resume, refs flip to false during
-            // render but the interval cleanup only runs in the next passive-
-            // effect phase (after paint). A pending interval callback can fire
-            // in that window and would otherwise inject a stale phantom with
-            // `_realOutage: false` (refs already updated) → terminal logs a
-            // bogus `[BLACKOUT_SIM]` immediately after `[TELEMETRY_RESUMED]`.
-            if (!autoOutageActiveRef.current && !blackoutActiveRef.current) return;
             const base = lastDataPointRef.current;
             if (!base) return;
-            // Read streamIndex from the latest frame each tick rather than a captured
-            // closure counter. Otherwise an in-flight MQTT poll that completes after
-            // pauseMqtt() (the pause check runs before its await) can push
-            // lastDataPoint.streamIndex past the closure counter, triggering
-            // appendTelemetryPoint's collision guard and wiping telemetryData.
             dispatch(appendTelemetryPoint({
                 point: {
                     ...base,
                     _blackout: true,
-                    // Distinguishes a real Pi/broker outage from a manual
-                    // simulation so the errors terminal can label it correctly.
-                    _realOutage: autoOutageActiveRef.current && !blackoutActiveRef.current,
+                    _realOutage: false, // manual simulation, not a real Pi outage
                     _received_at: Date.now(),
                     'm-time': undefined,
                     'm_time': undefined,
@@ -192,7 +148,7 @@ export default function StationDashboard() {
             }));
         }, 1000);
         return () => clearInterval(id);
-    }, [outageActive, dispatch]);
+    }, [blackoutActive, dispatch]);
 
     const { setNode } = usePageActions();
 

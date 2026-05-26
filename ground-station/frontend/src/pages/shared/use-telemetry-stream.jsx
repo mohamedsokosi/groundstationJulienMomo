@@ -91,13 +91,18 @@ export function useTelemetryStream({
     const [speedMs, _setSpeedMs] = useState(intervalMs);
     const [isPlaying, setIsPlaying] = useState(false);
     // Timestamp of the most recent real MQTT frame dispatched. Stays null until the
-    // first frame arrives. Consumers compare against Date.now() to detect a real
-    // broker/link outage (no new frames for several seconds) and trigger the same
-    // phantom-frame injection used by the manual blackout simulation.
+    // first frame arrives. Used internally for the auto-outage watchdog below.
     const [lastMqttFrameAt, setLastMqttFrameAt] = useState(null);
+    // True while the MQTT broker has been silent past REAL_OUTAGE_THRESHOLD_MS
+    // and we have data to keep extending. Drives the auto phantom-frame injection.
+    const [autoOutageActive, setAutoOutageActive] = useState(false);
+    // Fresh ref to the latest frame — used inside the injection setInterval which
+    // doesn't restart per render.
+    const lastFrameRef = useRef(null);
 
     sourceDataRef.current = telemetry.sourceData;
     lastStreamIdxRef.current = telemetry.telemetryData[telemetry.telemetryData.length - 1]?.streamIndex ?? -1;
+    lastFrameRef.current = telemetry.telemetryData[telemetry.telemetryData.length - 1] ?? null;
 
     const stopStream = useCallback(() => {
         if (intervalRef.current) {
@@ -739,6 +744,52 @@ export function useTelemetryStream({
         return [];
     }, [telemetry.telemetryData, workerChartData, hasWorker]);
 
+    // Auto real-outage detection + phantom-frame injection. Centralized here so
+    // every consumer (/station, /analyse, /vueGlobe3d…) gets the red ghost line
+    // when the Pi/broker goes silent, without each page reimplementing the
+    // watchdog. Skipped while mqttPausedRef is true — that means a manual
+    // blackout simulation is active and its owner (station-dashboard) is
+    // injecting its own phantom frames with _realOutage: false.
+    const REAL_OUTAGE_THRESHOLD_MS = 3000;
+    useEffect(() => {
+        if (!lastMqttFrameAt) {
+            setAutoOutageActive(false);
+            return;
+        }
+        const tick = () => {
+            const stale = Date.now() - lastMqttFrameAt > REAL_OUTAGE_THRESHOLD_MS;
+            setAutoOutageActive((prev) => (prev === stale ? prev : stale));
+        };
+        tick();
+        const id = setInterval(tick, 1000);
+        return () => clearInterval(id);
+    }, [lastMqttFrameAt]);
+
+    useEffect(() => {
+        if (!autoOutageActive) return;
+        const id = setInterval(() => {
+            if (mqttPausedRef.current) return; // manual blackout owns injection
+            const base = lastFrameRef.current;
+            if (!base) return;
+            dispatch(appendTelemetryPoint({
+                point: {
+                    ...base,
+                    _blackout: true,
+                    _realOutage: true,
+                    _received_at: Date.now(),
+                    'm-time': undefined,
+                    'm_time': undefined,
+                    'Ublox UTC': undefined,
+                    'Ublox_UTC': undefined,
+                    gnssTimeUtc: undefined,
+                    streamIndex: (base.streamIndex ?? 0) + 1,
+                },
+                maxPoints: TELEMETRY_MQTT_DISPLAY_POINTS,
+            }));
+        }, 1000);
+        return () => clearInterval(id);
+    }, [autoOutageActive, dispatch]);
+
     return {
         data: telemetry.telemetryData,
         sourceData: telemetry.sourceData,
@@ -763,5 +814,6 @@ export function useTelemetryStream({
         pauseMqtt,
         resumeMqtt,
         lastMqttFrameAt,
+        autoOutageActive,
     };
 }
