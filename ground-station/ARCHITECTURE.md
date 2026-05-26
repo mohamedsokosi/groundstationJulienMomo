@@ -65,7 +65,7 @@ ground-station/
 │       ├── theme-configs.js          # Color palette (dark theme)
 │       ├── store.jsx                 # Redux store (telemetry slice only)
 │       ├── layout.jsx                # Topbar + hover-expand sidebar + <Outlet>
-│       │                             # CSV/MQTT toggle hidden on /station and /vueGlobe3d
+│       │                             # (CSV/MQTT toggle removed — MQTT is now the only source)
 │       ├── navigation.jsx            # Sidebar definition (5 routes)
 │       ├── page-actions-context.jsx  # Context for per-page action buttons
 │       ├── error-page.jsx            # Error page
@@ -102,6 +102,7 @@ ground-station/
 │               │                             # loadGroundStationPosition / saveGroundStationPosition
 │               ├── chart-fields.js            # AVAILABLE_FIELDS — axes and steps
 │               ├── chart-logic.js             # FSPL, link budget, enrich()
+│               ├── telemetry-worker.js        # Web Worker — runs buildTelemetryChartData + enrich off-thread
 │               ├── useAnimatedDomain.js       # Smooth axis animation
 │               └── ground-station-view.css    # Global styles (stats bar, globe)
 │
@@ -130,8 +131,8 @@ ground-station/
 | `/cubesat` | `CubeSatDashboard` | Annotated CubeSat image, subsystems, telemetry |
 | `/rapport` | `RapportDashboard` | Mission report generation |
 
-### MQTT-only routes
-`/station` and `/vueGlobe3d` are MQTT-only. The CSV/MQTT source toggle in the topbar is hidden on these routes. The Redux `sourceMode` defaults to `'mqtt'`.
+### MQTT-only data source
+All routes now consume MQTT live telemetry — the CSV/MQTT source toggle was removed from the topbar. The Redux `sourceMode` stays at its default `'mqtt'`; the `setSourceMode` action and `parseTelemetryCsv` helpers remain available for future use but no UI surface switches modes anymore.
 
 ---
 
@@ -187,6 +188,45 @@ GET /api/telemetry.pb  →  parseTelemetryProtobuf()  →  loadRows()  →  star
   (fallback: GET /api/telemetry.csv  →  parseTelemetryCsv())
 ```
 
+### Route-change resume (MQTT)
+
+Navigating between MQTT-only routes (e.g. `/station` → `/analyse` → `/station`)
+unmounts and remounts the page component, including its `useTelemetryStream`
+hook. The MQTT effect:
+
+- **Cleanup** clears only the poll interval, NOT the Redux telemetry data —
+  Redux state is the source of truth and survives unmount.
+- **Mount** reads `telemetry.telemetryData` from Redux. If MQTT-shaped data
+  exists (frames with `_epoch_ms` stamped), it boots the `live` poll context
+  with `shownCount = -1` (sentinel) and `lastRowKey` derived from the last
+  REAL (non-blackout) frame. The first poll then searches that key inside the
+  backend's deque to find the resume point, dispatches only the rows that
+  arrived since, and preserves all existing phantom blackout frames in place.
+  If the key isn't found (backend deque has rolled past it, or backend was
+  reset), it falls back to a clean `clearTelemetryData()` + initial load.
+- Foreign data (CSV residue from a prior `sourceMode` switch) is flushed on
+  mount via an `_epoch_ms` shape check.
+- **`keepMonotonicSuffix` is applied to the backend rows at initial load**.
+  The Pico firmware loops its CSV from line 1 after each full pass — so the
+  backend's 5000-frame deque can contain frames from two consecutive cycles
+  with a backward mission_time jump (~2 h) at the boundary. Without slicing,
+  the chart would zigzag wildly after a refresh because `_epoch_ms` is pinned
+  to the FIRST (older) frame in the deque and the new cycle's frames end up
+  with negative `_elapsed_s`. The helper walks backward through real frames
+  only (phantoms skipped) and returns the longest tail where mission_time is
+  monotonically non-decreasing; the epoch is then re-derived from the kept
+  tail's first frame.
+- An `isMounted` flag scoped to each effect closure guards against late
+  dispatches: if the user navigates away while a `fetch` is in flight, the
+  cleanup flips `isMounted = false`, the resolving promise checks the flag
+  after each `await` and bails. Without it, the old hook's stale `live.globalStreamIdx`
+  would dispatch after the new hook initialized, leaving Redux ahead of the
+  new counter — the next legitimate dispatch would then trip the collision
+  guard in `appendTelemetryPoints` (which wipes `telemetryData` on
+  `streamIndex <= last.streamIndex`), and the operator would see all chart
+  lines suddenly erased. The resume branch also re-syncs `globalStreamIdx`
+  against `lastStreamIdxRef.current` defensively before assigning indexes.
+
 ---
 
 ## /station — Left Column Panel System
@@ -197,9 +237,107 @@ The left column (25% width) is fully configurable by the operator via the **Modi
 - **Terminal panels** — three variants, at most one of each:
   - `telemetry` — key telemetry fields, green
   - `verbose` — all non-internal fields, yellow
-  - `errors` — anomaly detection only (GPS lost, low sat count, missing altitude/pressure), red
+  - `errors` — anomaly detection (GPS lost, low sat count, missing altitude/pressure)
+    plus outage transitions: emits **one** `[RPI_DISCONNECTED]` line at the start
+    of a real Pi/broker outage (`_realOutage: true` on the first phantom frame),
+    **one** `[BLACKOUT_SIM]` line at the start of a manual simulation, and
+    **one** `[TELEMETRY_RESUMED]` line in **green** (`#59d98b`) when real frames
+    return — per-line color override via `line.color` so positive events stand
+    out against the red default. Per-frame error detection is suppressed during
+    blackout runs so the frozen phantom values don't spam the terminal.
+
+All terminal state (`lines`, processing `cursor`, `inBlackout` flag) lives in
+the Redux `telemetry.terminalState` slice keyed by variant. Lines and cursor
+survive route unmount/remount — switching to `/analyse` and back no longer
+empties the errors log. The processing cursor advances per dispatched batch so
+remounted terminals replay only new frames, never re-emitting past lines.
 
 Configuration persisted in `localStorage` (`station_left_column_config`). Favorite charts synced with `/analyse` via `analyse_charts_config`.
+
+---
+
+## /station — Real Outage Detection
+
+A real outage (Raspberry Pi unplugged, broker unreachable) is detected from the
+frontend in two complementary ways:
+
+**Live detection** — `useTelemetryStream` exposes `lastMqttFrameAt`, updated each time a
+real MQTT frame is dispatched. The station dashboard runs a 1 s watchdog; if
+`Date.now() - lastMqttFrameAt > 3 s`, it sets `autoOutageActive` and starts
+the **same phantom-frame injection** as the manual simulation (`_blackout: true`
+frames at the last real Y values, +1 s per frame). Phantom frames also carry
+`_realOutage: true` (read from fresh refs so the flag stays accurate even if
+the operator toggles the manual button during the auto outage) so the errors
+terminal can label the cause. The MQTT poll keeps running (no `pauseMqtt`) so
+the moment real frames resume, `lastMqttFrameAt` refreshes, `autoOutageActive`
+clears, injection stops, and `buildTelemetryChartData`'s `blackoutOffsetSec`
+smooths the X axis past the gap.
+
+The injection interval callback also re-reads the outage refs at fire time
+(`if (!autoOutageActiveRef.current && !blackoutActiveRef.current) return;`)
+because the React commit that flips them to false happens *before* the
+passive-effect cleanup that calls `clearInterval`. Without this guard, a timer
+already in the macrotask queue would fire after the refs are false and inject
+a phantom with stale `_realOutage: false`, making the errors terminal log a
+spurious `[BLACKOUT_SIM]` immediately after `[TELEMETRY_RESUMED]`.
+
+**Replay reconstruction** — phantom frames live only in Redux, so a page
+refresh wipes them and the red ghost line would otherwise vanish from past
+outages. Two complementary mechanisms preserve them:
+
+1. **`reconstructOutages`** runs as the first pass of `buildTelemetryChartData`.
+   It scans consecutive real frames and, whenever their mission_time gap
+   exceeds `OUTAGE_GAP_THRESHOLD_SEC` (2 s), splices `_blackout: true,
+   _realOutage: true, _synthesized: true` phantoms into the chart data (one
+   per missing second, carrying the previous real frame's Y values). This
+   surfaces outages that happened before the page was opened, as long as the
+   bracketing real frames are still in the backend's 5000-frame deque.
+
+2. **`sessionStorage` persistence of `telemetryData`** — a **throttled**
+   effect (2 s) in `useTelemetryStream` serializes the full `telemetryData`
+   to `sessionStorage` under key `mqtt_telemetry_data_v1`. Throttle (not
+   debounce!) is essential: under continuous 1 Hz MQTT updates a debounce
+   would forever reset its timer and never fire. A `beforeunload` listener
+   flushes the latest snapshot right before the browser tears down the
+   page. On mount, if Redux is empty (fresh load after F5), the MQTT effect
+   restores from storage before computing `existingData`, then the resume
+   path (`shownCount = -1`) catches up with whatever the backend has
+   accumulated since.
+
+   Four subtle bugs sit between "naive implementation" and "actually
+   preserves red lines on refresh"; all four had to be fixed:
+
+   - **a)** Debounce vs throttle (above) — naive debounce never fires under
+     continuous updates.
+   - **b)** `live.globalStreamIdx` MUST come from
+     `existingData[existingData.length - 1].streamIndex + 1`, NOT from
+     `lastStreamIdxRef.current`. The ref is read during render against
+     Redux state, but on F5 Redux is empty at render time and the
+     restoring `dispatch(setTelemetryData(parsed))` happens INSIDE the
+     effect — so reading the ref would give -1, the first incremental
+     dispatch would assign `streamIndex = 0`, and `appendTelemetryPoints`'
+     collision guard (`point.streamIndex <= last.streamIndex`) would wipe
+     the restored phantoms on the very next poll.
+   - **c)** Initial-empty wipe — the persist effect's first run on F5
+     sees `dataRef.current = []` (Redux not yet updated by the restore
+     dispatch on the same render) and would call
+     `sessionStorage.removeItem`, destroying the saved data that the MQTT
+     effect just read. Gated by a `hasHadDataRef` so wipes only happen
+     after data was actually populated and then explicitly cleared.
+   - **d)** No-anchor fallback wipe — when the user F5s after a long
+     outage, the restored data may have no real-frame anchor that still
+     exists in the backend's deque (the bracketing real frame was either
+     pushed out by phantoms in Redux or evicted from the backend by post-
+     reconnect frames). The resume's `findIndex` returns -1. Naively
+     calling `dispatch(clearTelemetryData())` here destroys the phantoms.
+     Instead the fallback walks back through restored real frames to find
+     the most recent mission_time, then appends only backend rows whose
+     mission_time is strictly greater — restored phantoms are preserved
+     and forward-incremental updates resume cleanly.
+
+   Storage is `sessionStorage` (not `localStorage`) so a new tab or browser
+   restart starts fresh; QuotaExceeded errors are silently swallowed,
+   falling back to `reconstructOutages`.
 
 ---
 
@@ -221,6 +359,12 @@ The **"Simuler coupure"** button in the topbar:
    - **Normal series** stops at the last real point (solid line, normal color)
    - **Ghost series** continues as a solid red line (`#ff3030`) at the frozen Y value
    - No background fill — the blackout segment is just a red continuation of the line
+   - The `_ghost` connector (last real frame carrying a ghost value so the red line
+     joins the normal line) is **only added while a blackout is currently active**
+     (i.e. the latest frame has `_blackout: true`). Once real frames resume, the
+     past ghost segment is self-contained between blackout frames, and the
+     latest real point carries no `_ghost` value — so hovering it no longer
+     shows a red active-dot or red tooltip entry.
 5. Deactivating the button:
    - `resumeMqtt()` sets `skipMqttBacklogRef = true`. The next MQTT poll updates
      `live.shownCount` to the current backend count without dispatching the
@@ -250,7 +394,7 @@ Configurable via the **"Position GS ▼"** button in the Cesium right-panel (bot
 
 | Slice | Contents |
 |---|---|
-| `telemetry` | `telemetryData`, `sourceData`, `playbackIndex`, `streamIndex`, `mode`, `sourceMode` (default `'mqtt'`), `loading`, `error` |
+| `telemetry` | `telemetryData`, `sourceData`, `playbackIndex`, `streamIndex`, `mode`, `sourceMode` (default `'mqtt'`), `loading`, `error`, `terminalState` (per-variant `{ lines, cursor, inBlackout }` so terminal logs survive route unmount/remount) |
 
 ---
 
@@ -273,7 +417,7 @@ Configurable via the **"Position GS ▼"** button in the Cesium right-panel (bot
 |---|---|---|
 | `_fspl` | `20·log₁₀(4π·d·f / c)` with f=437 MHz | dB |
 | `_bilan` | `TX(30 dBm) + TX_gain(8) − FSPL + RX_gain(10)` | dBm |
-| `_elapsed_s` | `(timestamp − epoch) / 1000` — `epoch = data[0]._epoch_ms` (stable) or `parseRowTimestamp(data[0])`. Blackout frames use `lastRealElapsed + N` instead | s · step 10 |
+| `_elapsed_s` | `(timestamp − epoch) / 1000` — `epoch = data[0]._epoch_ms` (stable) or `parseRowTimestamp(data[0])`. Blackout frames use `lastRealElapsed + N` instead | s · step 100 (ticks at 10, 20, 30… s — `raw = step/10`) |
 | `_elapsed_min` | `_elapsed_s / 60` | min · step 10 (ticks at 1, 2, 3… min) |
 
 ---
@@ -286,7 +430,7 @@ Configurable via the **"Position GS ▼"** button in the Cesium right-panel (bot
 | Stable epoch | First MQTT frame's mission time is stored in `live.epochMs` and stamped on every subsequent frame as `_epoch_ms`. `buildTelemetryChartData` uses `data[0]._epoch_ms` so the X-axis origin doesn't drift as old frames are evicted from the 5000-frame display window |
 | Cesium trajectory | Incremental: only converts newly arrived GPS points to `Cartesian3`; O(1) per poll instead of O(n). Cached in `trajectoryPositionsRef`. Resets on data clear. |
 | TelemetryChart | Decimates data to ≤800 points for SVG path rendering; full dataset still used for domain/axis/scroll computation |
-| Chart enrichment | `enrichedData = useDeferredValue(chartData).map(enrich)` yields to Cesium/UI under load. Safe from starvation here because the upstream is stable: `_epoch_ms` keeps the X axis growing and `appendTelemetryPoints` batches all new frames into one Redux update per poll (≤1 Hz), giving the deferred render time to flush between urgent renders. `enrich` mutates the row in place rather than spreading 50 fields to add 3 |
+| Chart pipeline off-thread | `buildTelemetryChartData` + `reconstructOutages` + per-row `enrich` (FSPL / link budget / distance) run inside a **Web Worker** (`telemetry-worker.js`, instantiated per `useTelemetryStream` mount via Vite's `?worker` ESM import). Each `telemetryData` change posts `{ data, requestId }` to the worker; the worker replies with fully-enriched `chartData` and the main thread only pays the structured-clone cost of postMessage. A monotonic `requestId` discards stale results when dispatches arrive faster than the worker can process. The first render (and any SSR/no-Worker environment) falls back to a synchronous main-thread compute so consumers never see an empty `chartData`. Dashboards (`/station`, `/analyse`) consume `chartData` directly — the previous `.map(enrich)` in each page is removed since the worker already enriched. Together with `useDeferredValue` on the chart data (kept for tearing under burst updates), this keeps Cesium animation and Recharts re-renders smooth even with 5000-frame rebuilds. |
 
 ---
 

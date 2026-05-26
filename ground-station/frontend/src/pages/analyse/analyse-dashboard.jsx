@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
     Box,
     Button,
@@ -29,7 +29,6 @@ import StarBorderOutlinedIcon from '@mui/icons-material/StarBorderOutlined';
 import { useTelemetryStream } from '../shared/use-telemetry-stream.jsx';
 import { usePageActions } from '../../page-actions-context.jsx';
 import { AVAILABLE_FIELDS, CHART_COLORS, fieldLabel } from '../shared/chart-fields.js';
-import { enrich } from '../shared/chart-logic.js';
 import { TelemetryChart } from '../shared/telemetryChart.jsx';
 import { ChartTitle } from '../shared/chartTitle.jsx';
 
@@ -105,10 +104,9 @@ export default function AnalyseDashboard() {
     const dragSrcId = useRef(null);
     const [dragOverId, setDragOverId] = useState(null);
 
-    const enrichedData = useMemo(
-        () => (chartData?.length ? chartData.map(enrich) : []),
-        [chartData],
-    );
+    // chartData is already enriched by telemetry-worker.js (FSPL / link budget
+    // / distance attached). No main-thread re-enrich needed.
+    const enrichedData = chartData;
 
     const addLineToForm = () => {
         if (!pendingY || newLines.find((l) => l.key === pendingY)) return;
@@ -123,7 +121,7 @@ export default function AnalyseDashboard() {
         if (!newX || !pendingY) return;
         const effectiveLines = newLines.length > 0
             ? newLines
-            : [{ key: pendingY, color: CHART_COLORS[0] }];
+            : [{ key: pendingY, color: CHART_COLORS[Math.floor(Math.random() * CHART_COLORS.length)] }];
         setCharts((prev) => [
             ...prev,
             { id: Date.now(), xKey: newX, lines: effectiveLines, cols: 3, ratio: '1/1', track: true },

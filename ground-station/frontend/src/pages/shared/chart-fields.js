@@ -1,5 +1,5 @@
 export const AVAILABLE_FIELDS = [
-    { key: '_elapsed_s',   label: 'Elapsed Time (s)',       step: 10    },  // X-axis: 10 s ticks
+    { key: '_elapsed_s',   label: 'Elapsed Time (s)',       step: 100   },  // X-axis: 10 s ticks
     { key: '_elapsed_min', label: 'Elapsed Time (min)',     step: 10    },  // X-axis: 1 min ticks
     { key: 'U_Alt',        label: 'Altitude (m)',           step: 1000  },  // 290–18839 m
     { key: 'Speed',        label: 'Speed (m/s)',            step: 1     },  // 2.5–12 m/s

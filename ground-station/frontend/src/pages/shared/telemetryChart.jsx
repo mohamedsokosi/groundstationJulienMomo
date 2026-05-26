@@ -25,13 +25,23 @@ export function TelemetryChart({ data, xKey, lines, tracking, onTrackingChange }
 
     const transformedData = useMemo(() => {
         if (!hasBlackout) return data;
-        let lastNormalIdx = -1;
-        for (let i = data.length - 1; i >= 0; i--) {
-            if (!data[i]._blackout) { lastNormalIdx = i; break; }
+        // Connector point: only the real frame immediately preceding the LAST
+        // currently-active blackout segment gets a `_ghost` value so recharts
+        // draws the red line continuously from it. If the latest point is a real
+        // (post-blackout) frame, no connector is added — otherwise the latest
+        // real point would carry a `_ghost` value and recharts would render a
+        // red active-dot + tooltip entry on hover. The past ghost segment is
+        // already self-contained between consecutive blackout frames.
+        const lastIsBlackout = Boolean(data[data.length - 1]?._blackout);
+        let connectIdx = -1;
+        if (lastIsBlackout) {
+            for (let i = data.length - 1; i >= 0; i--) {
+                if (!data[i]._blackout) { connectIdx = i; break; }
+            }
         }
         return data.map((d, i) => {
             const isGhost = Boolean(d._blackout);
-            const isConnect = i === lastNormalIdx;
+            const isConnect = i === connectIdx;
             const out = { ...d };
             for (const { key } of lines) {
                 out[`${key}_normal`] = isGhost ? undefined : d[key];

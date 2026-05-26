@@ -19,6 +19,8 @@
 
 import { createSlice } from '@reduxjs/toolkit';
 
+const initialTerminalVariantState = { lines: [], cursor: 0, inBlackout: false };
+
 const initialState = {
     telemetryData: [],
     sourceData: [],
@@ -29,7 +31,17 @@ const initialState = {
     streamIndex: 0,
     mode: 'stream',
     sourceMode: 'mqtt',
+    // Terminal panels keep their lines + processing cursor + blackout state-machine
+    // in Redux so they survive route unmount/remount (otherwise switching to
+    // /analyse and back wipes the errors log).
+    terminalState: {
+        telemetry: { ...initialTerminalVariantState },
+        verbose:   { ...initialTerminalVariantState },
+        errors:    { ...initialTerminalVariantState },
+    },
 };
+
+const TERMINAL_MAX_LINES = { telemetry: 5, verbose: 1, errors: 500 };
 
 const telemetrySlice = createSlice({
     name: 'telemetry',
@@ -110,9 +122,37 @@ const telemetrySlice = createSlice({
             state.loading = false;
             state.error = null;
             state.mode = 'stream';
+            for (const k of Object.keys(state.terminalState)) {
+                state.terminalState[k] = { ...initialTerminalVariantState };
+            }
         },
         setSourceMode: (state, action) => {
             state.sourceMode = action.payload === 'mqtt' ? 'mqtt' : 'csv';
+        },
+        appendTerminalLines: (state, action) => {
+            const { variant, lines, cursor, inBlackout } = action.payload || {};
+            const v = state.terminalState[variant];
+            if (!v) return;
+            if (cursor !== undefined) v.cursor = cursor;
+            if (inBlackout !== undefined) v.inBlackout = inBlackout;
+            if (lines?.length) {
+                v.lines.push(...lines);
+                const max = TERMINAL_MAX_LINES[variant] ?? 500;
+                if (v.lines.length > max) v.lines = v.lines.slice(v.lines.length - max);
+            }
+        },
+        resetTerminalVariant: (state, action) => {
+            const variant = action.payload;
+            const v = state.terminalState[variant];
+            if (!v) return;
+            v.lines = [];
+            v.cursor = 0;
+            v.inBlackout = false;
+        },
+        resetAllTerminalVariants: (state) => {
+            for (const k of Object.keys(state.terminalState)) {
+                state.terminalState[k] = { ...initialTerminalVariantState };
+            }
         },
     },
 });
@@ -130,6 +170,9 @@ export const {
     resetTelemetryStream,
     clearTelemetryData,
     setSourceMode,
+    appendTerminalLines,
+    resetTerminalVariant,
+    resetAllTerminalVariants,
 } = telemetrySlice.actions;
 
 export default telemetrySlice.reducer;

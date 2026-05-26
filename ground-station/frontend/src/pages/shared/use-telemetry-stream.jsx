@@ -17,6 +17,7 @@ import {
     buildTelemetryChartData,
     createTelemetryStreamPoint,
     getTelemetryStreamLimit,
+    keepMonotonicSuffix,
     parseTelemetryCsv,
     parseTelemetryProtobuf,
     parseRowTimestamp,
@@ -27,9 +28,23 @@ import {
     TELEMETRY_SOURCE_URL,
     TELEMETRY_STREAM_INTERVAL_MS,
 } from './telemetry-data-source.js';
+import { enrich } from './chart-logic.js';
+// Vite-specific `?worker` import — bundles telemetry-worker.js as an ESM
+// worker that we instantiate per hook lifetime.
+import TelemetryWorker from './telemetry-worker.js?worker';
 
 // Auto-compute interval so a fresh playback lasts this many milliseconds.
 const PLAYBACK_TARGET_MS = 60_000;
+
+// sessionStorage key — survives F5 / tab reload, NOT new windows. Persisting
+// real frames is somewhat redundant (backend has them), but it's the only way
+// to also persist the phantom blackout frames (frontend-only) so the red ghost
+// line survives a refresh.
+const MQTT_TELEMETRY_STORAGE_KEY = 'mqtt_telemetry_data_v1';
+// Throttle window — save at most every N ms. NOT a debounce: under continuous
+// 1 Hz MQTT updates a debounce would forever reset and never fire, leaving
+// sessionStorage empty.
+const MQTT_TELEMETRY_PERSIST_THROTTLE_MS = 2000;
 
 const defaultTelemetryState = {
     telemetryData: [],
@@ -75,6 +90,11 @@ export function useTelemetryStream({
     const speedMsRef = useRef(intervalMs);
     const [speedMs, _setSpeedMs] = useState(intervalMs);
     const [isPlaying, setIsPlaying] = useState(false);
+    // Timestamp of the most recent real MQTT frame dispatched. Stays null until the
+    // first frame arrives. Consumers compare against Date.now() to detect a real
+    // broker/link outage (no new frames for several seconds) and trigger the same
+    // phantom-frame injection used by the manual blackout simulation.
+    const [lastMqttFrameAt, setLastMqttFrameAt] = useState(null);
 
     sourceDataRef.current = telemetry.sourceData;
     lastStreamIdxRef.current = telemetry.telemetryData[telemetry.telemetryData.length - 1]?.streamIndex ?? -1;
@@ -316,25 +336,100 @@ export function useTelemetryStream({
         if (sourceMode !== 'mqtt') return;
 
         stopStream();
-        dispatch(clearTelemetryData());
-
-        // globalStreamIdx is monotonically increasing so appendTelemetryPoint never resets the store.
-        // epochMs is fixed at session start so _elapsed_s/_elapsed_min don't drift when the
-        // display window slides (epoch would otherwise shift by 1s per evicted frame).
-        const live = { shownCount: 0, lastRowKey: '', globalStreamIdx: 0, epochMs: null };
 
         const rowKey = (rows) => {
             const r = rows[rows.length - 1];
             if (!r) return '';
             return `${r['m-time'] ?? r.m_time ?? ''}-${r.sequenceNumber ?? ''}-${r.U_Alt ?? ''}`;
         };
+        const rowKeyOf = (r) => (!r ? '' : `${r['m-time'] ?? r.m_time ?? ''}-${r.sequenceNumber ?? ''}-${r.U_Alt ?? ''}`);
+
+        // Route-change resume: if MQTT-shaped data already exists in Redux (because
+        // a previous mount of this hook on another page populated it), pick up
+        // where we left off instead of clearing + reloading. Without this, switching
+        // pages would wipe the chart and reset all chart-logic accumulators (epoch,
+        // blackout offset, phantom frames), and the operator would see a blank
+        // canvas every time they navigate.
+        let existingData = telemetry.telemetryData || [];
+
+        // Page-refresh resume: phantom blackout frames are frontend-only and
+        // would otherwise vanish on F5. `reconstructOutages` re-derives them
+        // from backend gaps, but only when the bracketing real frames are still
+        // in the 5000-frame backend deque. We persist `telemetryData` to
+        // sessionStorage so the phantoms — and the current session's epoch —
+        // survive a refresh even when the backend deque has rolled past the
+        // outage. The MQTT effect's resume path (shownCount=-1) then catches
+        // up with whatever the backend has accumulated since.
+        if (existingData.length === 0 && typeof sessionStorage !== 'undefined') {
+            try {
+                const saved = sessionStorage.getItem(MQTT_TELEMETRY_STORAGE_KEY);
+                if (saved) {
+                    const parsed = JSON.parse(saved);
+                    if (Array.isArray(parsed) && parsed.length > 0
+                        && parsed[0]._epoch_ms !== undefined) {
+                        existingData = parsed;
+                        dispatch(setTelemetryData(parsed));
+                        const lastRecv = parsed[parsed.length - 1]?._received_at;
+                        if (Number.isFinite(lastRecv)) setLastMqttFrameAt(lastRecv);
+                    }
+                }
+            } catch (_) { /* corrupt storage — ignore, fall back to clean load */ }
+        }
+
+        const isMqttShape = existingData.length > 0 && existingData[0]._epoch_ms !== undefined;
+        if (existingData.length > 0 && !isMqttShape) {
+            // Foreign data (e.g., CSV) lingering from a previous sourceMode — flush it.
+            dispatch(clearTelemetryData());
+            setLastMqttFrameAt(null);
+        }
+
+        // Find the last REAL (non-blackout) frame so we can re-anchor `lastRowKey`
+        // against the backend on the resume poll.
+        let lastReal = null;
+        if (isMqttShape) {
+            for (let i = existingData.length - 1; i >= 0; i--) {
+                if (!existingData[i]._blackout) { lastReal = existingData[i]; break; }
+            }
+        }
+
+        // Derive globalStreamIdx from existingData directly. lastStreamIdxRef
+        // is updated during render against Redux state — on F5, Redux is
+        // empty at render time and `dispatch(setTelemetryData(parsed))` happens
+        // INSIDE this effect, AFTER the ref has been read. Reading the ref
+        // here would give -1, the first incremental dispatch would assign
+        // streamIndex=0, and appendTelemetryPoints' collision guard
+        // (`streamIndex <= last.streamIndex`) would wipe everything — restored
+        // phantoms included — because the restored last frame has a much
+        // higher streamIndex from the previous session.
+        const lastRestoredStreamIdx = existingData[existingData.length - 1]?.streamIndex ?? -1;
+        const live = isMqttShape
+            ? {
+                // Sentinel: the first poll will search the backend for `lastRowKey`
+                // and resume incrementally; if it can't find it (deque has rolled
+                // past us), it falls back to a clean initial load.
+                shownCount: -1,
+                lastRowKey: rowKeyOf(lastReal),
+                globalStreamIdx: lastRestoredStreamIdx + 1,
+                epochMs: existingData[0]._epoch_ms ?? null,
+            }
+            : { shownCount: 0, lastRowKey: '', globalStreamIdx: 0, epochMs: null };
+
+        // Cancels late dispatches: if this hook instance has been unmounted
+        // (route change), any in-flight poll's await would otherwise resolve and
+        // dispatch frames with the OLD hook's `live.globalStreamIdx`, leaving
+        // Redux ahead of the new hook's counter. The next dispatch from the new
+        // hook would then trip appendTelemetryPoints' collision guard
+        // (streamIndex <= last.streamIndex) and wipe telemetryData entirely —
+        // user-visible as "lines erased after switching pages".
+        let isMounted = true;
 
         const poll = async () => {
             if (mqttPausedRef.current) return;
             try {
                 const response = await fetch(TELEMETRY_MQTT_FRAMES_URL, { cache: 'no-store' });
-                if (!response.ok) return;
+                if (!isMounted || !response.ok) return;
                 const rows = parseTelemetryProtobuf(await response.arrayBuffer());
+                if (!isMounted) return;
 
                 if (rows.length === 0) {
                     if (live.shownCount > 0) {
@@ -342,11 +437,86 @@ export function useTelemetryStream({
                         live.lastRowKey = '';
                         live.globalStreamIdx = 0;
                         dispatch(clearTelemetryData());
+                        setLastMqttFrameAt(null);
                     }
                     return;
                 }
 
                 const key = rowKey(rows);
+
+                // Resume after route change: find our last real row in the backend
+                // and dispatch only the rows that came after it. Phantom blackout
+                // frames already in Redux are preserved as-is.
+                if (live.shownCount === -1) {
+                    const idx = live.lastRowKey
+                        ? rows.findIndex((r) => rowKeyOf(r) === live.lastRowKey)
+                        : -1;
+                    if (idx === -1) {
+                        // Backend deque has rolled past our anchor (or our
+                        // restored data is all phantoms with no real-frame
+                        // anchor). DO NOT clearTelemetryData — that would wipe
+                        // the restored phantoms and erase the red lines the
+                        // operator was seeing pre-refresh. Instead merge by
+                        // mission_time: keep the restored data and append any
+                        // backend frames whose mission_time is newer than our
+                        // most recent restored real frame.
+                        let maxRestoredT = null;
+                        for (let i = existingData.length - 1; i >= 0; i--) {
+                            if (existingData[i]._blackout) continue;
+                            const t = parseRowTimestamp(existingData[i]);
+                            if (t !== null) { maxRestoredT = t; break; }
+                        }
+                        const receivedAt = Date.now();
+                        const newerRows = maxRestoredT !== null
+                            ? rows.filter((r) => {
+                                const t = parseRowTimestamp(r);
+                                return t !== null && t > maxRestoredT;
+                            })
+                            : rows;
+                        if (newerRows.length > 0) {
+                            if (lastStreamIdxRef.current >= live.globalStreamIdx) {
+                                live.globalStreamIdx = lastStreamIdxRef.current + 1;
+                            }
+                            const newFrames = newerRows.map((row) => ({
+                                ...row, _received_at: receivedAt, _epoch_ms: live.epochMs,
+                                streamIndex: live.globalStreamIdx++,
+                            }));
+                            dispatch(appendTelemetryPoints({
+                                points: newFrames,
+                                maxPoints: TELEMETRY_MQTT_DISPLAY_POINTS,
+                            }));
+                            setLastMqttFrameAt(receivedAt);
+                        }
+                        live.shownCount = rows.length;
+                        live.lastRowKey = key;
+                        dispatch(setPlaybackState({ playbackIndex: rows.length, streamIndex: live.globalStreamIdx }));
+                        return;
+                    } else {
+                        const receivedAt = Date.now();
+                        const newRows = rows.slice(idx + 1);
+                        if (newRows.length > 0) {
+                            // Defensive sync: if Redux is somehow ahead of our
+                            // captured counter (e.g., another concurrent mount),
+                            // skip past it so we don't trip the collision guard.
+                            if (lastStreamIdxRef.current >= live.globalStreamIdx) {
+                                live.globalStreamIdx = lastStreamIdxRef.current + 1;
+                            }
+                            const newFrames = newRows.map((row) => ({
+                                ...row, _received_at: receivedAt, _epoch_ms: live.epochMs,
+                                streamIndex: live.globalStreamIdx++,
+                            }));
+                            dispatch(appendTelemetryPoints({
+                                points: newFrames,
+                                maxPoints: TELEMETRY_MQTT_DISPLAY_POINTS,
+                            }));
+                            setLastMqttFrameAt(receivedAt);
+                        }
+                        live.shownCount = rows.length;
+                        live.lastRowKey = key;
+                        dispatch(setPlaybackState({ playbackIndex: rows.length, streamIndex: live.globalStreamIdx }));
+                        return;
+                    }
+                }
 
                 // Resuming from a blackout: mark whatever piled up in the backend store
                 // as already-seen without dispatching it. Those frames are "lost packets".
@@ -377,16 +547,26 @@ export function useTelemetryStream({
                 const receivedAt = Date.now();
 
                 if (live.shownCount === 0) {
-                    // Initial load: fix the session epoch from the first frame's mission time.
+                    // Initial load: drop any tail from a previous Pico loop
+                    // cycle (mission_time goes backward when the firmware
+                    // restarts its CSV). Without this slice, a refresh would
+                    // show the X axis zigzagging because the deque contains
+                    // frames from two cycles with the epoch pinned to the
+                    // first (older) one.
+                    const sliced = keepMonotonicSuffix(rows);
+                    // Fix the session epoch from the first kept frame's mission time.
                     // All subsequent frames carry this same _epoch_ms so the X-axis origin stays
                     // stable even after the 5000-frame display window starts sliding.
-                    live.epochMs = parseRowTimestamp(rows[0]) ?? receivedAt;
-                    const stamped = rows.map((r, i) => ({
+                    live.epochMs = parseRowTimestamp(sliced[0]) ?? receivedAt;
+                    const stamped = sliced.map((r, i) => ({
                         ...r, _received_at: receivedAt, _epoch_ms: live.epochMs,
                         streamIndex: live.globalStreamIdx + i,
                     }));
-                    live.globalStreamIdx += rows.length;
+                    live.globalStreamIdx += sliced.length;
+                    // shownCount tracks BACKEND row count so the next poll's
+                    // delta math is correct, even though we dispatched a subset.
                     dispatch(setTelemetryData(stamped.slice(-TELEMETRY_MQTT_DISPLAY_POINTS)));
+                    setLastMqttFrameAt(receivedAt);
                 } else {
                     // Sync in case blackout frames were injected while the poll was paused:
                     // those frames advance streamIndex past live.globalStreamIdx, and the
@@ -409,6 +589,7 @@ export function useTelemetryStream({
                             points: newFrames,
                             maxPoints: TELEMETRY_MQTT_DISPLAY_POINTS,
                         }));
+                        setLastMqttFrameAt(receivedAt);
                     }
                 }
 
@@ -421,14 +602,142 @@ export function useTelemetryStream({
         void poll();
         const pollId = setInterval(poll, 1000);
 
+        // Cleanup: clear ONLY the timer, NOT the Redux telemetry data. Keeping
+        // data lets a subsequent mount of this hook (e.g., navigating back to
+        // /station from /analyse) resume from where we left off via the
+        // shownCount=-1 path above instead of wiping the chart.
         return () => {
+            isMounted = false;
             clearInterval(pollId);
-            dispatch(clearTelemetryData());
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [sourceMode, stopStream, dispatch]);
 
-    const chartData = useMemo(() => buildTelemetryChartData(telemetry.telemetryData), [telemetry.telemetryData]);
+    // Persist MQTT telemetryData to sessionStorage so a page refresh restores
+    // phantom blackout frames — they live only in Redux and would otherwise
+    // vanish on F5, even if the backend deque still has the bracketing real
+    // frames (reconstructOutages handles that case) and especially when it
+    // doesn't (long outage, deque rolled past).
+    //
+    // Throttled (NOT debounced): under continuous 1 Hz MQTT updates a debounce
+    // would forever reset its timer and never fire. Throttle saves at most
+    // every MQTT_TELEMETRY_PERSIST_THROTTLE_MS but ALSO schedules a trailing
+    // save so the latest data is persisted within that window even if updates
+    // stop. A `beforeunload` listener flushes the very latest snapshot right
+    // before the browser tears down the page.
+    const lastPersistAtRef = useRef(0);
+    const dataRef = useRef(telemetry.telemetryData);
+    dataRef.current = telemetry.telemetryData;
+    // Tracks whether we've EVER had non-empty data in this hook instance.
+    // Used to gate sessionStorage wipes — on initial mount (Redux still empty
+    // before the restore dispatch flushes through to useSelector), the persist
+    // effect would otherwise see `[]` and immediately remove the saved data
+    // that the MQTT effect just read. Only wipe when data was previously
+    // non-empty AND has now been explicitly cleared.
+    const hasHadDataRef = useRef(false);
+
+    useEffect(() => {
+        if (sourceMode !== 'mqtt') return;
+        if (typeof sessionStorage === 'undefined') return;
+
+        const persistNow = () => {
+            lastPersistAtRef.current = Date.now();
+            try {
+                const d = dataRef.current;
+                if (d?.length) {
+                    sessionStorage.setItem(MQTT_TELEMETRY_STORAGE_KEY, JSON.stringify(d));
+                    hasHadDataRef.current = true;
+                } else if (hasHadDataRef.current) {
+                    sessionStorage.removeItem(MQTT_TELEMETRY_STORAGE_KEY);
+                    hasHadDataRef.current = false;
+                }
+                // else: data is empty AND was never populated this session —
+                // do nothing, so a stale-but-valid sessionStorage entry survives
+                // for the MQTT effect to restore.
+            } catch (_) {
+                // QuotaExceeded — fall back to reconstructOutages.
+            }
+        };
+
+        const sinceLast = Date.now() - lastPersistAtRef.current;
+        let timer;
+        if (sinceLast >= MQTT_TELEMETRY_PERSIST_THROTTLE_MS) {
+            persistNow();
+        } else {
+            timer = setTimeout(persistNow, MQTT_TELEMETRY_PERSIST_THROTTLE_MS - sinceLast);
+        }
+        return () => { if (timer) clearTimeout(timer); };
+    }, [telemetry.telemetryData, sourceMode]);
+
+    // Flush the latest snapshot right before the browser unloads the page so
+    // the very last seconds of telemetry (including any phantoms injected
+    // since the last throttled save) make it into sessionStorage.
+    useEffect(() => {
+        if (sourceMode !== 'mqtt') return;
+        if (typeof window === 'undefined') return;
+        const flush = () => {
+            try {
+                const d = dataRef.current;
+                if (d?.length) sessionStorage.setItem(MQTT_TELEMETRY_STORAGE_KEY, JSON.stringify(d));
+            } catch (_) { /* ignore */ }
+        };
+        window.addEventListener('beforeunload', flush);
+        return () => window.removeEventListener('beforeunload', flush);
+    }, [sourceMode]);
+
+    // Offload buildTelemetryChartData + enrich to a Web Worker so a 5000-frame
+    // rebuild doesn't stall Cesium animation or Recharts. The hook keeps a
+    // single worker instance per mount; each telemetryData change posts a
+    // request with an incrementing requestId so stale results (the worker took
+    // longer than the next dispatch) are discarded.
+    const workerRef = useRef(null);
+    const workerRequestIdRef = useRef(0);
+    const [workerChartData, setWorkerChartData] = useState(null);
+    const hasWorker = typeof Worker !== 'undefined';
+
+    useEffect(() => {
+        if (!hasWorker) return; // SSR / unsupported — synchronous fallback below
+        const w = new TelemetryWorker();
+        w.onmessage = (e) => {
+            const { chartData, requestId } = e.data || {};
+            // Discard stale results — only the latest request reflects current state.
+            if (requestId !== workerRequestIdRef.current) return;
+            setWorkerChartData(chartData);
+        };
+        workerRef.current = w;
+        return () => {
+            workerRef.current = null;
+            w.terminate();
+        };
+    }, [hasWorker]);
+
+    useEffect(() => {
+        if (!workerRef.current) return;
+        const id = ++workerRequestIdRef.current;
+        // structured clone of the data array — for 5000 small objects this is
+        // cheap (sub-ms in modern browsers) compared to the buildTelemetryChartData
+        // walk + enrich loop it replaces on the main thread.
+        workerRef.current.postMessage({ data: telemetry.telemetryData, requestId: id });
+    }, [telemetry.telemetryData]);
+
+    // chartData resolution priority:
+    //   1. Latest worker result (normal operating mode after first response).
+    //   2. Synchronous main-thread compute, but ONLY when Worker is unavailable
+    //      (SSR, jsdom tests, ancient browsers). Doing this in the supported
+    //      path would defeat the purpose — we'd pay the full build+enrich cost
+    //      on the main thread before the worker had a chance to respond.
+    //   3. Empty array — brief (~tens of ms) gap on initial mount until the
+    //      first worker response arrives. Charts render empty for that window
+    //      then snap to the worker result.
+    const chartData = useMemo(() => {
+        if (workerChartData !== null) return workerChartData;
+        if (!hasWorker) {
+            const built = buildTelemetryChartData(telemetry.telemetryData);
+            for (const row of built) enrich(row);
+            return built;
+        }
+        return [];
+    }, [telemetry.telemetryData, workerChartData, hasWorker]);
 
     return {
         data: telemetry.telemetryData,
@@ -453,5 +762,6 @@ export function useTelemetryStream({
         resetStream,
         pauseMqtt,
         resumeMqtt,
+        lastMqttFrameAt,
     };
 }

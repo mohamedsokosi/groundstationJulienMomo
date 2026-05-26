@@ -17,7 +17,6 @@ import { appendTelemetryPoint } from '../shared/telemetry-slice.jsx';
 import { usePageActions } from '../../page-actions-context.jsx';
 import { distanceKm, getMqttSourceStat, getTelemetryNumber, toTelemetryNumber } from '../shared/telemetry-utils.js';
 import { AVAILABLE_FIELDS, CHART_COLORS, fieldLabel } from '../shared/chart-fields.js';
-import { enrich } from '../shared/chart-logic.js';
 import { TelemetryChart } from '../shared/telemetryChart.jsx';
 import { ChartTitle } from '../shared/chartTitle.jsx';
 import { CesiumViewport } from '../shared/cesiumViewport.jsx';
@@ -70,18 +69,15 @@ export default function StationDashboard() {
         hasData,
         pauseMqtt,
         resumeMqtt,
+        lastMqttFrameAt,
     } = useTelemetryStream();
 
-    // Defer the heavy chartData → enrichedData pipeline so it yields to Cesium
-    // and user input. Safe to defer now that the upstream is fixed: stable
-    // _epoch_ms means the X axis never plateaus, and batched appendTelemetryPoints
-    // means at most 1 Redux update per second — plenty of headroom between
-    // urgent renders for the deferred render to flush.
-    const deferredChartData = useDeferredValue(chartData);
-    const enrichedData = useMemo(
-        () => (deferredChartData?.length ? deferredChartData.map(enrich) : []),
-        [deferredChartData],
-    );
+    // chartData is now produced by a Web Worker (telemetry-worker.js) and is
+    // ALREADY enriched (FSPL / link budget / distance attached). The main
+    // thread no longer pays the build + enrich cost on each MQTT update — we
+    // just defer the React render under load to keep Cesium and user input
+    // responsive.
+    const enrichedData = useDeferredValue(chartData);
 
     const trajectoryRecords = useMemo(
         () => chartData.filter(
@@ -118,16 +114,58 @@ export default function StationDashboard() {
     }, []);
 
     const [blackoutActive, setBlackoutActive] = useState(false);
+    // Auto-detected real outage (Pi/broker unreachable): triggered when no MQTT
+    // frame has been dispatched for REAL_OUTAGE_THRESHOLD_MS while we have data.
+    // Drives the same phantom-frame injection as the manual blackout simulation
+    // so the X axis keeps advancing instead of freezing.
+    const [autoOutageActive, setAutoOutageActive] = useState(false);
+    const REAL_OUTAGE_THRESHOLD_MS = 3000;
     const lastDataPointRef = useRef(null);
     lastDataPointRef.current = chartData[chartData.length - 1] ?? null;
+    // Fresh-read refs so the phantom-injection interval (which doesn't restart
+    // when these flags flip) labels each phantom frame's `_realOutage` correctly.
+    const blackoutActiveRef = useRef(blackoutActive);
+    const autoOutageActiveRef = useRef(autoOutageActive);
+    blackoutActiveRef.current = blackoutActive;
+    autoOutageActiveRef.current = autoOutageActive;
 
+    // Watch the MQTT frame heartbeat. After the first real frame has arrived,
+    // flip autoOutageActive whenever we go silent (or recover).
     useEffect(() => {
-        if (!blackoutActive) {
-            resumeMqtt();
+        if (!lastMqttFrameAt) {
+            setAutoOutageActive(false);
             return;
         }
-        pauseMqtt();
+        const tick = () => {
+            const stale = Date.now() - lastMqttFrameAt > REAL_OUTAGE_THRESHOLD_MS;
+            setAutoOutageActive((prev) => (prev === stale ? prev : stale));
+        };
+        tick();
+        const id = setInterval(tick, 1000);
+        return () => clearInterval(id);
+    }, [lastMqttFrameAt]);
+
+    const outageActive = blackoutActive || autoOutageActive;
+
+    // Manual blackout: pause/resume the MQTT poll. Real outages never pause —
+    // the broker is silent, so the poll naturally returns no new frames.
+    useEffect(() => {
+        if (blackoutActive) {
+            pauseMqtt();
+            return () => resumeMqtt();
+        }
+    }, [blackoutActive, pauseMqtt, resumeMqtt]);
+
+    useEffect(() => {
+        if (!outageActive) return;
         const id = setInterval(() => {
+            // Race guard: when real frames resume, refs flip to false during
+            // render but the interval cleanup only runs in the next passive-
+            // effect phase (after paint). A pending interval callback can fire
+            // in that window and would otherwise inject a stale phantom with
+            // `_realOutage: false` (refs already updated) → terminal logs a
+            // bogus `[BLACKOUT_SIM]` immediately after `[TELEMETRY_RESUMED]`.
+            if (!autoOutageActiveRef.current && !blackoutActiveRef.current) return;
             const base = lastDataPointRef.current;
             if (!base) return;
             // Read streamIndex from the latest frame each tick rather than a captured
@@ -139,6 +177,9 @@ export default function StationDashboard() {
                 point: {
                     ...base,
                     _blackout: true,
+                    // Distinguishes a real Pi/broker outage from a manual
+                    // simulation so the errors terminal can label it correctly.
+                    _realOutage: autoOutageActiveRef.current && !blackoutActiveRef.current,
                     _received_at: Date.now(),
                     'm-time': undefined,
                     'm_time': undefined,
@@ -151,7 +192,7 @@ export default function StationDashboard() {
             }));
         }, 1000);
         return () => clearInterval(id);
-    }, [blackoutActive, pauseMqtt, resumeMqtt, dispatch]);
+    }, [outageActive, dispatch]);
 
     const { setNode } = usePageActions();
 
@@ -270,7 +311,7 @@ export default function StationDashboard() {
         if (!newX || !pendingY) return;
         const effectiveLines = newLines.length > 0
             ? newLines
-            : [{ key: pendingY, color: CHART_COLORS[0] }];
+            : [{ key: pendingY, color: CHART_COLORS[Math.floor(Math.random() * CHART_COLORS.length)] }];
         const newId = `chart-${Date.now()}`;
         setLeftItems((prev) => [...prev, { id: newId, type: 'chart', xKey: newX, lines: effectiveLines }]);
         setNewLines([]);

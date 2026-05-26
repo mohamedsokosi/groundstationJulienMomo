@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Box, Button, Paper, Typography } from '@mui/material';
-import { useSelector } from 'react-redux';
+import { useDispatch, useSelector } from 'react-redux';
+import { appendTerminalLines, resetTerminalVariant } from './telemetry-slice.jsx';
 
 const TERMINAL_FIELDS = ['U_Alt', 'Speed', 'Vert_speed', 'Pressure', '#_Sat', 'U_Lat', 'U_Long'];
 
@@ -45,62 +46,71 @@ function detectErrors(pt) {
 
 export function TelemetryTerminal({ variant = 'telemetry' }) {
     const cfg = VARIANT_CONFIG[variant] ?? VARIANT_CONFIG.telemetry;
+    const dispatch = useDispatch();
     const data = useSelector((state) => state.telemetry?.telemetryData ?? []);
-    const [lines, setLines] = useState([]);
-    const prevLengthRef = useRef(0);
+    // Always defined: initialState seeds all three variants.
+    const variantState = useSelector((state) => state.telemetry.terminalState[variant]);
+    const lines = variantState.lines;
     const containerRef = useRef(null);
     const [autoScroll, setAutoScroll] = useState(true);
     const suppressScrollRef = useRef(false);
 
     useEffect(() => {
         if (!data?.length) {
-            if (prevLengthRef.current > 0) {
-                setLines([]);
-                prevLengthRef.current = 0;
+            if (variantState.cursor > 0 || variantState.lines.length > 0) {
+                dispatch(resetTerminalVariant(variant));
             }
             return;
         }
-        if (data.length < prevLengthRef.current) {
-            setLines([]);
-            prevLengthRef.current = 0;
+        if (data.length < variantState.cursor) {
+            dispatch(resetTerminalVariant(variant));
+            return;
         }
-        if (data.length <= prevLengthRef.current) return;
+        if (data.length <= variantState.cursor) return;
 
-        const newPoints = data.slice(prevLengthRef.current);
-        prevLengthRef.current = data.length;
+        const newPoints = data.slice(variantState.cursor);
 
         const now = new Date();
         const ts = fmtTime(now);
 
         const newLines = [];
+        let inBlackout = variantState.inBlackout;
+        const pushLine = (text, color) => newLines.push({
+            id: `${Date.now()}-${Math.random()}-${newLines.length}`,
+            ts,
+            text,
+            color,
+        });
         for (const pt of newPoints) {
+            const isBlackout = Boolean(pt._blackout);
             if (variant === 'errors') {
+                if (isBlackout && !inBlackout) {
+                    inBlackout = true;
+                    pushLine(pt._realOutage
+                        ? '[RPI_DISCONNECTED]  télémétrie non reçue'
+                        : '[BLACKOUT_SIM]  coupure simulée par l\'opérateur');
+                    continue;
+                }
+                if (isBlackout) continue;
+                if (inBlackout) {
+                    inBlackout = false;
+                    pushLine('[TELEMETRY_RESUMED]  réception MQTT rétablie', '#59d98b');
+                }
                 const issues = detectErrors(pt);
                 if (issues.length === 0) continue;
-                newLines.push({
-                    id: `${Date.now()}-${Math.random()}`,
-                    ts,
-                    text: `[${issues.join(', ')}]  ${formatLine('telemetry', pt)}`,
-                });
+                pushLine(`[${issues.join(', ')}]  ${formatLine('telemetry', pt)}`);
             } else {
-                newLines.push({
-                    id: `${Date.now()}-${Math.random()}`,
-                    ts,
-                    text: formatLine(variant, pt),
-                });
+                pushLine(formatLine(variant, pt));
             }
         }
 
-        if (newLines.length === 0) return;
-        // Tight caps so the visible terminal never needs a scrollbar:
-        // verbose lines are very wide (all fields), telemetry lines moderate,
-        // errors keep history since they're rare.
-        const maxLines = variant === 'errors' ? 500 : variant === 'verbose' ? 1 : 5;
-        setLines((prev) => {
-            const next = [...prev, ...newLines];
-            return next.length > maxLines ? next.slice(next.length - maxLines) : next;
-        });
-    }, [data, variant]);
+        dispatch(appendTerminalLines({
+            variant,
+            lines: newLines,
+            cursor: data.length,
+            inBlackout,
+        }));
+    }, [data, variant, variantState, dispatch]);
 
     useEffect(() => {
         if (!autoScroll) return;
@@ -121,9 +131,8 @@ export function TelemetryTerminal({ variant = 'telemetry' }) {
     }, []);
 
     const handleClear = useCallback(() => {
-        setLines([]);
-        prevLengthRef.current = 0;
-    }, []);
+        dispatch(resetTerminalVariant(variant));
+    }, [dispatch, variant]);
 
     const emptyMsg = variant === 'errors' ? 'No errors detected.' : 'Waiting for data...';
 
@@ -224,7 +233,7 @@ export function TelemetryTerminal({ variant = 'telemetry' }) {
                             <Typography component="span" sx={{
                                 fontFamily: 'Consolas, "Courier New", monospace',
                                 fontSize: 10,
-                                color: cfg.lineColor,
+                                color: line.color ?? cfg.lineColor,
                                 wordBreak: 'break-all',
                                 lineHeight: 'inherit',
                             }}>

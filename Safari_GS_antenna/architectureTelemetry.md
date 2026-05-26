@@ -111,7 +111,65 @@ Each transmitted line has the format:
 Runs on the Raspberry Pi 4B. Reads CFDP frames from the Pico over USB serial, strips the 7-field CFDP header, encodes the CSV payload as a protobuf frame, and publishes it to the local MQTT broker.
 
 ```
-/dev/ttyACM0  →  strip_cfdp()  →  encode_frame()  →  MQTT icarus2/telemetry/frame.pb
+                                            ┌──► MQTT icarus2/telemetry/frame.pb
+/dev/ttyACM0  →  strip_cfdp()  →  encode_frame() ──┤
+                                            └──► TCP :9000 (az,el) → antenna tracker
+```
+
+**Resilience**: the outer `while True` reopens the serial port after `SerialException`
+(Pico/RFD900x unplug — reconnect after 3 s). Two extra guards protect against
+crashes triggered by the Pico re-broadcasting its CSV from line 1 after every
+reset:
+
+1. **Header filter after CFDP strip** — the post-reset first frame's payload is
+   the CSV header (`m-time,Flight ID,Ublox UTC,U Lat,U Long,U Alt,Speed,Vert speed,#Sat,…`).
+   The pre-existing `raw.startswith("m-time")` filter doesn't match because the
+   raw line begins with the CFDP prefix `1,0,0,1,1,1,2,…`; the header is only
+   visible *after* `strip_cfdp()` returns `parts[7]`. A second check
+   (`payload.startswith("m-time")`) skips it before `encode_frame` is called.
+2. **try/except around `encode_frame` + `publish`** — any `ValueError`/`TypeError`/`struct.error`
+   (truncated frame, non-numeric field, etc.) is logged and skipped instead of
+   crashing the process. Without this, a single malformed line would terminate
+   the bridge and the serial-reconnect loop would never get a chance to run.
+
+### Antenna-pointing TCP broadcaster
+
+A daemon thread inside the bridge listens on **TCP `AZEL_TCP_PORT` (default 9000)**.
+Any device on the LAN switch (typically the antenna tracker) opens a long-lived
+TCP connection; per telemetry frame it receives one ASCII line:
+
+```
+AZ:<azimuth_deg>,EL:<elevation_deg>\n
+```
+
+Both values are formatted with 2 decimals, e.g. `AZ:344.65,EL:62.87`.
+
+Azimuth: 0–360°, north = 0°, east = 90°. Elevation: -90° to +90°, horizon = 0°.
+Both are computed from the **ground-station position** (env vars
+`GS_LAT_DEG` / `GS_LON_DEG` / `GS_ALT_M`, defaults `48.55, -81.35, 287.0`) and
+the balloon's GPS fix using a spherical-Earth ECEF→ENU conversion
+(`az_el_from_gs`). Spherical Earth is accurate enough for HAB ranges
+(<200 km); skip the WGS84 ellipsoid for code simplicity.
+
+**Connection handling**:
+- Multiple clients are supported. Each gets every frame.
+- Dead sockets are detected on the next `sendall` and removed from the
+  broadcast list — the bridge never blocks waiting for a dead client.
+- `TCP_NODELAY` is set so each line is delivered immediately (no Nagle batching).
+- If `bind()` fails (port in use), the server thread retries every 3 s.
+- The `az_el` computation lives in its own `try/except` after MQTT publish so
+  any malformed coordinate skips only the TCP broadcast for that frame; the
+  MQTT pipeline is never affected.
+
+Env vars: `AZEL_TCP_HOST` (default `0.0.0.0`), `AZEL_TCP_PORT` (default `9000`),
+`GS_LAT_DEG`, `GS_LON_DEG`, `GS_ALT_M`.
+
+Quick test from another machine on the switch:
+```bash
+nc <rpi-ip> 9000
+# → AZ:142.37,EL:12.85
+# → AZ:142.38,EL:12.86
+# → ...
 ```
 
 Protobuf field mapping:

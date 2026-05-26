@@ -83,7 +83,78 @@ export function parseRowTimestamp(item) {
     return null;
 }
 
-export function buildTelemetryChartData(data = []) {
+// Threshold above which a mission-time gap between two consecutive real
+// frames is treated as an outage and visualized via synthesized phantom
+// blackout frames. 2 s catches the 1-s telemetry cadence; anything below
+// risks turning normal jitter into spurious blackouts.
+const OUTAGE_GAP_THRESHOLD_SEC = 2;
+
+// When the Pico finishes its CSV loop it restarts from line 1 — mission_time
+// jumps backward by ~2 hours. After a page refresh the backend's 5000-frame
+// deque can contain frames from BOTH cycles, which would otherwise make the
+// chart zigzag wildly (negative elapsed_s for the new cycle's frames against
+// the old cycle's fixed epoch). This walks backward through real frames and
+// returns the longest tail where mission_time is monotonically non-decreasing.
+// Phantom (`_blackout`) frames are skipped during the walk — they carry no
+// mission_time of their own and would always look like a discontinuity.
+export function keepMonotonicSuffix(data) {
+    if (data.length < 2) return data;
+    let cutoff = 0;
+    let nextRealT = null;
+    for (let i = data.length - 1; i >= 0; i--) {
+        if (data[i]._blackout) continue;
+        const t = parseRowTimestamp(data[i]);
+        if (t === null) continue;
+        if (nextRealT !== null && t > nextRealT) {
+            // Going forward from i → i+1 mission_time decreased = loop restart.
+            cutoff = i + 1;
+            break;
+        }
+        nextRealT = t;
+    }
+    return cutoff > 0 ? data.slice(cutoff) : data;
+}
+
+// Walks the raw data and inserts synthesized `_blackout: true` frames into
+// any mission-time gap between consecutive real frames. This is what makes
+// past outages visible after a page refresh: phantom frames are frontend-only
+// and get wiped from Redux on reload, but the backend's real frames still
+// carry the timing gap that proves the outage happened. We reconstruct
+// phantoms from that gap so the chart's red ghost segment survives a refresh.
+function reconstructOutages(data) {
+    if (data.length < 2) return data;
+    const out = [];
+    let prevReal = null;
+    for (const item of data) {
+        if (!item._blackout && prevReal) {
+            const prevT = parseRowTimestamp(prevReal);
+            const curT = parseRowTimestamp(item);
+            if (prevT !== null && curT !== null) {
+                const gapSec = (curT - prevT) / 1000;
+                if (gapSec > OUTAGE_GAP_THRESHOLD_SEC) {
+                    // Inject one phantom per missing second (minus the two real
+                    // frames bracketing the gap). Phantoms inherit prevReal's
+                    // values so the red ghost line stays at the last known Y.
+                    const nPhantoms = Math.max(0, Math.floor(gapSec) - 1);
+                    for (let i = 0; i < nPhantoms; i++) {
+                        out.push({
+                            ...prevReal,
+                            _blackout: true,
+                            _realOutage: true,
+                            _synthesized: true,
+                        });
+                    }
+                }
+            }
+        }
+        out.push(item);
+        if (!item._blackout) prevReal = item;
+    }
+    return out;
+}
+
+export function buildTelemetryChartData(rawData = []) {
+    const data = reconstructOutages(rawData);
     // Prefer _epoch_ms stamped at session start so the epoch stays fixed as the
     // display window slides (avoids X-axis plateau once 5000-frame window fills).
     const epochMs = data.length > 0 ? (data[0]._epoch_ms ?? parseRowTimestamp(data[0])) : null;
