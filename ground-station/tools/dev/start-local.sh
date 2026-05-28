@@ -25,6 +25,8 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 BACKEND_DIR="$REPO_ROOT/backend"
 FRONTEND_DIR="$REPO_ROOT/frontend"
 PYTHON_EXE="$BACKEND_DIR/venv/bin/python"
+LOG_DIR="${TMPDIR:-/tmp}/ground-station-dev"
+mkdir -p "$LOG_DIR"
 
 if [[ ! -f "$PYTHON_EXE" ]]; then
     echo "Error: Backend venv not found: $PYTHON_EXE" >&2
@@ -52,10 +54,18 @@ launch_in_terminal() {
     shift
     local cmd="$*"
 
-    mkdir -p "$REPO_ROOT/logs"
-    local logfile="$REPO_ROOT/logs/${title// /_}.log"
-    bash -c "$cmd" >"$logfile" 2>&1 &
-    echo "Started '$title' (PID $!) — logs: $logfile"
+    local slug
+    slug=$(echo "$title" | tr '[:upper:] ' '[:lower:]-')
+    local logfile="$LOG_DIR/$slug.log"
+
+    # Redirect output to a log file and detach (nohup + disown) so the launched
+    # process doesn't spam the interactive terminal and survives this script
+    # exiting. Without this, uvicorn/vite logs flood the prompt and it looks
+    # like you can't type (you can — the keystrokes are just buried).
+    nohup bash -c "$cmd" > "$logfile" 2>&1 &
+    local pid=$!
+    disown "$pid" 2>/dev/null || true
+    echo "Started '$title' (PID $pid)"
 }
 
 if $RESTART; then
@@ -118,3 +128,11 @@ echo "Backend:  http://localhost:$BACKEND_PORT"
 if $MQTT; then
     echo "MQTT status: http://localhost:$BACKEND_PORT/api/telemetry/mqtt/status"
 fi
+
+# Surface ONLY the Vite bootup time line, nothing else.
+FRONTEND_LOG="$LOG_DIR/ground-station-frontend.log"
+for _ in $(seq 1 20); do
+    vite_ready=$(grep -m1 "ready in" "$FRONTEND_LOG" 2>/dev/null || true)
+    [[ -n "$vite_ready" ]] && { echo "$vite_ready"; break; }
+    sleep 0.3
+done

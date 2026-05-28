@@ -4,6 +4,10 @@ import sys
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
+from common.profiling import start_boot_profile  # noqa: E402
+
+start_boot_profile()
+
 import uvicorn  # noqa: E402
 
 from common.arguments import arguments  # noqa: E402
@@ -22,6 +26,7 @@ def main() -> None:
             host=arguments.host,
             port=arguments.port,
             log_level=arguments.log_level.lower(),
+            access_log=False,
         )
     except KeyboardInterrupt:
         os._exit(0)

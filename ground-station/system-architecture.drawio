@@ -1,0 +1,60 @@
+<mxfile host="app.diagrams.net" agent="ground-station">
+  <diagram name="Ground Station System — RFD900x / Jetson" id="gs-rfd900x-jetson">
+    <mxGraphModel dx="983" dy="581" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="900" pageHeight="1160" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="T5Gs9BAA6d520jiRzm_c-2" parent="1" style="rounded=0;whiteSpace=wrap;html=1;" value="Jetson" vertex="1">
+          <mxGeometry height="60" width="120" x="470" y="280" as="geometry" />
+        </mxCell>
+        <mxCell id="T5Gs9BAA6d520jiRzm_c-4" edge="1" parent="1" source="T5Gs9BAA6d520jiRzm_c-3" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" target="T5Gs9BAA6d520jiRzm_c-2">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="T5Gs9BAA6d520jiRzm_c-5" connectable="0" parent="T5Gs9BAA6d520jiRzm_c-4" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" value="USB" vertex="1">
+          <mxGeometry relative="1" x="-0.0094" y="3" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="T5Gs9BAA6d520jiRzm_c-3" parent="1" style="rounded=0;whiteSpace=wrap;html=1;" value="rfd900x" vertex="1">
+          <mxGeometry height="60" width="120" x="250" y="280" as="geometry" />
+        </mxCell>
+        <mxCell id="T5Gs9BAA6d520jiRzm_c-6" edge="1" parent="1" source="T5Gs9BAA6d520jiRzm_c-2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="T5Gs9BAA6d520jiRzm_c-8">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="660" y="309.52" as="sourcePoint" />
+            <mxPoint x="830" y="309.52" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="T5Gs9BAA6d520jiRzm_c-7" connectable="0" parent="T5Gs9BAA6d520jiRzm_c-6" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" value="ETH MQTT/TCP" vertex="1">
+          <mxGeometry relative="1" x="-0.0094" y="3" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="T5Gs9BAA6d520jiRzm_c-8" parent="1" style="rounded=0;whiteSpace=wrap;html=1;" value="User Access" vertex="1">
+          <mxGeometry height="60" width="120" x="710" y="280" as="geometry" />
+        </mxCell>
+        <mxCell id="T5Gs9BAA6d520jiRzm_c-9" edge="1" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;entryX=0.5;entryY=1;entryDx=0;entryDy=0;">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="260" y="480" as="sourcePoint" />
+            <mxPoint x="260" y="340" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="T5Gs9BAA6d520jiRzm_c-13" connectable="0" parent="T5Gs9BAA6d520jiRzm_c-9" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" value="+ 5V" vertex="1">
+          <mxGeometry relative="1" x="0.0361" y="-1" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="T5Gs9BAA6d520jiRzm_c-11" edge="1" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;entryX=0.5;entryY=1;entryDx=0;entryDy=0;">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="360" y="480" as="sourcePoint" />
+            <mxPoint x="360" y="340" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="T5Gs9BAA6d520jiRzm_c-14" connectable="0" parent="T5Gs9BAA6d520jiRzm_c-11" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" value="GND" vertex="1">
+          <mxGeometry relative="1" x="0.1094" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

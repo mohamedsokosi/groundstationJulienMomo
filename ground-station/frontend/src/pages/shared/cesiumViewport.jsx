@@ -28,7 +28,6 @@ import {
     MAP_CAMERA_PITCH,
     MAP_MAX_CAMERA_HEIGHT,
     MAP_MIN_CAMERA_HEIGHT,
-    MAP_ZOOM_FACTOR,
 } from './cesium-utils.js';
 
 const GS_INPUT_STYLE = {
@@ -39,7 +38,7 @@ const GS_INPUT_STYLE = {
     outline: 'none', boxSizing: 'border-box',
 };
 
-export const RightControlPanel = ({ groundStationPos, onGroundStationChange, onZoomIn, onZoomOut, options, onToggle }) => {
+export const RightControlPanel = ({ groundStationPos, onGroundStationChange, options, onToggle }) => {
     const [showGsForm, setShowGsForm] = useState(false);
     const [draftLat, setDraftLat] = useState(() => String(groundStationPos.lat));
     const [draftLon, setDraftLon] = useState(() => String(groundStationPos.lon));
@@ -69,10 +68,6 @@ export const RightControlPanel = ({ groundStationPos, onGroundStationChange, onZ
     return (
         <aside className="gs-right-panel compact" aria-label="Controles carte">
             <div className="gs-control-stack">
-                <div className="gs-zoom-controls" aria-label="Zoom carte">
-                    <button className="gs-zoom-button" onClick={onZoomIn} title="Zoom avant" type="button" aria-label="Zoom avant">+</button>
-                    <button className="gs-zoom-button" onClick={onZoomOut} title="Zoom arriere" type="button" aria-label="Zoom arriere">-</button>
-                </div>
                 {controls.map((control) => (
                     <button
                         className={`gs-cyan-button${options[control.key] ? ' is-on' : ''}`}
@@ -156,21 +151,6 @@ export const CesiumViewport = ({ currentRecord, groundStationPos, onGroundStatio
             ),
         );
         viewer.camera.lookAtTransform(Matrix4.IDENTITY);
-    };
-
-    const handleZoom = (direction) => {
-        const viewer = viewerRef.current;
-        if (!viewer) return;
-        const currentHeight = viewer.camera.positionCartographic.height || cameraHeightRef.current;
-        const nextHeight = direction === 'in'
-            ? currentHeight * (1 - MAP_ZOOM_FACTOR)
-            : currentHeight * (1 + MAP_ZOOM_FACTOR);
-        cameraHeightRef.current = Math.min(MAP_MAX_CAMERA_HEIGHT, Math.max(MAP_MIN_CAMERA_HEIGHT, nextHeight));
-        if (direction === 'in') {
-            viewer.camera.zoomIn(currentHeight - cameraHeightRef.current);
-        } else {
-            viewer.camera.zoomOut(cameraHeightRef.current - currentHeight);
-        }
     };
 
     useEffect(() => {
@@ -436,8 +416,6 @@ export const CesiumViewport = ({ currentRecord, groundStationPos, onGroundStatio
                 groundStationPos={groundStationPos}
                 onGroundStationChange={onGroundStationChange}
                 onToggle={onToggleMapOption}
-                onZoomIn={() => handleZoom('in')}
-                onZoomOut={() => handleZoom('out')}
                 options={mapOptions}
             />
             {(loading || !hasData) && (

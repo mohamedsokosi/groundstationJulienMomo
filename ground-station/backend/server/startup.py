@@ -9,6 +9,7 @@ from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from common.logger import logger
+from common.profiling import install_request_timing, stop_boot_profile_and_report
 from pipeline import telemetry_store
 from pipeline.mqtt_telemetry_receiver import (
     get_mqtt_config,
@@ -22,6 +23,7 @@ from server.telemetry_protobuf import csv_row_to_telemetry_frame, encode_telemet
 async def lifespan(fastapiapp: FastAPI):
     logger.info("Ground Station startup...")
     start_mqtt_receiver_in_background()
+    stop_boot_profile_and_report()
     try:
         yield
     finally:
@@ -43,6 +45,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+install_request_timing(app)
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 FRONTEND_DIST_DIR = os.environ.get(

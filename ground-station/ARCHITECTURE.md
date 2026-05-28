@@ -77,7 +77,7 @@ ground-station/
 │           ├── vueGlobe3d/
 │           │   └── telemetry-dashboard.jsx    # /vueGlobe3d — MQTT-only Cesium globe
 │           ├── analyse/
-│           │   └── analyse-dashboard.jsx      # /analyse — configurable chart grid (CSV or MQTT)
+│           │   └── analyse-dashboard.jsx      # /analyse — configurable chart grid (MQTT live)
 │           ├── cubesat/
 │           │   ├── cubesat-dashboard.jsx      # /cubesat — annotated CubeSat view
 │           │   ├── cubesat-annotated-visual.jsx
@@ -109,12 +109,14 @@ ground-station/
 ├── tools/
 │   ├── dev/
 │   │   └── start-local.sh   # Local startup (MQTT, Simulator, Restart, BrokerHost)
+│   │                        # Detaches backend/frontend, logs to $TMPDIR/ground-station-dev/
 │   └── simulators/
 │       └── mqtt_cubesat_simulator.py  # MQTT simulator — publishes protobuf frames
 │
 ├── Dockerfile               # Multi-stage build: Node → Python 3.12
 ├── LICENSE
 ├── README.md
+├── system-architecture.drawio  # draw.io diagram: RFD900x → Jetson → Ground Station (B/W, English)
 └── telemetry.csv            # Real flight data (ICARUS2, 2025-08-14, 7,681 rows @ 1 s)
 ```
 
@@ -233,8 +235,11 @@ hook. The MQTT effect:
 
 The left column (25% width) is fully configurable by the operator via the **Modifier** menu:
 
-- **Chart panels** — any X/Y field combination from `AVAILABLE_FIELDS`; draggable, deletable, starred (synced with `/analyse` favorites)
-- **Terminal panels** — three variants, at most one of each:
+- **Chart panels** — any X/Y field combination from `AVAILABLE_FIELDS`; draggable, deletable, starred (synced with `/analyse` favorites). A newly created chart picks a **random** color from `CHART_COLORS` (no longer always green) — same behavior in `/analyse`'s `addChart`.
+- **Terminal panels** — three variants, at most one of each. Each variant caps its
+  retained lines to avoid DOM/render lag and to fit without a scrollbar:
+  `telemetry` → 5 lines, `verbose` → 1 line, `errors` → 500 lines (kept long since
+  errors are rare). The oldest lines are evicted (`slice(-maxLines)`).
   - `telemetry` — key telemetry fields, green
   - `verbose` — all non-internal fields, yellow
   - `errors` — anomaly detection (GPS lost, low sat count, missing altitude/pressure)
@@ -451,6 +456,20 @@ Configurable via the **"Position GS ▼"** button in the Cesium right-panel (bot
 | `-BrokerHost <ip>` | Use an external MQTT broker (e.g. the Raspberry Pi 4B) |
 | `-BackendPort <p>` | Override backend port (default 5000) |
 | `-FrontendPort <p>` | Override frontend port (default 5173) |
+
+#### Process detachment & logs
+
+The backend (uvicorn) and frontend (vite) are launched with `nohup … &` + `disown`
+and their stdout/stderr is redirected to per-service log files under
+`${TMPDIR:-/tmp}/ground-station-dev/` (`ground-station-backend.log`,
+`ground-station-frontend.log`). This keeps the interactive prompt usable —
+previously the processes wrote straight to the terminal, burying keystrokes and
+making it look frozen. On startup the script prints only the Vite "ready in … ms"
+line (grepped from the frontend log); everything else stays in the log files.
+Because the processes are detached, **Ctrl+C no longer stops them** — use
+`-Restart` (which kills whatever is listening on the backend/frontend ports) or
+`kill <PID>` with the PIDs printed at launch. Follow logs anytime with
+`tail -f "${TMPDIR:-/tmp}/ground-station-dev"/*.log`.
 
 ### Connecting to the Raspberry Pi 4B broker
 
