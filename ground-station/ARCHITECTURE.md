@@ -85,7 +85,7 @@ ground-station/
 │           │   ├── cubesat-config.js
 │           │   └── cubesat-utils.js
 │           ├── rapport/
-│           │   └── rapport-dashboard.jsx      # /rapport — mission report generation
+│           │   └── rapport-dashboard.jsx      # /rapport — PDF export of /station + /analyse charts
 │           └── shared/                        # Shared components and utilities
 │               ├── cesiumViewport.jsx         # Cesium globe + RightControlPanel (zoom, GS position)
 │               ├── telemetryChart.jsx         # Recharts chart (decimated to 800 pts for rendering)
@@ -131,7 +131,7 @@ ground-station/
 | `/vueGlobe3d` | `TelemetryDashboard` | 3D Cesium globe, trajectory, stats bar |
 | `/analyse` | `AnalyseDashboard` | Fully configurable Recharts grid |
 | `/cubesat` | `CubeSatDashboard` | Annotated CubeSat image, subsystems, telemetry |
-| `/rapport` | `RapportDashboard` | Mission report generation |
+| `/rapport` | `RapportDashboard` | PDF export only — renders the two hardcoded `/station` charts (Altitude, Speed) + all `/analyse` charts, single "Export PDF" button (`window.print()`) |
 
 ### MQTT-only data source
 All routes now consume MQTT live telemetry — the CSV/MQTT source toggle was removed from the topbar. The Redux `sourceMode` stays at its default `'mqtt'`; the `setSourceMode` action and `parseTelemetryCsv` helpers remain available for future use but no UI surface switches modes anymore.
