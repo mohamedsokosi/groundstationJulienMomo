@@ -1,0 +1,15 @@
+[tool.poetry]
+name = "ground-station-backend"
+version = "0.1.0"
+description = "ICARUS2 Ground Station backend (FastAPI + MQTT live telemetry)"
+authors = ["Julien"]
+# This is a runnable application, not a library to package/publish — so Poetry
+# only manages the virtualenv + dependencies and does not try to install the
+# project itself as an importable package.
+package-mode = false
+
+[tool.poetry.dependencies]
+python = "^3.12"
+fastapi = "^0.115.11"
+uvicorn = "^0.34.0"
+paho-mqtt = "^2.1.0"

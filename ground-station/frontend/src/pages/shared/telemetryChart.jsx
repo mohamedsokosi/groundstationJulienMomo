@@ -12,9 +12,13 @@ import { Box, Typography } from '@mui/material';
 import { alpha, useTheme } from '@mui/material/styles';
 import { fieldLabel, fieldUnit, fieldStep } from './chart-fields.js';
 import { pagedDomain } from './chart-logic.js';
-import { useAnimatedDomain } from './useAnimatedDomain.js';
 
-export function TelemetryChart({ data, xKey, lines, tracking, onTrackingChange }) {
+// Stable empty array for the Y-axis-only sidebar chart (its scale comes from an
+// explicit domain + ticks, so it needs no data — feeding it the full 5000-frame
+// series made Recharts iterate it for nothing on every render).
+const NO_DATA = [];
+
+function TelemetryChartImpl({ data, xKey, lines, tracking, onTrackingChange }) {
     const theme = useTheme();
     const scrollRef = useRef(null);
     const isAutoScrollLockRef = useRef(false);
@@ -84,41 +88,42 @@ export function TelemetryChart({ data, xKey, lines, tracking, onTrackingChange }
     const stepX = fieldStep(xKey);
     const stepY = lines.reduce((m, { key }) => Math.max(m, fieldStep(key)), 0) || 100;
 
+    // Axis domains update directly. The previous rAF glide animation
+    // re-rendered the whole Recharts chart ~18× per domain change; with several
+    // charts streaming at 1 Hz those windows overlapped into near-continuous
+    // heavy re-rendering (~10 fps). Stepping the axis keeps it to one render per
+    // data update.
     const [, xDomainMax] = pagedDomain(maxX, 0, stepX);
     const [yDomainMin, yDomainMax] = pagedDomain(maxY, minY, stepY);
 
-    const animXMax = useAnimatedDomain(xDomainMax);
-    const animYMin = useAnimatedDomain(yDomainMin);
-    const animYMax = useAnimatedDomain(yDomainMax);
-
     const xTicks = useMemo(() => {
-        if (!animXMax) return [0];
+        if (!xDomainMax) return [0];
         const raw = stepX / 10;
         const mag = Math.pow(10, Math.floor(Math.log10(raw)));
         const n = raw / mag;
         const nice = n < 1.5 ? mag : n < 3.5 ? 2 * mag : n < 7.5 ? 5 * mag : 10 * mag;
-        const count = Math.round(animXMax / nice);
+        const count = Math.round(xDomainMax / nice);
         return Array.from({ length: Math.min(count, 500) + 1 }, (_, i) =>
             Math.round(i * nice * 1e9) / 1e9
         );
-    }, [animXMax, stepX]);
+    }, [xDomainMax, stepX]);
 
-    const pagesX = animXMax / stepX;
+    const pagesX = xDomainMax / stepX;
 
     const yTicks = useMemo(() => {
-        const range = animYMax - animYMin;
-        if (range <= 0) return [Math.round(animYMin)];
+        const range = yDomainMax - yDomainMin;
+        if (range <= 0) return [Math.round(yDomainMin)];
         const raw = range / 8;
         const mag = Math.pow(10, Math.floor(Math.log10(raw)));
         const n = raw / mag;
         const nice = n < 1.5 ? mag : n < 3.5 ? 2 * mag : n < 7.5 ? 5 * mag : 10 * mag;
-        const lo = Math.ceil(animYMin / nice) * nice;
+        const lo = Math.ceil(yDomainMin / nice) * nice;
         const result = [];
-        for (let v = lo; v <= animYMax + nice * 0.0001; v += nice) {
+        for (let v = lo; v <= yDomainMax + nice * 0.0001; v += nice) {
             result.push(Math.round(v * 1e9) / 1e9);
         }
         return result;
-    }, [animYMin, animYMax]);
+    }, [yDomainMin, yDomainMax]);
 
     useEffect(() => {
         if (!tracking || !hasData) return;
@@ -157,9 +162,9 @@ export function TelemetryChart({ data, xKey, lines, tracking, onTrackingChange }
         <Box sx={{ width: '100%', height: '100%', display: 'flex', position: 'relative' }}>
             <Box sx={{ width: 50, flexShrink: 0, height: '100%' }}>
                 <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={data} margin={{ top: 4, right: 0, left: 8, bottom: 34 }}>
+                    <LineChart data={NO_DATA} margin={{ top: 4, right: 0, left: 8, bottom: 34 }}>
                         <YAxis
-                            domain={[animYMin, animYMax]}
+                            domain={[yDomainMin, yDomainMax]}
                             ticks={yTicks}
                             tick={{ fontSize: labelFs, fill: theme.palette.text.secondary }}
                             stroke={theme.palette.divider}
@@ -187,14 +192,14 @@ export function TelemetryChart({ data, xKey, lines, tracking, onTrackingChange }
                             <XAxis
                                 dataKey={xKey}
                                 type="number"
-                                domain={[0, animXMax]}
+                                domain={[0, xDomainMax]}
                                 ticks={xTicks}
                                 height={30}
                                 tick={{ fontSize: labelFs, fill: theme.palette.text.secondary }}
                                 stroke={theme.palette.divider}
                                 label={{ value: fieldLabel(xKey), position: 'insideBottom', offset: 2, fontSize: labelFs, fill: theme.palette.text.secondary }}
                             />
-                            <YAxis domain={[animYMin, animYMax]} hide width={0} />
+                            <YAxis domain={[yDomainMin, yDomainMax]} hide width={0} />
                             <Tooltip
                                 contentStyle={{
                                     backgroundColor: theme.palette.background.paper,
@@ -257,3 +262,14 @@ export function TelemetryChart({ data, xKey, lines, tracking, onTrackingChange }
         </Box>
     );
 }
+
+// Custom comparator: `onTrackingChange` is recreated on every parent render
+// (inline arrow in the dashboards), so the default shallow compare would always
+// re-render. It only ever calls updateChart with the chart's stable id, so its
+// identity is irrelevant — compare the data-bearing props instead.
+export const TelemetryChart = React.memo(TelemetryChartImpl, (prev, next) =>
+    prev.data === next.data &&
+    prev.xKey === next.xKey &&
+    prev.lines === next.lines &&
+    prev.tracking === next.tracking
+);

@@ -24,12 +24,15 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 BACKEND_DIR="$REPO_ROOT/backend"
 FRONTEND_DIR="$REPO_ROOT/frontend"
-PYTHON_EXE="$BACKEND_DIR/venv/bin/python"
+# Poetry creates an in-project virtualenv at backend/.venv (virtualenvs.in-project
+# = true). Use its interpreter directly — deterministic, and avoids depending on
+# `poetry` being on PATH at runtime or a stray VIRTUAL_ENV confusing resolution.
+PYTHON_EXE="$BACKEND_DIR/.venv/bin/python"
 LOG_DIR="${TMPDIR:-/tmp}/ground-station-dev"
 mkdir -p "$LOG_DIR"
 
 if [[ ! -f "$PYTHON_EXE" ]]; then
-    echo "Error: Backend venv not found: $PYTHON_EXE" >&2
+    echo "Error: Poetry venv not found at $PYTHON_EXE. Run 'poetry install' in $BACKEND_DIR first." >&2
     exit 1
 fi
 

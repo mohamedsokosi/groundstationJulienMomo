@@ -78,11 +78,13 @@ function buildAxes(data, xKey, lines) {
             if (v < minY) minY = v;
         }
     }
-    const stepX = fieldStep(xKey);
     const stepY = lines.reduce((m, { key }) => Math.max(m, fieldStep(key)), 0) || 100;
     const [yMin, yMax] = pagedDomain(maxY, minY, stepY);
 
-    const niceX = niceStep(stepX / 10);
+    // Few, evenly-spaced ticks (nice multiples of 1/2/5/10×10ⁿ) so a full-flight
+    // X range stays readable in the fixed-width PDF chart instead of cramming a
+    // label every minute. Step scales with the range to target ~8 ticks.
+    const niceX = niceStep(maxX / 8);
     const xTicks = [];
     for (let v = 0; v <= maxX + niceX * 1e-6 && xTicks.length <= 200; v += niceX) {
         xTicks.push(Math.round(v * 1e9) / 1e9);
@@ -99,7 +101,32 @@ function buildAxes(data, xKey, lines) {
 }
 
 function ReportChart({ data, xKey, lines }) {
-    const render = useMemo(() => decimate(data), [data]);
+    const hasBlackout = useMemo(() => data.some((d) => d._blackout), [data]);
+
+    // Split each series into a normal segment and a red "ghost" segment so
+    // telemetry-loss periods render red in the PDF, same as /station & /analyse.
+    const transformed = useMemo(() => {
+        if (!hasBlackout) return data;
+        const lastIsBlackout = Boolean(data[data.length - 1]?._blackout);
+        let connectIdx = -1;
+        if (lastIsBlackout) {
+            for (let i = data.length - 1; i >= 0; i--) {
+                if (!data[i]._blackout) { connectIdx = i; break; }
+            }
+        }
+        return data.map((d, i) => {
+            const isGhost = Boolean(d._blackout);
+            const isConnect = i === connectIdx;
+            const out = { ...d };
+            for (const { key } of lines) {
+                out[`${key}_normal`] = isGhost ? undefined : d[key];
+                out[`${key}_ghost`]  = (isGhost || isConnect) ? d[key] : undefined;
+            }
+            return out;
+        });
+    }, [data, lines, hasBlackout]);
+
+    const render = useMemo(() => decimate(transformed), [transformed]);
     const { xMax, yMin, yMax, xTicks, yTicks } = useMemo(
         () => buildAxes(render, xKey, lines),
         [render, xKey, lines],
@@ -141,18 +168,43 @@ function ReportChart({ data, xKey, lines }) {
                         />
                         <Tooltip formatter={(v, name) => [typeof v === 'number' ? v.toFixed(2) : v, name]} />
                         {lines.length > 1 && <Legend />}
-                        {lines.map(({ key, color }) => (
-                            <Line
-                                key={key}
-                                type="monotone"
-                                dataKey={key}
-                                name={fieldLabel(key)}
-                                stroke={color}
-                                dot={false}
-                                strokeWidth={2}
-                                isAnimationActive={false}
-                            />
-                        ))}
+                        {hasBlackout
+                            ? lines.flatMap(({ key, color }) => [
+                                <Line
+                                    key={`${key}_normal`}
+                                    type="monotone"
+                                    dataKey={`${key}_normal`}
+                                    name={fieldLabel(key)}
+                                    stroke={color}
+                                    dot={false}
+                                    strokeWidth={2}
+                                    isAnimationActive={false}
+                                    connectNulls={false}
+                                />,
+                                <Line
+                                    key={`${key}_ghost`}
+                                    type="monotone"
+                                    dataKey={`${key}_ghost`}
+                                    name={fieldLabel(key)}
+                                    stroke="#ff3030"
+                                    dot={false}
+                                    strokeWidth={2}
+                                    isAnimationActive={false}
+                                    connectNulls={false}
+                                />,
+                            ])
+                            : lines.map(({ key, color }) => (
+                                <Line
+                                    key={key}
+                                    type="monotone"
+                                    dataKey={key}
+                                    name={fieldLabel(key)}
+                                    stroke={color}
+                                    dot={false}
+                                    strokeWidth={2}
+                                    isAnimationActive={false}
+                                />
+                            ))}
                     </LineChart>
                 </ResponsiveContainer>
             </Box>
