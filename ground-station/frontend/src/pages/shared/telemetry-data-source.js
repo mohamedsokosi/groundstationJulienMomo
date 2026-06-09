@@ -1,53 +1,11 @@
-import {
-    getTelemetryNumber,
-    isTelemetryNumericHeader,
-    normalizeTelemetryHeader,
-    toTelemetryNumber,
-} from './telemetry-utils.js';
+import { getTelemetryNumber, toTelemetryNumber } from './telemetry-utils.js';
 import { decodeTelemetryRowsFromProtobuf } from './telemetry-protobuf.js';
 
-export const TELEMETRY_SOURCE_URL = '/api/telemetry.csv';
-export const TELEMETRY_PROTOBUF_SOURCE_URL = '/api/telemetry.pb';
 export const TELEMETRY_MQTT_FRAMES_URL = '/api/telemetry/mqtt/frames';
-export const TELEMETRY_STREAM_INTERVAL_MS = 500;
-export const TELEMETRY_MIN_STREAM_POINTS = 500;
-export const TELEMETRY_MQTT_POLL_MS = 3000;
-// How fast to drain queued MQTT frames into the display (one frame per tick).
-// 400 ms ≈ matches the Pico's ~250 ms packet interval with a small buffer.
-export const TELEMETRY_MQTT_DRAIN_MS = 400;
 // Max points kept in the live display window — match backend store_maxlen (5000).
 export const TELEMETRY_MQTT_DISPLAY_POINTS = 5000;
-
-export function parseTelemetryCsv(text) {
-    const lines = text
-        .split(/\r?\n/)
-        .map((line) => line.trim())
-        .filter(Boolean);
-
-    if (lines.length === 0) {
-        return [];
-    }
-
-    const headers = lines[0].split(',').map((header) => header.trim());
-
-    return lines.slice(1).map((line) => {
-        const values = line.split(',').map((value) => value.trim());
-        const record = {};
-
-        headers.forEach((header, index) => {
-            const value = values[index];
-            const parsedValue = isTelemetryNumericHeader(header)
-                ? toTelemetryNumber(value)
-                : value ?? '';
-            const normalizedHeader = normalizeTelemetryHeader(header);
-
-            record[header] = parsedValue;
-            record[normalizedHeader] = parsedValue;
-        });
-
-        return record;
-    });
-}
+// Fallback interval used when a frame has no timestamp (should be rare with live MQTT).
+const TELEMETRY_STREAM_INTERVAL_MS = 500;
 
 export function parseTelemetryProtobuf(buffer) {
     return decodeTelemetryRowsFromProtobuf(buffer);
@@ -225,39 +183,3 @@ export function buildTelemetryChartData(rawData = []) {
     });
 }
 
-export function createTelemetryStreamPoint(rows = [], currentIndex = 0, streamIndex = 0) {
-    if (!rows.length) {
-        return null;
-    }
-
-    return {
-        ...rows[currentIndex],
-        streamIndex,
-        sourceIndex: currentIndex,
-    };
-}
-
-export function getTelemetryStreamLimit(sourceLength = 0) {
-    return Math.max(sourceLength * 3, TELEMETRY_MIN_STREAM_POINTS);
-}
-
-export function readTextFile(file) {
-    return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-
-        reader.onload = (event) => {
-            if (typeof event.target?.result === 'string') {
-                resolve(event.target.result);
-                return;
-            }
-
-            reject(new Error('The selected file could not be read as text.'));
-        };
-
-        reader.onerror = () => {
-            reject(reader.error || new Error('Failed to read the selected file.'));
-        };
-
-        reader.readAsText(file);
-    });
-}

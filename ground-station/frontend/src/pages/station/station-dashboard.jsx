@@ -1,5 +1,4 @@
 import React, { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
-import { useDispatch } from 'react-redux';
 import { Box, Button, Checkbox, Chip, FormControl, IconButton, InputLabel, MenuItem, Paper, Select, Stack, Typography } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import CheckIcon from '@mui/icons-material/Check';
@@ -8,15 +7,13 @@ import DragIndicatorIcon from '@mui/icons-material/DragIndicator';
 import EditIcon from '@mui/icons-material/Edit';
 import FileDownloadIcon from '@mui/icons-material/FileDownload';
 import FileUploadIcon from '@mui/icons-material/FileUpload';
-import WifiOffIcon from '@mui/icons-material/WifiOff';
 import StarIcon from '@mui/icons-material/Star';
 import StarBorderOutlinedIcon from '@mui/icons-material/StarBorderOutlined';
 import { alpha, useTheme } from '@mui/material/styles';
 import { useTelemetryStream } from '../shared/use-telemetry-stream.jsx';
-import { appendTelemetryPoint } from '../shared/telemetry-slice.jsx';
 import { usePageActions } from '../../page-actions-context.jsx';
 import { distanceKm, getMqttSourceStat, getTelemetryNumber, toTelemetryNumber } from '../shared/telemetry-utils.js';
-import { AVAILABLE_FIELDS, CHART_COLORS, fieldLabel } from '../shared/chart-fields.js';
+import { AVAILABLE_FIELDS, CHART_COLORS, TEMP_FIELD_KEYS, fieldLabel } from '../shared/chart-fields.js';
 import { TelemetryChart } from '../shared/telemetryChart.jsx';
 import { ChartTitle } from '../shared/chartTitle.jsx';
 import { CesiumViewport } from '../shared/cesiumViewport.jsx';
@@ -62,13 +59,10 @@ function loadLeftColumnItems() {
 
 export default function StationDashboard() {
     const theme = useTheme();
-    const dispatch = useDispatch();
     const {
         chartData,
         loading,
         hasData,
-        pauseMqtt,
-        resumeMqtt,
     } = useTelemetryStream();
 
     // chartData is now produced by a Web Worker (telemetry-worker.js) and is
@@ -111,44 +105,6 @@ export default function StationDashboard() {
         timer = setTimeout(poll, 0);
         return () => { cancelled = true; clearTimeout(timer); };
     }, []);
-
-    const [blackoutActive, setBlackoutActive] = useState(false);
-    const lastDataPointRef = useRef(null);
-    lastDataPointRef.current = chartData[chartData.length - 1] ?? null;
-
-    // Manual blackout: pause/resume the MQTT poll. Real outages are now handled
-    // inside useTelemetryStream (centralized auto-injection), so this effect
-    // only handles the operator-driven simulation.
-    useEffect(() => {
-        if (blackoutActive) {
-            pauseMqtt();
-            return () => resumeMqtt();
-        }
-    }, [blackoutActive, pauseMqtt, resumeMqtt]);
-
-    useEffect(() => {
-        if (!blackoutActive) return;
-        const id = setInterval(() => {
-            const base = lastDataPointRef.current;
-            if (!base) return;
-            dispatch(appendTelemetryPoint({
-                point: {
-                    ...base,
-                    _blackout: true,
-                    _realOutage: false, // manual simulation, not a real Pi outage
-                    _received_at: Date.now(),
-                    'm-time': undefined,
-                    'm_time': undefined,
-                    'Ublox UTC': undefined,
-                    'Ublox_UTC': undefined,
-                    gnssTimeUtc: undefined,
-                    streamIndex: (base.streamIndex ?? 0) + 1,
-                },
-                maxPoints: 5000,
-            }));
-        }, 1000);
-        return () => clearInterval(id);
-    }, [blackoutActive, dispatch]);
 
     const { setNode } = usePageActions();
 
@@ -263,6 +219,21 @@ export default function StationDashboard() {
         setNewLines((prev) => [...prev, { key: pendingY, color }]);
     };
 
+    const addAllTemps = () => {
+        setNewLines((prev) => {
+            const usedKeys = new Set(prev.map((l) => l.key));
+            const usedColors = new Set(prev.map((l) => l.color));
+            const toAdd = [];
+            for (const key of TEMP_FIELD_KEYS) {
+                if (usedKeys.has(key)) continue;
+                const color = CHART_COLORS.find((c) => !usedColors.has(c)) ?? CHART_COLORS[(prev.length + toAdd.length) % CHART_COLORS.length];
+                usedColors.add(color);
+                toAdd.push({ key, color });
+            }
+            return [...prev, ...toAdd];
+        });
+    };
+
     const addChart = () => {
         if (!newX || !pendingY) return;
         const effectiveLines = newLines.length > 0
@@ -337,23 +308,11 @@ export default function StationDashboard() {
     useEffect(() => {
         setNode(
             <Stack direction="row" spacing={1} sx={{ mr: 1 }}>
-                <Button
-                    variant={blackoutActive ? 'contained' : 'outlined'}
-                    size="small"
-                    startIcon={<WifiOffIcon />}
-                    onClick={() => setBlackoutActive((v) => !v)}
-                    color={blackoutActive ? 'error' : 'inherit'}
-                    sx={blackoutActive
-                        ? { animation: 'mqtt-blink 1.2s step-start infinite', '@keyframes mqtt-blink': { '50%': { opacity: 0.55 } } }
-                        : { color: 'white', borderColor: 'rgba(255,255,255,0.5)', '&:hover': { borderColor: 'white' } }}
-                >
-                    {blackoutActive ? 'Coupure active' : 'Simuler coupure'}
-                </Button>
-                <Button variant="outlined" size="small" startIcon={<FileUploadIcon />} onClick={exportConfig}
+                <Button variant="outlined" size="small" startIcon={<FileDownloadIcon />} onClick={exportConfig}
                     sx={{ color: 'white', borderColor: 'rgba(255,255,255,0.5)', '&:hover': { borderColor: 'white' } }}>
                     Exporter
                 </Button>
-                <Button variant="outlined" size="small" component="label" startIcon={<FileDownloadIcon />}
+                <Button variant="outlined" size="small" component="label" startIcon={<FileUploadIcon />}
                     sx={{ color: 'white', borderColor: 'rgba(255,255,255,0.5)', '&:hover': { borderColor: 'white' } }}>
                     Importer
                     <input type="file" accept=".json" hidden onChange={importConfig} />
@@ -371,7 +330,7 @@ export default function StationDashboard() {
             </Stack>
         );
         return () => setNode(null);
-    }, [blackoutActive, editMode, exportConfig, importConfig, setNode]);
+    }, [editMode, exportConfig, importConfig, setNode]);
 
     return (
         <Box sx={{
@@ -416,6 +375,10 @@ export default function StationDashboard() {
                                 <Button size="small" variant="outlined" onClick={addLineToForm}
                                     disabled={!!newLines.find((l) => l.key === pendingY)}>
                                     + Series
+                                </Button>
+                                <Button size="small" variant="outlined" onClick={addAllTemps}
+                                    disabled={TEMP_FIELD_KEYS.every((k) => !!newLines.find((l) => l.key === k))}>
+                                    All Temp
                                 </Button>
                             </Stack>
                             <Stack direction="row" spacing={0.5} flexWrap="wrap">
@@ -570,11 +533,18 @@ export default function StationDashboard() {
                 gap: 0.5,
                 overflow: 'hidden',
             }}>
-                <TelemetryStatsBar
-                    currentRecord={currentRecord}
-                    distance={distance}
-                    mqttStatus={mqttStatus}
-                />
+                <Box sx={{ display: 'flex', flexDirection: 'row', gap: 0.5, flexShrink: 0, height: 64, minHeight: 64 }}>
+                    <Box sx={{ flex: 1, minWidth: 0, height: '100%' }}>
+                        <TelemetryStatsBar
+                            currentRecord={currentRecord}
+                            distance={distance}
+                            mqttStatus={mqttStatus}
+                        />
+                    </Box>
+                    <Box sx={{ width: '25vw', flexShrink: 0, height: '100%' }}>
+                        <TelemetryTerminal variant="errors" />
+                    </Box>
+                </Box>
 
                 <Box sx={{ flex: 3, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
                     <CesiumViewport

@@ -191,6 +191,7 @@ function ReportChart({ data, xKey, lines }) {
                                     strokeWidth={2}
                                     isAnimationActive={false}
                                     connectNulls={false}
+                                    legendType="none"
                                 />,
                             ])
                             : lines.map(({ key, color }) => (

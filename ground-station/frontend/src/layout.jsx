@@ -18,6 +18,7 @@ import {
 } from '@mui/material';
 import { getNavigation } from './navigation.jsx';
 import { PageActionsProvider, usePageActions } from './page-actions-context.jsx';
+import { TopbarWidgets } from './topbar-widgets.jsx';
 
 const SAFARI_HEADER_LOGO = '/SAFARI.png';
 const EASTER_IMG   = '/urgetopee.png';
@@ -293,9 +294,9 @@ export default function Layout() {
             <Box sx={{ display: 'flex', minHeight: '100vh', overflow: 'hidden' }}>
                 <AppBar position="fixed" sx={{ zIndex: (t) => t.zIndex.drawer + 1 }}>
                     <Toolbar>
-                        <Box sx={{ flexGrow: 1 }}>
-                            <AppTitle onLogoClick={handleLogoClick} />
-                        </Box>
+                        <AppTitle onLogoClick={handleLogoClick} />
+                        <Box sx={{ flexGrow: 1 }} />
+                        <TopbarWidgets />
                         <ToolbarActions />
                     </Toolbar>
                 </AppBar>

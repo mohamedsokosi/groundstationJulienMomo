@@ -1,6 +1,6 @@
 #!/bin/bash
 
-MQTT=false
+MQTT=true
 SIMULATOR=false
 RESTART=false
 BACKEND_PORT=5000
@@ -24,6 +24,17 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 BACKEND_DIR="$REPO_ROOT/backend"
 FRONTEND_DIR="$REPO_ROOT/frontend"
+
+# Load optional local overrides (secrets like SHEETS_WEBAPP_URL) so they don't
+# have to be exported by hand each run. This file is git-ignored — keep
+# credentials out of the repo. `set -a` exports every assignment it contains.
+LOCAL_ENV="$SCRIPT_DIR/local.env"
+if [[ -f "$LOCAL_ENV" ]]; then
+    set -a
+    # shellcheck disable=SC1090
+    source "$LOCAL_ENV"
+    set +a
+fi
 # Poetry creates an in-project virtualenv at backend/.venv (virtualenvs.in-project
 # = true). Use its interpreter directly — deterministic, and avoids depending on
 # `poetry` being on PATH at runtime or a stray VIRTUAL_ENV confusing resolution.
@@ -89,8 +100,9 @@ if $MQTT; then
             MQTT_READY=true
         fi
     else
-        echo "Warning: MQTT requested, but $MQTT_HOST:1883 is not reachable." >&2
-        echo "Make sure the MQTT broker is running on $MQTT_HOST." >&2
+        # External broker — enable MQTT and let the backend's retry loop handle connectivity.
+        echo "Warning: $MQTT_HOST:1883 is not reachable right now; backend will retry automatically." >&2
+        MQTT_READY=true
     fi
 
     if ! $MQTT_READY; then
@@ -105,7 +117,7 @@ if test_port_open 127.0.0.1 "$BACKEND_PORT"; then
     echo "Warning: Backend port $BACKEND_PORT already in use. Use -Restart to stop it first." >&2
 else
     launch_in_terminal "Ground Station Backend" \
-        "cd '$BACKEND_DIR' && MQTT_TELEMETRY_ENABLED=$MQTT_ENABLED MQTT_BROKER_HOST=$MQTT_HOST MQTT_BROKER_PORT=1883 '$PYTHON_EXE' app.py --host 0.0.0.0 --port $BACKEND_PORT"
+        "cd '$BACKEND_DIR' && MQTT_TELEMETRY_ENABLED=$MQTT_ENABLED MQTT_BROKER_HOST=$MQTT_HOST MQTT_BROKER_PORT=1883 SHEETS_SYNC_ENABLED=${SHEETS_SYNC_ENABLED:-0} SHEETS_WEBAPP_URL='${SHEETS_WEBAPP_URL:-}' '$PYTHON_EXE' app.py --host 0.0.0.0 --port $BACKEND_PORT"
 fi
 
 if test_port_open 127.0.0.1 "$FRONTEND_PORT"; then

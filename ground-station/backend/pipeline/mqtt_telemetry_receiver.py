@@ -3,7 +3,7 @@ import threading
 import time
 
 from common.logger import logger
-from pipeline import telemetry_store
+from pipeline import telemetry_csv_logger, telemetry_sheets_sync, telemetry_store
 from server.telemetry_protobuf import decode_telemetry_frame
 
 DEFAULT_MQTT_TOPIC = "icarus2/telemetry/frame.pb"
@@ -63,6 +63,8 @@ def _run_receiver(config: dict) -> None:
         try:
             frame = decode_telemetry_frame(message.payload)
             telemetry_store.add_frame(frame)
+            telemetry_csv_logger.append_frame(frame)
+            telemetry_sheets_sync.enqueue_frame(frame)
             logger.debug(
                 "MQTT telemetry frame stored: sequence=%s altitude=%.2f speed=%.2f count=%s",
                 frame["sequence_number"],

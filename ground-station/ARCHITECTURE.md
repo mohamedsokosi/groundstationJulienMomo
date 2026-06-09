@@ -40,12 +40,15 @@ ground-station/
 ├── backend/                  # Python server (FastAPI)
 │   ├── app.py                # Entry point — starts Uvicorn
 │   ├── logconfig.yaml        # Logging configuration (colorlog)
+│   ├── poetry.toml           # Local Poetry config — virtualenvs.in-project = true (.venv inside backend/)
 │   ├── server/
 │   │   ├── startup.py        # FastAPI app, HTTP routes, CORS, static files
 │   │   └── telemetry_protobuf.py  # Protocol Buffers encode/decode
 │   ├── pipeline/
 │   │   ├── mqtt_telemetry_receiver.py  # paho MQTT client, topic icarus2/telemetry/frame.pb
-│   │   └── telemetry_store.py          # In-memory deque for telemetry frames (maxlen 5000)
+│   │   ├── telemetry_store.py          # In-memory deque for telemetry frames (maxlen 5000)
+│   │   ├── telemetry_csv_logger.py     # Appends each MQTT frame to a local CSV
+│   │   └── telemetry_sheets_sync.py    # Batches frames → Google Sheet (Apps Script Web App)
 │   └── common/
 │       ├── arguments.py      # CLI argument parsing (host, port, log-level) + defaults
 │       └── logger.py         # stdlib logging basicConfig
@@ -66,6 +69,9 @@ ground-station/
 │       ├── store.jsx                 # Redux store (telemetry slice only)
 │       ├── layout.jsx                # Topbar + hover-expand sidebar + <Outlet>
 │       │                             # (CSV/MQTT toggle removed — MQTT is now the only source)
+│       ├── topbar-widgets.jsx        # Global topbar widgets: Heure (clock), Météo + Vent
+│       │                             # (Open-Meteo, keyless, uses GS position), Décompte T
+│       │                             # (datetime-local launch picker → live T-/T+ countdown)
 │       ├── navigation.jsx            # Sidebar definition (5 routes)
 │       ├── page-actions-context.jsx  # Context for per-page action buttons
 │       ├── error-page.jsx            # Error page
@@ -73,7 +79,6 @@ ground-station/
 │           ├── station/
 │           │   └── station-dashboard.jsx      # /station — MQTT-only operator view
 │           │                                  # Cesium map + configurable chart/terminal panels
-│           │                                  # Blackout simulation button
 │           ├── vueGlobe3d/
 │           │   └── telemetry-dashboard.jsx    # /vueGlobe3d — MQTT-only Cesium globe
 │           ├── analyse/
@@ -89,7 +94,10 @@ ground-station/
 │           └── shared/                        # Shared components and utilities
 │               ├── cesiumViewport.jsx         # Cesium globe + RightControlPanel (zoom, GS position)
 │               ├── telemetryChart.jsx         # Recharts chart (decimated to 800 pts for rendering)
-│               ├── telemetryStatsBar.jsx      # Stats bar
+│               ├── telemetryStatsBar.jsx      # Stats bar (8 cards: Altitude, Distance, Vitesse,
+│               │                             #   GPS SAT, Pression, Link Budget, Status, Source)
+│               │                             # Cards have fixed widths (80 px default, 60 px narrow,
+│               │                             #   75 px medium); value font shrinks on long strings
 │               ├── telemetryTerminal.jsx      # Raw stream terminal (variants: telemetry/verbose/errors)
 │               ├── chartTitle.jsx             # Dynamic chart title
 │               ├── telemetry-components.jsx   # StatisticCard, ChartCard, TelemetrySummary
@@ -100,7 +108,9 @@ ground-station/
 │               ├── telemetry-utils.js         # distanceKm, getMqttSourceStat, helpers
 │               ├── cesium-utils.js            # getTelemetryRecordGeo, imagery providers
 │               │                             # loadGroundStationPosition / saveGroundStationPosition
+│               │                             # MAP_FOLLOW_CAMERA_HEIGHT = 27000 (follow mode zoom)
 │               ├── chart-fields.js            # AVAILABLE_FIELDS — axes and steps
+│               │                             # TEMP_FIELD_KEYS — shortcut for All Temp button
 │               ├── chart-logic.js             # FSPL, link budget, enrich()
 │               ├── telemetry-worker.js        # Web Worker — runs buildTelemetryChartData + enrich off-thread
 │               ├── useAnimatedDomain.js       # Smooth axis animation
@@ -127,7 +137,7 @@ ground-station/
 | Route | Component | Description |
 |---|---|---|
 | `/` | redirect | Redirects to `/station` |
-| `/station` | `StationDashboard` | Operator view: Cesium map + configurable left column (charts + terminals) + blackout simulation |
+| `/station` | `StationDashboard` | Operator view: Cesium map + configurable left column (charts + terminals) |
 | `/vueGlobe3d` | `TelemetryDashboard` | 3D Cesium globe, trajectory, stats bar |
 | `/analyse` | `AnalyseDashboard` | Fully configurable Recharts grid |
 | `/cubesat` | `CubeSatDashboard` | Annotated CubeSat image, subsystems, telemetry |
@@ -231,6 +241,33 @@ hook. The MQTT effect:
 
 ---
 
+## /station — Stats Bar Row
+
+The top row of the right column is a horizontal flex container with two children:
+
+- **TelemetryStatsBar** (flex: 1) — 8 fixed-width cards:
+
+  | Card | Key | Width | Colour |
+  |---|---|---|---|
+  | ALTITUDE | `U_Alt` | 80 px | green |
+  | DISTANCE | computed | 80 px | blue |
+  | VITESSE | `Speed` | 80 px | orange |
+  | GPS SAT | `#_Sat` | 60 px | purple |
+  | PRESSION | `Pressure` | 80 px | cyan |
+  | LINK BDG | `_bilan` | 80 px | #22d3ee |
+  | STATUS | — | 80 px | green |
+  | SOURCE | MQTT state | 75 px | green/orange/grey |
+
+  Cards have a fixed max-width and never grow. `valueFontSize()` shrinks the value
+  text (12 → 10 → 9 → 8 px) when the string is longer than 8 characters so values
+  always fit without overflow. Cards have `pointer-events: none` — no hover effect.
+
+- **TelemetryTerminal variant="errors"** (width: 25vw) — hardcoded errors terminal
+  always visible at the far right of the stats row, same width as the left column.
+  Not part of the configurable left column — always present in `/station`.
+
+---
+
 ## /station — Left Column Panel System
 
 The left column (25% width) is fully configurable by the operator via the **Modifier** menu:
@@ -259,6 +296,10 @@ remounted terminals replay only new frames, never re-emitting past lines.
 
 Configuration persisted in `localStorage` (`station_left_column_config`). Favorite charts synced with `/analyse` via `analyse_charts_config`.
 
+### All Temp shortcut (/station and /analyse)
+
+Both the `/station` Modifier panel and the `/analyse` edit toolbar have an **All Temp** button next to "+ Series". Clicking it adds T1–T8 (all 8 temperature fields) to `newLines` at once, each with a distinct color from `CHART_COLORS`. The button is disabled once all temperature fields are already in the form. `TEMP_FIELD_KEYS` is exported from `chart-fields.js`.
+
 ---
 
 ## Real Outage Detection (all routes)
@@ -274,9 +315,9 @@ time a real MQTT frame is dispatched). A 1 s watchdog flips
 active, a second effect injects phantom `appendTelemetryPoint` frames every
 1 s (`_blackout: true`, `_realOutage: true`, frozen Y values, `streamIndex`
 read fresh from `lastFrameRef.current` so it always increments past whatever's
-in Redux). The injection skips while `mqttPausedRef.current === true` —
-during a manual blackout the station-dashboard owns injection (with
-`_realOutage: false`) and we mustn't double-inject. The MQTT poll itself keeps
+in Redux). The injection skips while `mqttPausedRef.current === true` (a
+leftover guard from the removed manual-blackout simulation — nothing pauses
+the poll anymore, so it is effectively always false). The MQTT poll itself keeps
 running during a real outage (no `pauseMqtt`), so the moment real frames
 return `lastMqttFrameAt` refreshes, `autoOutageActive` clears, injection
 stops, and `buildTelemetryChartData`'s `blackoutOffsetSec` smooths the X axis
@@ -349,40 +390,34 @@ outages. Two complementary mechanisms preserve them:
 
 ---
 
-## /station — Blackout Simulation
+## Topbar Widgets (global)
 
-The **"Simuler coupure"** button in the topbar:
+`topbar-widgets.jsx` renders a cluster of global, route-independent widgets in
+the `AppBar` (between the title and the per-page action `node`). All four tick
+off a single shared 1 Hz interval (`useNow`):
 
-1. Calls `pauseMqtt()` — the MQTT poll skips fetches while paused.
-2. Every 1 s, injects a phantom data point via `appendTelemetryPoint`:
-   - Copies the last real data point's field values (frozen Y values, plus `_epoch_ms`)
-   - Sets `_blackout: true`
-   - `streamIndex` advances from `lastDataPoint.streamIndex + 1`
-3. `buildTelemetryChartData` recognizes blackout frames and advances their
-   `_elapsed_s` by exactly +1 s per frame from the last real frame's elapsed
-   time — bypassing `parseRowTimestamp` entirely. This avoids the 40 000-min
-   X-axis jump that would otherwise result from `_received_at` (May 2026 wall
-   clock) minus the mission epoch (Aug 2025).
-4. Charts visualize the blackout period:
-   - **Normal series** stops at the last real point (solid line, normal color)
-   - **Ghost series** continues as a solid red line (`#ff3030`) at the frozen Y value
-   - No background fill — the blackout segment is just a red continuation of the line
-   - The `_ghost` connector (last real frame carrying a ghost value so the red line
-     joins the normal line) is **only added while a blackout is currently active**
-     (i.e. the latest frame has `_blackout: true`). Once real frames resume, the
-     past ghost segment is self-contained between blackout frames, and the
-     latest real point carries no `_ghost` value — so hovering it no longer
-     shows a red active-dot or red tooltip entry.
-5. Deactivating the button:
-   - `resumeMqtt()` sets `skipMqttBacklogRef = true`. The next MQTT poll updates
-     `live.shownCount` to the current backend count without dispatching the
-     piled-up frames (simulated lost packets) and syncs `live.globalStreamIdx`
-     past the blackout frames' stream indexes.
-   - Phantom injection stops.
-   - `buildTelemetryChartData` tracks `blackoutOffsetSec`: the first real
-     frame after the blackout is pinned to `lastBlackoutElapsed + 1` and the
-     resulting offset is subtracted from every subsequent frame, so the X
-     axis continues smoothly from where the dashed line ended.
+- **Heure** — live local clock (`fr-CA`, 24 h) with the date underneath.
+- **Météo** — current temperature + a WMO-code-mapped icon/label (Dégagé,
+  Couvert, Pluie, Neige, Orage…).
+- **Vent** — wind speed (km/h) + 8-point compass direction (N, NE, E, SE, S,
+  SO, O, NO).
+- **Décompte T** — launch countdown. When no launch time is set (or when the
+  operator clicks the widget) it shows a native `datetime-local` picker; once
+  validated, the chosen instant is persisted to `localStorage`
+  (`launch_datetime`) and the widget shows a live `T- HH:MM:SS` countdown that
+  flips to `T+ …` after launch (with a `Nj` day prefix beyond 24 h). Clicking
+  the countdown re-opens the picker.
+
+**Weather/wind data source** — Météo and Vent share one fetch in `useWeather()`
+against **Open-Meteo** (keyless), using the ground-station lat/lon from
+`loadGroundStationPosition()`. Refreshed every 10 min. To use a different
+provider, swap the single `fetchWeather()` function — it only has to resolve to
+`{ tempC, windKmh, windDir, code }`.
+
+> The manual **"Simuler coupure"** blackout button was removed from the topbar.
+> Real-outage detection and its red ghost-line rendering are unchanged — see
+> [Real Outage Detection](#real-outage-detection-all-routes). The hook still
+> exports `pauseMqtt` / `resumeMqtt`, now unused.
 
 ---
 
@@ -395,6 +430,18 @@ Configurable via the **"Position GS ▼"** button in the Cesium right-panel (bot
 - Default: `{ lat: 48.55, lon: -81.35 }` (ICARUS2 launch site)
 - Cesium entity: green dot + "GS" label, always visible regardless of telemetry state
 - Link beam (green line) drawn from GS position to current CubeSat position
+
+## Cesium — Suivre CubeSat (Follow Mode)
+
+The **"Suivre CubeSat"** toggle in the Cesium right-panel locks the camera on the current CubeSat position, updated every 1 s.
+
+- **Follow height**: `MAP_FOLLOW_CAMERA_HEIGHT = 27000` m (27 km) — 70% more zoomed than the previous 90 km follow height (90 000 × 0.30), i.e. ~6.7× the default free-camera height (180 km).
+- The camera uses `Math.min(cameraHeightRef.current, MAP_FOLLOW_CAMERA_HEIGHT)`: if the operator is already closer than 27 km the tighter zoom is preserved; if further away the camera snaps to 27 km on the next frame.
+- Pitch and heading stay at the same angles as free-camera (`MAP_CAMERA_PITCH = −48°`, `MAP_CAMERA_HEADING = 32°`).
+
+## /rapport — Legend Deduplication
+
+When a chart contains blackout frames, each Y series is split into a `_normal` line and a `_ghost` (red) line. The Recharts `<Legend>` would otherwise list both under the same label. Ghost `<Line>` elements carry `legendType="none"` so only the normal (coloured) series appear in the legend.
 
 ---
 
@@ -444,6 +491,16 @@ Configurable via the **"Position GS ▼"** button in the Cesium right-panel (bot
 
 ## Local Startup
 
+**Standard launch with Raspberry Pi 4B broker (live hardware):**
+
+```bash
+./tools/dev/start-local.sh -Restart -Mqtt -BrokerHost 10.180.97.70
+```
+
+The RPi (`gs-modem`, IP `10.180.97.70`) must have `uart_mqtt_bridge.py` running and its mosquitto broker accessible (`listener 1883`, `allow_anonymous true`). The backend connects directly to the RPi's broker — no local mosquitto needed.
+
+**Simulator-only (no hardware):**
+
 ```bash
 ./tools/dev/start-local.sh -Restart -Mqtt -Simulator
 ```
@@ -471,6 +528,15 @@ Because the processes are detached, **Ctrl+C no longer stops them** — use
 `kill <PID>` with the PIDs printed at launch. Follow logs anytime with
 `tail -f "${TMPDIR:-/tmp}/ground-station-dev"/*.log`.
 
+### Running the backend manually (without the script)
+
+```bash
+cd backend
+MQTT_TELEMETRY_ENABLED=1 MQTT_BROKER_HOST=10.180.97.70 .venv/bin/python app.py
+```
+
+Poetry creates the virtualenv at `backend/.venv` (`virtualenvs.in-project = true` in `poetry.toml`). Run `poetry install` once inside `backend/` to create it.
+
 ### Connecting to the Raspberry Pi 4B broker
 
 ```bash
@@ -489,6 +555,107 @@ The ground station backend will subscribe to `icarus2/telemetry/frame.pb` on the
 | `MQTT_BROKER_PORT` | `1883` | MQTT port |
 | `MQTT_TELEMETRY_TOPIC` | `icarus2/telemetry/frame.pb` | Telemetry topic |
 | `MQTT_TELEMETRY_STORE_MAXLEN` | `5000` | Max frames kept in backend store |
+| `TELEMETRY_CSV_LOG_ENABLED` | `1` | Append each received frame to a local CSV (`0` to disable) |
+| `TELEMETRY_CSV_PATH` | `~/Desktop/telemetry_live.csv` | Path of the local CSV log |
+| `SHEETS_SYNC_ENABLED` | `0` | Push frames to a Google Sheet (`1` + a URL to enable) |
+| `SHEETS_WEBAPP_URL` | (empty) | Apps Script Web App `/exec` URL to POST batches to |
+| `SHEETS_SYNC_INTERVAL_SEC` | `5` | Seconds between batched Sheet flushes |
+
+---
+
+## Local CSV capture + Google Drive sync
+
+Every frame received over MQTT is appended to a local CSV by
+`pipeline/telemetry_csv_logger.py` (called from the receiver's `on_message`,
+right after `telemetry_store.add_frame`). This is **independent** of the
+in-memory 5000-frame deque — the deque is the live display window, the CSV is a
+durable append-only capture.
+
+- **Format** — identical header/columns to the canonical ICARUS2 recording
+  (`m-time, Flight ID, Ublox UTC, U Lat, U Long, U Alt, Speed, Vert speed,
+  #Sat, Pressure, MIU, T1…T8`), so the captured log is interchangeable with the
+  original flight data. The header is written once when the file is created.
+- **Location** — `TELEMETRY_CSV_PATH`, default `~/Desktop/telemetry_live.csv`
+  (outside the repo so it is never committed). Disable with
+  `TELEMETRY_CSV_LOG_ENABLED=0`.
+- **Durability** — each row is `flush()`ed immediately so an external mirror
+  tool always sees the latest data. A single open failure latches logging off
+  (no per-second error spam); the rest of the pipeline is unaffected.
+
+### Mirroring to Google Drive (rclone)
+
+Google has no native Drive client for Linux, so the CSV is pushed with
+[`rclone`](https://rclone.org). One-time setup:
+
+```bash
+sudo apt install rclone
+rclone config            # new remote → "drive" → authorize in browser → name it "gdrive"
+```
+
+Then mirror the capture file on a schedule (push-only, every 30 s shown here):
+
+```bash
+while true; do
+  rclone copy ~/Desktop/telemetry_live.csv gdrive:GroundStation/
+  sleep 30
+done
+```
+
+For an unattended setup, use a **systemd timer** or cron instead of the loop, or
+`rclone bisync` for two-way sync. `rclone copy` re-uploads only when the file
+changed, so a frequent interval is cheap.
+
+---
+
+## Live Google Sheet sync (Apps Script Web App)
+
+As an alternative to the CSV-file mirror, `pipeline/telemetry_sheets_sync.py`
+pushes frames **directly into a Google Sheet**. It is wired into `on_message`
+next to the CSV logger and runs independently.
+
+- **Batching** — frames are buffered and flushed in one HTTP POST every
+  `SHEETS_SYNC_INTERVAL_SEC` (default 5 s), not one request per frame, to stay
+  under Apps Script quotas. The buffer is capped at 5000 rows (oldest dropped
+  under sustained backpressure). A failed flush re-queues its rows and retries
+  on the next tick — transient network/Apps Script errors don't lose data.
+- **Per-day tabs** — each batch carries a `tab` field set to the local date
+  (`YYYY-MM-DD`). The Web App writes to that tab, creating it (with the header)
+  on first use. This keeps each tab small/fast and bounds growth against the
+  10 M-cell spreadsheet cap (~526 k rows total across tabs); old tabs can be
+  archived/deleted. The **local CSV remains the full, unbounded archive.**
+- **No backend credentials** — the Web App runs as the sheet owner, so the
+  backend only needs the deploy URL; it POSTs `{ header, values }` as JSON with
+  the standard library (`urllib`, no extra dependency). The header row is sent
+  every batch but the script writes it only when the sheet is empty.
+- **Config** — `SHEETS_SYNC_ENABLED=1` + `SHEETS_WEBAPP_URL=<…/exec>`. Both are
+  passed through by `start-local.sh` (export them before launch).
+
+**Apps Script side** (paste in the sheet → Extensions → Apps Script, then
+Deploy → New deployment → *Web app* → Execute as *Me* → Access *Anyone* → copy
+the `/exec` URL):
+
+```javascript
+function doPost(e) {
+  var lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var body = JSON.parse(e.postData.contents);
+    var rows = body.values || [];
+    var tabName = body.tab || ss.getSheets()[0].getName();
+    var sheet = ss.getSheetByName(tabName) || ss.insertSheet(tabName);
+    if (sheet.getLastRow() === 0 && body.header) sheet.appendRow(body.header);
+    if (rows.length > 0) {
+      sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, rows[0].length).setValues(rows);
+    }
+    return ContentService
+      .createTextOutput(JSON.stringify({ ok: true, tab: tabName, added: rows.length }))
+      .setMimeType(ContentService.MimeType.JSON);
+  } finally {
+    lock.releaseLock();
+  }
+}
+```
 
 ---
 

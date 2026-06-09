@@ -22,6 +22,8 @@ export const AVAILABLE_FIELDS = [
     { key: 'T8',           label: 'Temp. 8 (°C)',           step: 5     },  // −22–22 °C
 ];
 
+export const TEMP_FIELD_KEYS = ['T1', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'T8'];
+
 export const CHART_COLORS = ['#4cbc74', '#ee8a22', '#4fb7d6', '#d2b04c', '#8797ab', '#2e9f69'];
 
 export function fieldLabel(key) {

@@ -23,17 +23,11 @@ const initialTerminalVariantState = { lines: [], cursor: 0, inBlackout: false };
 
 const initialState = {
     telemetryData: [],
-    sourceData: [],
     loading: false,
     error: null,
     selectedPoint: null,
     playbackIndex: 0,
     streamIndex: 0,
-    mode: 'stream',
-    sourceMode: 'mqtt',
-    // Terminal panels keep their lines + processing cursor + blackout state-machine
-    // in Redux so they survive route unmount/remount (otherwise switching to
-    // /analyse and back wipes the errors log).
     terminalState: {
         telemetry: { ...initialTerminalVariantState },
         verbose:   { ...initialTerminalVariantState },
@@ -47,10 +41,6 @@ const telemetrySlice = createSlice({
     name: 'telemetry',
     initialState,
     reducers: {
-        setTelemetrySourceData: (state, action) => {
-            state.sourceData = action.payload || [];
-            state.error = null;
-        },
         setTelemetryData: (state, action) => {
             state.telemetryData = action.payload;
             state.error = null;
@@ -103,31 +93,16 @@ const telemetrySlice = createSlice({
             state.playbackIndex = action.payload?.playbackIndex ?? state.playbackIndex;
             state.streamIndex = action.payload?.streamIndex ?? state.streamIndex;
         },
-        setTelemetryMode: (state, action) => {
-            state.mode = action.payload || 'stream';
-        },
-        resetTelemetryStream: (state) => {
-            state.telemetryData = [];
-            state.playbackIndex = 0;
-            state.streamIndex = 0;
-            state.selectedPoint = null;
-            state.error = null;
-        },
         clearTelemetryData: (state) => {
             state.telemetryData = [];
-            state.sourceData = [];
             state.selectedPoint = null;
             state.playbackIndex = 0;
             state.streamIndex = 0;
             state.loading = false;
             state.error = null;
-            state.mode = 'stream';
             for (const k of Object.keys(state.terminalState)) {
                 state.terminalState[k] = { ...initialTerminalVariantState };
             }
-        },
-        setSourceMode: (state, action) => {
-            state.sourceMode = action.payload === 'mqtt' ? 'mqtt' : 'csv';
         },
         appendTerminalLines: (state, action) => {
             const { variant, lines, cursor, inBlackout } = action.payload || {};
@@ -158,7 +133,6 @@ const telemetrySlice = createSlice({
 });
 
 export const {
-    setTelemetrySourceData,
     setTelemetryData,
     appendTelemetryPoint,
     appendTelemetryPoints,
@@ -166,10 +140,7 @@ export const {
     setError,
     setSelectedPoint,
     setPlaybackState,
-    setTelemetryMode,
-    resetTelemetryStream,
     clearTelemetryData,
-    setSourceMode,
     appendTerminalLines,
     resetTerminalVariant,
     resetAllTerminalVariants,

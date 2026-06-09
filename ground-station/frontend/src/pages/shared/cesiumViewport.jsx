@@ -26,6 +26,7 @@ import {
     MAP_CAMERA_HEADING,
     MAP_CAMERA_HEIGHT,
     MAP_CAMERA_PITCH,
+    MAP_FOLLOW_CAMERA_HEIGHT,
     MAP_MAX_CAMERA_HEIGHT,
     MAP_MIN_CAMERA_HEIGHT,
 } from './cesium-utils.js';
@@ -400,7 +401,8 @@ export const CesiumViewport = ({ currentRecord, groundStationPos, onGroundStatio
         if (mapOptions.follow && currentRecord) {
             const currentGeo = getTelemetryRecordGeo(currentRecord);
             if (currentGeo) {
-                setThreeDCameraView(viewer, currentGeo.lon, currentGeo.lat, cameraHeightRef.current);
+                const followHeight = Math.min(cameraHeightRef.current, MAP_FOLLOW_CAMERA_HEIGHT);
+                setThreeDCameraView(viewer, currentGeo.lon, currentGeo.lat, followHeight);
             }
         }
     }, [currentRecord, groundStationPos, mapOptions.follow, mapOptions.linkBeam, mapOptions.trajectory, trajectoryRecords]);

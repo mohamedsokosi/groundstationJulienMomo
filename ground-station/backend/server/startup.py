@@ -1,9 +1,7 @@
-import csv
 import os
 from contextlib import asynccontextmanager
-from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -16,7 +14,7 @@ from pipeline.mqtt_telemetry_receiver import (
     is_mqtt_enabled,
     start_mqtt_receiver_in_background,
 )
-from server.telemetry_protobuf import csv_row_to_telemetry_frame, encode_telemetry_batch
+from server.telemetry_protobuf import encode_telemetry_batch
 
 
 @asynccontextmanager
@@ -66,64 +64,6 @@ app.mount(
 
 TELEMETRY_PROTOBUF_MEDIA_TYPE = "application/x-protobuf"
 TELEMETRY_PROTOBUF_SCHEMA = "groundstation.telemetry.v1.TelemetryBatch"
-
-
-def _get_telemetry_csv_path() -> Path:
-    return Path(__file__).parent.parent.parent / "telemetry.csv"
-
-
-def _read_telemetry_csv_frames(csv_path: Path) -> list[dict]:
-    with csv_path.open("r", encoding="utf-8-sig", newline="") as f:
-        reader = csv.DictReader(f)
-        return [
-            csv_row_to_telemetry_frame(row, sequence_number=i)
-            for i, row in enumerate(reader)
-        ]
-
-
-@app.get("/api/telemetry.csv")
-async def get_telemetry_csv():
-    try:
-        csv_path = _get_telemetry_csv_path()
-        if not csv_path.exists():
-            raise HTTPException(status_code=404, detail="Telemetry file not found")
-        return FileResponse(
-            csv_path,
-            media_type="text/csv",
-            filename="telemetry.csv",
-            headers={"Cache-Control": "no-store"},
-        )
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error serving telemetry file: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.get("/api/telemetry.pb")
-async def get_telemetry_protobuf():
-    try:
-        if telemetry_store.has_frames():
-            frames = telemetry_store.get_frames()
-        else:
-            csv_path = _get_telemetry_csv_path()
-            if not csv_path.exists():
-                raise HTTPException(status_code=404, detail="Telemetry file not found")
-            frames = _read_telemetry_csv_frames(csv_path)
-
-        return Response(
-            content=encode_telemetry_batch(frames),
-            media_type=TELEMETRY_PROTOBUF_MEDIA_TYPE,
-            headers={
-                "Cache-Control": "no-store",
-                "X-Protobuf-Schema": TELEMETRY_PROTOBUF_SCHEMA,
-            },
-        )
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error serving telemetry protobuf: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/api/telemetry/mqtt/frames")

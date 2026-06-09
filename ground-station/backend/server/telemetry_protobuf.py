@@ -50,40 +50,6 @@ def _to_uint32(value, fallback: int = 0) -> int:
     return min(max(parsed, 0), 0xFFFFFFFF)
 
 
-def _clean_row(row: dict) -> dict:
-    return {
-        str(key).strip(): (value.strip() if isinstance(value, str) else value)
-        for key, value in (row or {}).items()
-        if key is not None
-    }
-
-
-def csv_row_to_telemetry_frame(row: dict, sequence_number: int = 0) -> dict:
-    clean = _clean_row(row)
-    return {
-        "sequence_number": _to_uint32(sequence_number),
-        "mission_time": _to_string(clean.get("m-time")),
-        "flight_id": _to_string(clean.get("Flight ID")),
-        "gnss_time_utc": _to_string(clean.get("Ublox UTC")),
-        "latitude_deg": _to_float(clean.get("U Lat")),
-        "longitude_deg": _to_float(clean.get("U Long")),
-        "altitude_m": _to_float(clean.get("U Alt")),
-        "speed_mps": _to_float(clean.get("Speed")),
-        "vertical_speed_mps": _to_float(clean.get("Vert speed")),
-        "satellite_count": _to_uint32(clean.get("#Sat")),
-        "pressure_hpa": _to_float(clean.get("Pressure")),
-        "miu_v": _to_float(clean.get("MIU")),
-        "temperature_1_c": _to_float(clean.get("T1")),
-        "temperature_2_c": _to_float(clean.get("T2")),
-        "temperature_3_c": _to_float(clean.get("T3")),
-        "temperature_4_c": _to_float(clean.get("T4")),
-        "temperature_5_c": _to_float(clean.get("T5")),
-        "temperature_6_c": _to_float(clean.get("T6")),
-        "temperature_7_c": _to_float(clean.get("T7")),
-        "temperature_8_c": _to_float(clean.get("T8")),
-    }
-
-
 def normalize_telemetry_frame(frame: dict, sequence_number: int | None = None) -> dict:
     source = frame or {}
     fallback_sequence = TELEMETRY_FRAME_DEFAULTS["sequence_number"]

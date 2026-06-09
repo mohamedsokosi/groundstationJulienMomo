@@ -1,3 +1,6 @@
+# Local dev secrets / overrides (SHEETS_WEBAPP_URL, etc.)
+/tools/dev/local.env
+
 # Logs
 logs
 *.log

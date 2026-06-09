@@ -28,7 +28,7 @@ import StarIcon from '@mui/icons-material/Star';
 import StarBorderOutlinedIcon from '@mui/icons-material/StarBorderOutlined';
 import { useTelemetryStream } from '../shared/use-telemetry-stream.jsx';
 import { usePageActions } from '../../page-actions-context.jsx';
-import { AVAILABLE_FIELDS, CHART_COLORS, fieldLabel } from '../shared/chart-fields.js';
+import { AVAILABLE_FIELDS, CHART_COLORS, TEMP_FIELD_KEYS, fieldLabel } from '../shared/chart-fields.js';
 import { TelemetryChart } from '../shared/telemetryChart.jsx';
 import { ChartTitle } from '../shared/chartTitle.jsx';
 
@@ -115,6 +115,21 @@ export default function AnalyseDashboard() {
         setNewLines((prev) => [...prev, { key: pendingY, color }]);
     };
 
+    const addAllTemps = () => {
+        setNewLines((prev) => {
+            const usedKeys = new Set(prev.map((l) => l.key));
+            const usedColors = new Set(prev.map((l) => l.color));
+            const toAdd = [];
+            for (const key of TEMP_FIELD_KEYS) {
+                if (usedKeys.has(key)) continue;
+                const color = CHART_COLORS.find((c) => !usedColors.has(c)) ?? CHART_COLORS[(prev.length + toAdd.length) % CHART_COLORS.length];
+                usedColors.add(color);
+                toAdd.push({ key, color });
+            }
+            return [...prev, ...toAdd];
+        });
+    };
+
     const removeLineFromForm = (key) => setNewLines((prev) => prev.filter((l) => l.key !== key));
 
     const addChart = () => {
@@ -184,11 +199,11 @@ export default function AnalyseDashboard() {
     useEffect(() => {
         setNode(
             <Stack direction="row" spacing={1} sx={{ mr: 1 }}>
-                <Button variant="outlined" size="small" startIcon={<FileUploadIcon />} onClick={exportConfig}
+                <Button variant="outlined" size="small" startIcon={<FileDownloadIcon />} onClick={exportConfig}
                     sx={{ color: 'white', borderColor: 'rgba(255,255,255,0.5)', '&:hover': { borderColor: 'white' } }}>
                     Exporter
                 </Button>
-                <Button variant="outlined" size="small" component="label" startIcon={<FileDownloadIcon />}
+                <Button variant="outlined" size="small" component="label" startIcon={<FileUploadIcon />}
                     sx={{ color: 'white', borderColor: 'rgba(255,255,255,0.5)', '&:hover': { borderColor: 'white' } }}>
                     Importer
                     <input type="file" accept=".json" hidden onChange={importConfig} />
@@ -265,6 +280,10 @@ export default function AnalyseDashboard() {
                             <Button size="small" variant="outlined" startIcon={<AddIcon />} onClick={addLineToForm}
                                 disabled={!!newLines.find((l) => l.key === pendingY)}>
                                 Series
+                            </Button>
+                            <Button size="small" variant="outlined" onClick={addAllTemps}
+                                disabled={TEMP_FIELD_KEYS.every((k) => !!newLines.find((l) => l.key === k))}>
+                                All Temp
                             </Button>
                             <Button size="small" variant="contained" startIcon={<AddIcon />} onClick={addChart}>
                                 Create Chart

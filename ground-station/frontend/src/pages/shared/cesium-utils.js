@@ -28,6 +28,8 @@ export function saveGroundStationPosition(pos) {
     try { localStorage.setItem(GS_POSITION_KEY, JSON.stringify(pos)); } catch (_) { /* ignore */ }
 }
 export const MAP_CAMERA_HEIGHT = 180000;
+// 27 km — 70% more zoomed than the previous 90 km follow height (90 000 × 0.30).
+export const MAP_FOLLOW_CAMERA_HEIGHT = 27000;
 export const MAP_CAMERA_PITCH = -48;
 export const MAP_CAMERA_HEADING = 32;
 export const MAP_MIN_CAMERA_HEIGHT = 12000;
