@@ -5,7 +5,7 @@ import sys
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from common.profiling import start_boot_profile  # noqa: E402
-
+#bloat
 start_boot_profile()
 
 import uvicorn  # noqa: E402
