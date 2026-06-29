@@ -1,598 +1,257 @@
-# Ground Station
+# Ground Station — SAFARI / ICARUS2
 
-Ground Station est une application web full-stack de station sol pour le suivi CubeSat /
-satellite, la visualisation de telemetrie, la supervision radio/SDR et la preparation de
-rapports. Le projet combine un backend Python FastAPI + Socket.IO et une interface React
-compilee avec Vite.
+Application web **temps réel** de station sol pour le suivi d'un ballon
+stratosphérique / CubeSat (projet **ICARUS2**). La télémétrie arrive en direct
+par **MQTT**, s'affiche sur un globe 3D **Cesium** et des graphes, et est
+archivée **localement** (CSV) et dans le **cloud** (Google Sheet).
 
-L'interface actuelle met l'accent sur quatre vues:
+**Stack :** FastAPI + Python (backend) · React + Redux + Cesium (frontend) ·
+MQTT (télémétrie live) · Protocol Buffers (transport).
 
-- `/vueGlobe3d`: globe 3D Cesium avec trajectoire, altitude et liaison sol.
-- `/cubesat`: vue annotee du CubeSat et de ses sous-systemes.
-- `/analyse`: graphes et tendances issues des donnees de telemetrie.
-- `/rapport`: generation et consultation d'un rapport de mission.
+> Détails techniques approfondis : voir **[ARCHITECTURE.md](ARCHITECTURE.md)**.
 
-La telemetrie part encore du fichier `telemetry.csv`, mais le backend expose maintenant aussi
-un flux Protocol Buffers via `/api/telemetry.pb`. Le frontend essaie Protobuf en priorite et
-retombe sur le CSV si besoin.
+---
 
-## Architecture Rapide
+## Fonctionnalités
 
-```text
-.
-|-- backend/                  # API FastAPI, Socket.IO, DB, workers, SDR, observations
-|-- frontend/                 # SPA React, Vite, Redux, Cesium, pages applicatives
-|-- shared/proto/             # Schemas partages Protocol Buffers
-|-- docs/                     # Documentation complementaire
-|-- telemetry.csv             # Source locale de telemetrie
-|-- Dockerfile                # Image de production full-stack
-`-- README.md
+### Visualisation temps réel
+- Globe **3D Cesium** : trajectoire du CubeSat, position de la station sol (GS),
+  faisceau de liaison, projection au sol — mis à jour à 1 Hz.
+- Mode **« Suivre CubeSat »** : caméra verrouillée sur la position courante
+  (zoom ~27 km).
+- **Position GS** configurable et persistée (partagée entre les vues).
+- Trajectoire **incrémentale** (perf : O(1) par rafraîchissement).
+
+### Pages
+| Route | Rôle |
+|---|---|
+| `/station` | Vue opérateur : carte Cesium + colonne gauche **configurable** (graphes + terminaux) + barre de stats + terminal d'erreurs |
+| `/vueGlobe3d` | Globe 3D plein écran (trajectoire, stats) |
+| `/analyse` | Grille de graphes Recharts entièrement configurable |
+| `/cubesat` | Vue annotée du CubeSat et de ses sous-systèmes |
+| `/rapport` | Export **PDF** des graphes (/station + /analyse) en un clic |
+
+### Barre supérieure (topbar)
+- **Heure** — horloge locale en direct.
+- **Météo** + **Vent** — via Open-Meteo (sans clé API), basés sur la position GS.
+- **Décompte T** — sélecteur date/heure de lancement → compte à rebours
+  **T- / T+** en direct.
+
+### /station configurable
+- **Graphes** : n'importe quel couple de champs X/Y, glisser-déposer, favoris
+  (synchronisés avec `/analyse`), bouton **All Temp** (T1–T8 d'un coup).
+- **Terminaux** : `télémétrie` / `verbose` / `erreurs`.
+- Configuration **persistée** (localStorage), **import/export JSON**.
+
+### Détection de coupure de télémétrie
+- **Frontend** : ligne rouge fantôme + `[RPI_DISCONNECTED]` dès que la
+  télémétrie s'arrête (> 3 s), `[TELEMETRY_RESUMED]` au retour. Les coupures
+  passées sont reconstruites au rafraîchissement de la page.
+- **Backend** : watchdog qui logge `[RPI_DISCONNECTED]` en **WARNING** →
+  visible dans `gss debug`.
+
+### Sauvegarde de la télémétrie (en parallèle, indépendantes)
+- **CSV local par jour** sur le Desktop : `~/Desktop/telemetry/<date>.csv`
+  (même format que la donnée de vol ICARUS2, donc réutilisable tel quel).
+- **Google Sheet en direct** : un **onglet par jour** (nommé par la date), via
+  un Web App Apps Script — aucune clé/credential côté backend.
+
+### Outillage
+- **CLI `gss`** : `start`, `startoffline`, `kill`, `verbose`, `debug`, `help`.
+- **Logs `.txt`** sur le Desktop : `~/Desktop/ground-station-logs/`.
+
+---
+
+## Pipeline matériel
+
+```
+┌─────────────────────────┐
+│   Raspberry Pi Pico     │  Rejoue la donnée de vol ICARUS2 depuis un CSV
+│   (émetteur télémétrie) │  embarqué, encapsulée CFDP sur USB série
+└────────────┬────────────┘
+             │  USB CDC — /dev/ttyACM0 (115200 bauds)
+             ▼
+┌─────────────────────────┐
+│   Raspberry Pi 4B       │  uart_mqtt_bridge.py : retire l'entête CFDP,
+│   (gs-modem)            │  encode en protobuf, publie sur le broker MQTT
+└────────────┬────────────┘
+             │  MQTT — topic : icarus2/telemetry/frame.pb (port 1883)
+             ▼
+┌─────────────────────────┐
+│   Ground Station        │  Backend FastAPI + frontend React
+│   (cette application)   │  affiche la télémétrie en direct
+└─────────────────────────┘
 ```
 
-Vue de haut niveau:
+---
 
-```text
-telemetry.csv
-   |
-   | lu par le backend
-   v
-backend/server/startup.py
-   |
-   | expose /api/telemetry.pb et /api/telemetry.csv
-   v
-frontend/src/pages/telemetry-data-source.js
-   |
-   | decode Protobuf ou parse CSV
-   v
-frontend/src/pages/use-telemetry-stream.jsx
-   |
-   | alimente Redux et les composants
-   v
-/vueGlobe3d, /cubesat, /analyse, /rapport
-```
+## Démarrage rapide
 
-## Fonctionnalites Principales
+### Prérequis
+- **Backend** : Python + [Poetry](https://python-poetry.org/).
+- **Frontend** : Node.js.
+- Un **broker MQTT** accessible (le Raspberry Pi du pont UART→MQTT), **ou** le
+  simulateur intégré (sans matériel).
 
-- Visualisation 3D de trajectoire satellite avec Cesium.
-- Suivi temporel de la telemetrie CubeSat.
-- Graphes d'analyse: altitude, vitesse, pression, satellites visibles.
-- Vue CubeSat annotee avec sous-systemes.
-- Chargement de fichiers CSV depuis le frontend.
-- Transport Protobuf backend -> frontend pour la telemetrie serveur.
-- Simulation MQTT CubeSat optionnelle avec payloads `TelemetryFrame` Protobuf binaires.
-- Backend FastAPI avec endpoints HTTP et serveur Socket.IO.
-- Modules backend pour tracking, observations, SDR, audio, fichiers et taches longues.
-- Build Docker incluant le frontend compile et le backend Python.
-
-## Backend
-
-Le backend se trouve dans `backend/`.
-
-Fichiers importants:
-
-- `backend/app.py`: point d'entree Python. Il initialise la base, enregistre les handlers
-  Socket.IO et lance Uvicorn.
-- `backend/server/startup.py`: cree l'application FastAPI, monte les fichiers statiques,
-  initialise Socket.IO et declare les endpoints HTTP.
-- `backend/handlers/`: handlers Socket.IO pour les commandes et evenements applicatifs.
-- `backend/db/`: SQLAlchemy, migrations et acces SQLite.
-- `backend/observations/`: planification et execution d'observations.
-- `backend/pipeline/`: orchestration des processus radio, SDR, decodeurs et enregistrements.
-- `backend/tracker/`: suivi satellite et messages de tracking.
-- `backend/tasks/`: gestion des taches longues et decouverte materielle.
-- `backend/startup.sh`: script de demarrage utilise dans le conteneur Docker.
-
-Endpoints HTTP utiles:
-
-| Endpoint | Role |
-| --- | --- |
-| `GET /api/version` | Retourne les informations de version/build. |
-| `GET /api/update-check` | Verifie si une mise a jour est disponible. |
-| `GET /api/telemetry.csv` | Sert le fichier `telemetry.csv` en texte CSV. |
-| `GET /api/telemetry.pb` | Sert la meme telemetrie encodee en Protocol Buffers. |
-| `GET /api/telemetry/mqtt/status` | Retourne l'etat du receiver MQTT et du store memoire. |
-| `POST /api/telemetry/mqtt/clear` | Vide le store memoire des frames MQTT. |
-
-Fichiers statiques montes par le backend:
-
-- `/satimages`
-- `/recordings`
-- `/snapshots`
-- `/decoded`
-- `/audio`
-- `/transcriptions`
-
-En production, FastAPI sert aussi le frontend compile depuis `frontend/dist`.
-
-## Frontend
-
-Le frontend se trouve dans `frontend/`.
-
-Stack principale:
-
-- React 19
-- Vite
-- Redux Toolkit + redux-persist
-- Material UI / Toolpad
-- Recharts
-- Cesium
-- Socket.IO client
-
-Fichiers importants:
-
-- `frontend/src/main.jsx`: declare les routes React.
-- `frontend/src/App.jsx`: fournit le provider applicatif Toolpad.
-- `frontend/src/layout/dashboard-layout.jsx`: layout principal avec topbar/sidebar.
-- `frontend/src/config/navigation.jsx`: configuration de la navigation.
-- `frontend/src/shared/socket.jsx`: connexion Socket.IO.
-- `frontend/src/shared/store.jsx`: store Redux.
-- `frontend/src/pages/telemetry-dashboard.jsx`: page `/vueGlobe3d`.
-- `frontend/src/pages/cubesat-dashboard.jsx`: page `/cubesat`.
-- `frontend/src/pages/analyse-dashboard.jsx`: page `/analyse`.
-- `frontend/src/pages/rapport-dashboard.jsx`: page `/rapport`.
-- `frontend/src/pages/ground-station-view.css`: styles de la vue station sol.
-
-Routes actuelles:
-
-| Route | Composant |
-| --- | --- |
-| `/` | redirige vers `/vueGlobe3d` |
-| `/vueGlobe3d` | `TelemetryDashboard` |
-| `/cubesat` | `CubeSatDashboard` |
-| `/analyse` | `AnalyseDashboard` |
-| `/rapport` | `RapportDashboard` |
-
-## Telemetrie et Protocol Buffers
-
-La source de donnees actuelle reste `telemetry.csv` a la racine du depot. Ce fichier contient
-les colonnes suivantes:
-
-```text
-m-time, Flight ID, Ublox UTC, U Lat, U Long, U Alt, Speed, Vert speed, #Sat, Pressure, MIU, T1, T2, T3, T4, T5, T6, T7, T8
-```
-
-### Schema partage
-
-Le schema est defini dans:
-
-```text
-shared/proto/telemetry.proto
-```
-
-Il contient deux messages:
-
-- `TelemetryFrame`: une ligne de telemetrie.
-- `TelemetryBatch`: un lot de plusieurs `TelemetryFrame`.
-
-Mapping principal:
-
-| CSV | Protobuf | Frontend |
-| --- | --- | --- |
-| `m-time` | `mission_time` | `m-time`, `m_time` |
-| `Flight ID` | `flight_id` | `Flight ID`, `Flight_ID` |
-| `Ublox UTC` | `gnss_time_utc` | `Ublox UTC`, `Ublox_UTC` |
-| `U Lat` | `latitude_deg` | `U Lat`, `U_Lat` |
-| `U Long` | `longitude_deg` | `U Long`, `U_Long` |
-| `U Alt` | `altitude_m` | `U Alt`, `U_Alt` |
-| `Speed` | `speed_mps` | `Speed` |
-| `Vert speed` | `vertical_speed_mps` | `Vert speed`, `Vert_speed` |
-| `#Sat` | `satellite_count` | `#Sat`, `#_Sat` |
-| `Pressure` | `pressure_hpa` | `Pressure` |
-| `MIU` | `miu_v` | `MIU` |
-| `T1` | `temperature_1_c` | `T1` |
-| `T2` | `temperature_2_c` | `T2` |
-| `T3` | `temperature_3_c` | `T3` |
-| `T4` | `temperature_4_c` | `T4` |
-| `T5` | `temperature_5_c` | `T5` |
-| `T6` | `temperature_6_c` | `T6` |
-| `T7` | `temperature_7_c` | `T7` |
-| `T8` | `temperature_8_c` | `T8` |
-
-### Encodage backend
-
-Dans `backend/server/startup.py`, l'endpoint `/api/telemetry.pb`:
-
-1. lit `telemetry.csv`;
-2. nettoie les noms de colonnes;
-3. transforme chaque ligne en `TelemetryFrame`;
-4. regroupe les frames dans `TelemetryBatch`;
-5. renvoie une reponse `application/x-protobuf`.
-
-L'encodage Protobuf est manuel pour cette premiere version. Aucune dependance Python `protobuf`
-n'est necessaire. Le code encode seulement les types utilises par le schema:
-
-- `uint32` en varint;
-- `double` en 64 bits little-endian;
-- `string` en champ length-delimited.
-
-### Decodage frontend
-
-Dans `frontend/src/pages/telemetry-protobuf.js`, le frontend decode le binaire Protobuf:
-
-1. lit les tags Protobuf;
-2. identifie le numero de champ et le wire type;
-3. decode les `TelemetryFrame`;
-4. reconstruit des objets JavaScript compatibles avec l'ancien parseur CSV.
-
-Le fichier `frontend/src/pages/telemetry-data-source.js` expose:
-
-- `TELEMETRY_SOURCE_URL = '/api/telemetry.csv'`;
-- `TELEMETRY_PROTOBUF_SOURCE_URL = '/api/telemetry.pb'`;
-- `parseTelemetryCsv(text)`;
-- `parseTelemetryProtobuf(buffer)`.
-
-Le hook `frontend/src/pages/use-telemetry-stream.jsx` charge les donnees serveur ainsi:
-
-```text
-1. essayer /api/telemetry.pb
-2. si echec, essayer /api/telemetry.csv
-```
-
-Les fichiers CSV charges manuellement depuis l'interface restent parses cote frontend en CSV.
-
-## Simulation MQTT CubeSat
-
-MQTT est optionnel. Si le receiver MQTT n'est pas active ou si aucune frame MQTT n'a encore ete
-recue, `/api/telemetry.pb` continue a utiliser `telemetry.csv` comme avant.
-
-Flux MQTT:
-
-```text
-telemetry.csv
-   |
-   v
-tools/simulators/mqtt_cubesat_simulator.py
-   |
-   | MQTT payload = 1 TelemetryFrame protobuf binaire
-   v
-MQTT broker
-   |
-   | topic: icarus2/telemetry/frame.pb
-   v
-backend/pipeline/mqtt_telemetry_receiver.py
-   |
-   v
-backend/pipeline/telemetry_store.py
-   |
-   v
-/api/telemetry.pb
-   |
-   v
-frontend React
-```
-
-Principe:
-
-- le frontend ne parle jamais directement a MQTT;
-- le simulateur publie une ligne CSV a la fois;
-- un message MQTT correspond a un `TelemetryFrame`;
-- le backend stocke les frames recues en memoire;
-- `/api/telemetry.pb` renvoie un `TelemetryBatch` au frontend;
-- si le store MQTT est vide, l'endpoint retombe automatiquement sur le CSV.
-
-Variables d'environnement MQTT:
-
-| Variable | Defaut | Role |
-| --- | --- | --- |
-| `MQTT_TELEMETRY_ENABLED` | `0` | Active le receiver si la valeur est `1`. |
-| `MQTT_BROKER_HOST` | `localhost` | Host du broker MQTT. |
-| `MQTT_BROKER_PORT` | `1883` | Port du broker MQTT. |
-| `MQTT_TELEMETRY_TOPIC` | `icarus2/telemetry/frame.pb` | Topic des frames Protobuf. |
-| `MQTT_TELEMETRY_QOS` | `1` | QoS MQTT utilise par le receiver. |
-| `MQTT_TELEMETRY_STORE_MAXLEN` | `5000` | Nombre maximum de frames gardees en memoire. |
-
-Installer la dependance MQTT si l'environnement Python local n'est pas encore a jour:
-
+### Installation
 ```bash
-pip install paho-mqtt
+# Backend (crée backend/.venv via Poetry)
+cd backend && poetry install && cd ..
+
+# Frontend
+cd frontend && npm install && cd ..
 ```
 
-Lancer un broker Mosquitto local:
-
+### Avec la CLI `gss` (recommandé)
+Installer une fois (symlink sur le PATH) :
 ```bash
-docker compose -f docker-compose.mqtt.yml up -d
+ln -sf "$PWD/tools/dev/gss" ~/.local/bin/gss      # ~/.local/bin doit être dans le PATH
 ```
-
-Activer MQTT cote backend sur Linux/macOS:
-
+Puis :
 ```bash
-cd backend
-MQTT_TELEMETRY_ENABLED=1 python app.py --host 0.0.0.0 --port 5000
+gss start defaut      # démarre, broker = 10.180.97.23, sync cloud ON
+gss start <ip>        # broker sur une autre IP
+gss startoffline      # local seulement (pas d'upload Google Sheet)
+gss kill              # tout arrêter (backend + frontend)
+gss verbose           # suivre le log backend en direct
+gss debug             # erreurs / warnings récents
+gss help              # aide
 ```
 
-Activer MQTT cote backend sur PowerShell:
+| Commande | Effet |
+|---|---|
+| `gss start [ip]` | Lance backend + frontend, broker `<ip>` (défaut `10.180.97.23`), cloud ON |
+| `gss startoffline [ip]` | Idem mais **sans** upload Google Sheet (CSV local quand même écrit) |
+| `gss kill` | Arrête ce qui écoute sur les ports backend/frontend |
+| `gss verbose [all\|front]` | `tail -f` du log backend (`all` = + frontend) |
+| `gss debug` | Lignes d'erreur/warning récentes du backend |
 
-```powershell
-cd backend
-$env:MQTT_TELEMETRY_ENABLED="1"
-python app.py --host 0.0.0.0 --port 5000
-```
-
-Lancer le simulateur:
-
+### Ou directement via le script
 ```bash
-python tools/simulators/mqtt_cubesat_simulator.py --csv telemetry.csv --delay 0.2 --loop
+# Matériel live (broker sur le Raspberry Pi 4B)
+./tools/dev/start-local.sh -Restart -BrokerHost 10.180.97.23
+
+# Sans matériel (simulateur)
+./tools/dev/start-local.sh -Restart -Mqtt -Simulator
 ```
 
-Verifier le statut:
+| Option | Effet |
+|---|---|
+| `-Restart` | Tue les process sur les ports backend/frontend avant de relancer |
+| `-Offline` | Force le sync Google Sheet OFF (CSV local non affecté) |
+| `-Mqtt` | Démarre un broker Mosquitto local (port 1883) |
+| `-Simulator` | Lance `mqtt_cubesat_simulator.py` (publie des frames de test) |
+| `-BrokerHost <ip>` | Broker MQTT externe (ex. le Raspberry Pi 4B) |
+| `-BackendPort <p>` / `-FrontendPort <p>` | Surcharge les ports (défaut 5000 / 5173) |
 
+Une fois lancé : **frontend** `http://localhost:5173` · **backend**
+`http://localhost:5000`.
+
+### Configuration locale (`local.env`)
+Les secrets/réglages (ex. l'URL du Google Sheet) vont dans
+`tools/dev/local.env` (git-ignoré), chargé automatiquement par `start-local.sh` :
 ```bash
-curl http://localhost:5000/api/telemetry/mqtt/status
+SHEETS_SYNC_ENABLED=1
+SHEETS_WEBAPP_URL="https://script.google.com/macros/s/XXXX/exec"
 ```
 
-Vider le store MQTT:
+---
 
-```bash
-curl -X POST http://localhost:5000/api/telemetry/mqtt/clear
-```
+## Sauvegarde de la télémétrie
 
-## Flux Temps Reel
+### CSV local (automatique)
+Chaque frame reçue est ajoutée à `~/Desktop/telemetry/<date>.csv` (un fichier
+par jour). Désactivable via `TELEMETRY_CSV_LOG_ENABLED=0`, emplacement via
+`TELEMETRY_CSV_DIR`.
 
-Il y a deux mecanismes a distinguer:
+### Google Sheet en direct (optionnel)
+Le backend pousse les frames par lots (toutes les ~5 s) vers un **Web App Apps
+Script** lié à ta feuille, qui les ajoute dans un **onglet par jour**. Mise en
+place : coller le script `doPost` (voir
+[ARCHITECTURE.md → Live Google Sheet sync](ARCHITECTURE.md)), déployer en
+« Application Web », et mettre l'URL `/exec` dans `SHEETS_WEBAPP_URL`.
 
-- Socket.IO: utilise pour les evenements applicatifs, le status, les commandes, le tracking et
-  les interactions backend temps reel.
-- Telemetrie fichier: les pages de telemetrie lisent le flux serveur Protobuf/CSV et peuvent
-  rejouer les points sous forme de stream dans l'interface.
+### Logs
+Backend et frontend écrivent dans `~/Desktop/ground-station-logs/*.txt`
+(`gss verbose` pour les suivre). Emplacement via `GS_LOG_DIR`.
 
-Donc le Protobuf ne remplace pas Socket.IO. Il remplace surtout le transport texte CSV pour les
-donnees de telemetrie exposees par le backend.
+---
 
-## Configuration
+## Variables d'environnement
 
 ### Backend
-
-Variables courantes:
-
-| Variable | Role | Defaut / remarque |
-| --- | --- | --- |
-| `GS_DB` | Chemin de la base SQLite | `backend/data/db/gs.db` |
-| `STATIC_FILES_DIR` | Dossier du frontend compile | `frontend/dist` hors Docker |
-| `GS_ENVIRONMENT` | Environnement affiche dans les metadonnees | `development` |
-| `BUILD_VERSION` | Version du build | calculee si absente |
-| `BUILD_DATE` | Date du build | UTC si absente |
-| `GIT_COMMIT` | Commit du build | `unknown` si absent |
-| `GITHUB_TOKEN` | Token optionnel pour la verification de releases | non requis |
-| `SYSTEM_INFO_POLL_INTERVAL_SECONDS` | Frequence du status systeme | `2` |
-| `MQTT_TELEMETRY_ENABLED` | Active le receiver MQTT de telemetrie | `0` |
-| `MQTT_BROKER_HOST` | Host du broker MQTT | `localhost` |
-| `MQTT_BROKER_PORT` | Port du broker MQTT | `1883` |
-| `MQTT_TELEMETRY_TOPIC` | Topic des frames Protobuf | `icarus2/telemetry/frame.pb` |
-| `MQTT_TELEMETRY_QOS` | QoS du receiver MQTT | `1` |
-| `MQTT_TELEMETRY_STORE_MAXLEN` | Taille max du store memoire MQTT | `5000` |
-
-Le backend peut aussi lire:
-
-```text
-backend/data/configs/app_config.json
-```
-
-Ce fichier contient notamment host, port, base de donnees, logs et options de decouverte SoapySDR.
+| Variable | Défaut | Rôle |
+|---|---|---|
+| `MQTT_TELEMETRY_ENABLED` | `0` | Active la réception MQTT (`1`) |
+| `MQTT_BROKER_HOST` | `localhost` | Host du broker |
+| `MQTT_BROKER_PORT` | `1883` | Port du broker |
+| `MQTT_TELEMETRY_TOPIC` | `icarus2/telemetry/frame.pb` | Topic des frames protobuf |
+| `MQTT_TELEMETRY_QOS` | `1` | QoS MQTT |
+| `MQTT_TELEMETRY_STORE_MAXLEN` | `5000` | Frames gardées en mémoire (deque) |
+| `MQTT_FRAME_TIMEOUT_SEC` | `3` | Watchdog : `[RPI_DISCONNECTED]` après N s sans frame |
+| `TELEMETRY_CSV_LOG_ENABLED` | `1` | Écrire le CSV local par jour |
+| `TELEMETRY_CSV_DIR` | `~/Desktop/telemetry` | Dossier des CSV `<date>.csv` |
+| `SHEETS_SYNC_ENABLED` | `0` | Pousser vers Google Sheet (`1` + URL) |
+| `SHEETS_WEBAPP_URL` | (vide) | URL `/exec` du Web App Apps Script |
+| `SHEETS_SYNC_INTERVAL_SEC` | `5` | Intervalle des lots vers le Sheet |
+| `GS_LOG_DIR` | `~/Desktop/ground-station-logs` | Dossier des logs `.txt` |
 
 ### Frontend
+| Variable | Rôle |
+|---|---|
+| `VITE_CESIUM_ION_TOKEN` | Token Cesium Ion (carte de base) — dans `frontend/.env.local` |
+| `GS_BACKEND_HOST` / `GS_BACKEND_PORT` | Cible du proxy Vite |
 
-Variables utiles:
+---
 
-| Variable | Role |
-| --- | --- |
-| `GS_BACKEND_HOST` | Host cible du proxy Vite. |
-| `GS_BACKEND_PORT` | Port cible du proxy Vite. |
-| `VITE_CESIUM_ION_TOKEN` | Token Cesium ion injecte dans le build frontend. |
+## Stack technique
+| Catégorie | Techno |
+|---|---|
+| Backend | FastAPI + Uvicorn + paho-mqtt |
+| Sérialisation | Protocol Buffers (encodés à la main, pas de `.proto`) |
+| Frontend | React 19 + Vite + React Router v7 |
+| État | Redux Toolkit |
+| UI | Material-UI v7 |
+| Globe 3D | Cesium |
+| Graphes | Recharts |
+| Conteneurisation | Docker |
 
-Pour le developpement local Cesium, utilisez:
-
-```text
-frontend/.env.local
-```
-
-Exemple:
-
-```env
-VITE_CESIUM_ION_TOKEN=votre_token_cesium
-```
-
-Ne commitez pas de vrai token.
-
-## Installation Locale
-
-### 1. Cloner
-
-```bash
-git clone https://github.com/sgoudelis/ground-station.git
-cd ground-station
-```
-
-### 2. Backend
-
-Depuis `backend/`:
-
-```bash
-python -m venv .venv
-.venv\Scripts\Activate.ps1
-pip install -e ".[dev]"
-```
-
-Sur macOS / Linux:
-
-```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -e ".[dev]"
-```
-
-Demarrage:
-
-```bash
-python app.py --host 0.0.0.0 --port 5000
-```
-
-### 3. Frontend
-
-Depuis `frontend/`:
-
-```bash
-npm install
-npm run dev
-```
-
-Le frontend Vite ecoute sur:
-
-```text
-http://localhost:5173
-```
-
-Le backend local ecoute par defaut sur:
-
-```text
-http://localhost:5000
-```
-
-## Mode Local Sans Docker
-
-Pour tester l'application sans rebuild Docker, lancez le backend Python et le frontend Vite en
-local. Les dependances SDR natives lourdes (`gnuradio`, `librtlsdr`, `SoapySDR`, `uhd`) ne sont
-plus necessaires au demarrage du backend; elles ne sont chargees que si un vrai SDR est lance.
-
-Demarrage local simple, avec fallback CSV:
-
-```powershell
-.\tools\dev\start-local.ps1
-```
-
-Demarrage local avec MQTT active et simulateur CubeSat:
-
-```powershell
-.\tools\dev\start-local.ps1 -Mqtt -Simulator
-```
-
-Ce script ouvre des terminaux separes pour:
-
-- le backend FastAPI sur `http://localhost:5000`;
-- le frontend Vite sur `http://localhost:5173`;
-- le simulateur MQTT si `-Simulator` est utilise.
-
-Pour MQTT sans Docker, un broker Mosquitto local doit ecouter sur `localhost:1883`. Si
-`mosquitto.exe` est disponible dans le `PATH`, le script tente de le lancer automatiquement.
-Sinon, lancez Mosquitto vous-meme ou demarrez sans `-Mqtt` pour utiliser le fallback CSV.
-
-Verifier le statut MQTT local:
-
-```powershell
-Invoke-RestMethod http://localhost:5000/api/telemetry/mqtt/status
-```
-
-## Commandes Utiles
-
-Backend:
-
-| Commande | Role |
-| --- | --- |
-| `python app.py --host 0.0.0.0 --port 5000` | Lance le backend en local. |
-| `ground-station` | Lance le backend apres installation editable. |
-| `python run_alembic.py upgrade head` | Applique les migrations. |
-| `pytest` | Lance les tests backend. |
-| `python -m py_compile server/startup.py` | Verifie rapidement la syntaxe du serveur. |
-
-Frontend:
-
-| Commande | Role |
-| --- | --- |
-| `npm run dev` | Lance Vite en developpement. |
-| `npm run build` | Compile le frontend. |
-| `npm run preview` | Sert le build localement. |
-| `npm test` | Lance Vitest. |
-| `npm run lint` | Lance ESLint. |
-| `npm run test:e2e` | Lance Playwright. |
-
-Appels rapides:
-
-```bash
-curl http://localhost:5000/api/version
-curl http://localhost:5000/api/update-check
-curl http://localhost:5000/api/telemetry.csv
-curl http://localhost:5000/api/telemetry.pb --output telemetry.pb
-```
+---
 
 ## Docker
 
-Build simple:
-
+Build multi-étapes (Node → Python 3.12) qui embarque le frontend compilé + le
+backend :
 ```bash
 docker build -t ground-station .
+# avec le token Cesium au build :
+docker build --build-arg VITE_CESIUM_ION_TOKEN="votre_token" -t ground-station .
+```
+L'image expose le port **7000**.
+
+---
+
+## Structure du dépôt
+```
+ground-station/
+├── backend/          # FastAPI (app.py, server/, pipeline/, common/) — Poetry
+├── frontend/         # React + Vite + Cesium
+├── tools/
+│   ├── dev/          # start-local.sh, gss (CLI), local.env
+│   └── simulators/   # mqtt_cubesat_simulator.py
+├── Dockerfile
+├── ARCHITECTURE.md   # documentation technique détaillée
+└── README.md
 ```
 
-Build avec token Cesium:
+---
 
-```bash
-docker build --build-arg VITE_CESIUM_ION_TOKEN="votre_token_cesium" -t ground-station .
-```
-
-Demarrage minimal:
-
-```bash
-docker run -d --name ground-station \
-  -p 7000:7000 \
-  -v "${PWD}/backend/data:/app/backend/data" \
-  -e GS_ENVIRONMENT=production \
-  ground-station
-```
-
-Pour utiliser le `telemetry.csv` local sans rebuild:
-
-```bash
-docker run -d --name ground-station \
-  -p 7000:7000 \
-  -v "${PWD}/backend/data:/app/backend/data" \
-  -v "${PWD}/telemetry.csv:/app/telemetry.csv:ro" \
-  -e GS_ENVIRONMENT=production \
-  ground-station
-```
-
-Selon le materiel SDR/radio, il peut etre necessaire d'ajouter des options Docker comme
-`--network host`, `--device /dev/bus/usb` ou des privileges supplementaires.
-
-## Build de Production
-
-Le Dockerfile fait deux etapes:
-
-1. `frontend-builder`: installe les dependances Node et compile `frontend/dist`.
-2. image Ubuntu finale: installe Python, les librairies radio/SDR, copie le backend, le frontend
-   compile et `telemetry.csv`, puis lance `backend/startup.sh`.
-
-Le conteneur expose l'application sur le port `7000`.
-
-## Problemes Frequents
-
-- Page vide en production: verifier que `frontend/dist` a bien ete genere et que
-  `STATIC_FILES_DIR` pointe vers le bon dossier.
-- Cesium affiche une carte noire ou limitee: verifier `VITE_CESIUM_ION_TOKEN`.
-- `/api/telemetry.pb` ne repond pas: verifier que `telemetry.csv` existe a la racine du projet
-  ou dans `/app/telemetry.csv` dans le conteneur.
-- Les graphes ne changent pas apres modification CSV dans Docker: monter le CSV avec
-  `-v "${PWD}/telemetry.csv:/app/telemetry.csv:ro"` ou rebuild l'image.
-- Le frontend ne parle pas au backend en dev: verifier `GS_BACKEND_HOST`, `GS_BACKEND_PORT` et
-  le proxy dans `frontend/vite.config.js`.
-- `No module named gnuradio` en local Windows: GNU Radio n'est pas installe via `pip`.
-  Les decodeurs radio qui en dependent sont ignores en local; l'image Docker contient la pile
-  SDR complete si vous avez besoin des decodeurs GNU Radio.
-- Les SDR ne sont pas detectes: verifier drivers systeme, permissions USB, Avahi/D-Bus et le
-  mode reseau du conteneur.
-- Build frontend trop lourd ou erreur memoire: le Dockerfile utilise deja
-  `NODE_OPTIONS="--max-old-space-size=4096"` pour compiler Cesium.
-
-## Documentation Complementaire
-
-- [Architecture](docs/ARCHITECTURE.md)
-- [API](docs/API.md)
-- [Contribution](docs/CONTRIBUTING.md)
-- [Modifications](docs/MODIFICATIONS.md)
-- [Guide developpement](DEVELOPMENT.md)
-
-## Notes de Maintenance
-
-- Garder `shared/proto/telemetry.proto` comme contrat de donnees lorsque le format telemetrie
-  evolue.
-- Si un champ est ajoute au CSV, ajouter un numero de champ Protobuf sans reutiliser les anciens.
-- Le decodeur frontend conserve les anciens noms de colonnes pour eviter de casser les graphes.
-- Les vrais secrets, comme le token Cesium, doivent rester dans `.env.local` ou dans les secrets
-  de CI/CD.
+## Dépannage rapide
+- **Aucune télémétrie / « CSV fallback »** : le broker n'est pas joignable.
+  Vérifier l'IP du Raspberry Pi (DHCP → elle change) avec `gss debug`, et que
+  `mosquitto` écoute (`listener 1883`, `allow_anonymous true`).
+- **Carte Cesium noire** : vérifier `VITE_CESIUM_ION_TOKEN`
+  (`frontend/.env.local`).
+- **`Ctrl+C` n'arrête rien** : les process sont détachés → utiliser `gss kill`.
+- **Le Google Sheet ne se remplit pas** : avoir bien **redéployé** le Web App
+  Apps Script après modification du script, et `SHEETS_WEBAPP_URL` à jour.

@@ -1,15 +1,16 @@
-"""Appends every received MQTT telemetry frame to a local CSV file.
+"""Appends every received MQTT telemetry frame to a local CSV file, with one
+file per calendar day (named by date, e.g. ``2026-06-10.csv``).
 
-The CSV uses the same columns as the ICARUS2 flight recording
-(`telemetrySender/src/telemetry.csv`) so the captured log is interchangeable
-with the original data. The file is meant to be mirrored to Google Drive by an
-external tool (rclone) — see ARCHITECTURE.md › "Local CSV capture + Google Drive
-sync".
+This mirrors the per-day tabs of the Google Sheet sync: the local files are the
+durable, unbounded archive; the Sheet is the live/shared view. Columns match the
+canonical ICARUS2 recording (`telemetrySender/src/telemetry.csv`). See
+ARCHITECTURE.md › "Local CSV capture" and "Live Google Sheet sync".
 """
 
 import csv
 import os
 import threading
+from datetime import date
 
 from common.logger import logger
 
@@ -34,9 +35,10 @@ def is_csv_logging_enabled() -> bool:
     return os.getenv("TELEMETRY_CSV_LOG_ENABLED", "1") == "1"
 
 
-def get_csv_path() -> str:
-    default = os.path.join(os.path.expanduser("~"), "Desktop", "telemetry_live.csv")
-    return os.getenv("TELEMETRY_CSV_PATH", default)
+def get_csv_dir() -> str:
+    """Directory holding the per-day CSV files (one `<YYYY-MM-DD>.csv` each)."""
+    default = os.path.join(os.path.expanduser("~"), "Desktop", "telemetry")
+    return os.getenv("TELEMETRY_CSV_DIR", default)
 
 
 def _frame_to_row(frame: dict) -> list:
@@ -44,26 +46,38 @@ def _frame_to_row(frame: dict) -> list:
 
 
 class TelemetryCsvLogger:
-    def __init__(self, path: str):
-        self._path = path
+    def __init__(self, directory: str):
+        self._dir = directory
         self._lock = threading.Lock()
         self._fh = None
         self._writer = None
+        self._open_day = None
         self._failed = False
 
-    def _ensure_open(self) -> None:
-        if self._fh is not None:
+    def _path_for(self, day: str) -> str:
+        return os.path.join(self._dir, f"{day}.csv")
+
+    def _ensure_open(self, day: str) -> None:
+        # Already writing today's file — nothing to do.
+        if self._fh is not None and self._open_day == day:
             return
-        directory = os.path.dirname(self._path)
-        if directory:
-            os.makedirs(directory, exist_ok=True)
-        is_new = not os.path.exists(self._path) or os.path.getsize(self._path) == 0
-        self._fh = open(self._path, "a", newline="", encoding="utf-8")
+        # Day rolled over (or first write) — close the old file, open the new one.
+        if self._fh is not None:
+            try:
+                self._fh.close()
+            except Exception:
+                pass
+            self._fh = None
+        os.makedirs(self._dir, exist_ok=True)
+        path = self._path_for(day)
+        is_new = not os.path.exists(path) or os.path.getsize(path) == 0
+        self._fh = open(path, "a", newline="", encoding="utf-8")
         self._writer = csv.writer(self._fh)
+        self._open_day = day
         if is_new:
             self._writer.writerow(CSV_HEADER)
             self._fh.flush()
-        logger.info("Telemetry CSV log: appending to %s", self._path)
+        logger.info("Telemetry CSV log: appending to %s", path)
 
     def append(self, frame: dict) -> None:
         # One failed open shouldn't spam logs every second — latch it off.
@@ -71,9 +85,9 @@ class TelemetryCsvLogger:
             return
         with self._lock:
             try:
-                self._ensure_open()
+                self._ensure_open(date.today().isoformat())
                 self._writer.writerow(_frame_to_row(frame))
-                self._fh.flush()  # flush so rclone always mirrors the latest rows
+                self._fh.flush()  # flush so an external mirror always sees latest rows
             except Exception as exc:
                 self._failed = True
                 logger.error("Telemetry CSV logging disabled after error: %s", exc)
@@ -84,12 +98,12 @@ _instance_lock = threading.Lock()
 
 
 def append_frame(frame: dict) -> None:
-    """Append one normalized telemetry frame to the local CSV (no-op if disabled)."""
+    """Append one normalized telemetry frame to today's CSV (no-op if disabled)."""
     global _logger_instance
     if not is_csv_logging_enabled():
         return
     if _logger_instance is None:
         with _instance_lock:
             if _logger_instance is None:
-                _logger_instance = TelemetryCsvLogger(get_csv_path())
+                _logger_instance = TelemetryCsvLogger(get_csv_dir())
     _logger_instance.append(frame)

@@ -1,0 +1,121 @@
+#!/bin/bash
+# gss, Ground Station convenience CLI.
+# Wraps tools/dev/start-local.sh and the dev logs. Run `gss help` for the list.
+# (Named `gss`, not `gs`, because `gs` is Ghostscript.)
+
+# Resolve our real location (this file is usually symlinked into ~/.local/bin),
+# so we can find start-local.sh next to it regardless of where it's invoked.
+SCRIPT="$(readlink -f "${BASH_SOURCE[0]}")"
+SCRIPT_DIR="$(dirname "$SCRIPT")"
+START="$SCRIPT_DIR/start-local.sh"
+
+DEFAULT_IP="10.180.97.23"
+BACKEND_PORT="${GS_BACKEND_PORT:-5000}"
+FRONTEND_PORT="${GS_FRONTEND_PORT:-5173}"
+LOG_DIR="${GS_LOG_DIR:-$HOME/Desktop/ground-station-logs}"
+BACKEND_LOG="$LOG_DIR/ground-station-backend.txt"
+FRONTEND_LOG="$LOG_DIR/ground-station-frontend.txt"
+
+resolve_ip() {
+    local arg="${1:-}"
+    if [[ -z "$arg" || "$arg" == "defaut" || "$arg" == "default" ]]; then
+        echo "$DEFAULT_IP"
+    else
+        echo "$arg"
+    fi
+}
+
+cmd_start() {
+    local ip; ip="$(resolve_ip "${1:-}")"
+    echo "DÉMARRAGE, CLOUD ON, BROKER $ip"
+    bash "$START" -Restart -BrokerHost "$ip"
+}
+
+cmd_startoffline() {
+    local ip; ip="$(resolve_ip "${1:-}")"
+    echo "DÉMARRAGE HORS-LIGNE, PAS D'UPLOAD CLOUD, BROKER $ip"
+    bash "$START" -Restart -Offline -BrokerHost "$ip"
+}
+
+cmd_kill() {
+    local found=0 port pid pids
+    echo "ARRÊT DE LA GROUND STATION"
+    for port in "$BACKEND_PORT" "$FRONTEND_PORT"; do
+        pids="$(lsof -ti "tcp:$port" -sTCP:LISTEN 2>/dev/null || true)"
+        for pid in $pids; do
+            echo "kill PID $pid (port $port)"
+            kill "$pid" 2>/dev/null || true
+            found=1
+        done
+    done
+    if [[ $found -eq 0 ]]; then
+        echo "Rien à arrêter (aucun process sur $BACKEND_PORT / $FRONTEND_PORT)."
+    else
+        echo "Ground station arrêtée."
+    fi
+}
+
+cmd_verbose() {
+    # Default: backend only (the frontend/vite log is mostly build noise).
+    # `gss verbose all` → backend + frontend ; `gss verbose front` → frontend only.
+    case "${1:-back}" in
+        all|both)
+            if ! ls "$LOG_DIR"/*.txt >/dev/null 2>&1; then
+                echo "Pas encore de logs ($LOG_DIR). Lance 'gss start' d'abord."; return 1
+            fi
+            echo "LOGS BACKEND + FRONTEND, CTRL+C POUR QUITTER"
+            tail -n 40 -f "$LOG_DIR"/*.txt
+            ;;
+        front|frontend)
+            [[ -f "$FRONTEND_LOG" ]] || { echo "Log frontend absent. Lance 'gss start' d'abord."; return 1; }
+            echo "LOG FRONTEND EN DIRECT, CTRL+C POUR QUITTER"
+            tail -n 40 -f "$FRONTEND_LOG"
+            ;;
+        *)
+            [[ -f "$BACKEND_LOG" ]] || { echo "Log backend absent. Lance 'gss start' d'abord."; return 1; }
+            echo "LOG BACKEND EN DIRECT, CTRL+C POUR QUITTER"
+            tail -n 40 -f "$BACKEND_LOG"
+            ;;
+    esac
+}
+
+cmd_debug() {
+    if [[ ! -f "$BACKEND_LOG" ]]; then
+        echo "Pas de log backend ($BACKEND_LOG). Lance 'gss start' d'abord."
+        return 1
+    fi
+    echo "ERREURS / WARNINGS RÉCENTS (BACKEND) :"
+    grep -iE "error|warn|exception|traceback|failed|critical" "$BACKEND_LOG" | tail -n 60 \
+        || echo "(aucune erreur trouvée, tout va bien)"
+}
+
+cmd_help() {
+    cat <<'EOF'
+gss, Ground Station CLI
+
+  gss start [ip]          Démarre la station (upload cloud activé).  Défaut: 10.180.97.23
+  gss start defaut        Démarre avec l'IP par défaut (10.180.97.23)
+  gss startoffline [ip]   Démarre SANS upload cloud (Google Sheet désactivé)
+  gss kill                Arrête la station (backend + frontend)
+  gss verbose [all|front] Suit le log backend en direct (all = +frontend)
+  gss debug               Affiche les erreurs / warnings récents
+  gss help                Affiche cette aide
+
+Exemples:
+  gss start 10.180.97.45      # broker sur cette IP
+  gss start defaut            # IP par défaut
+  gss startoffline            # local seulement, pas de cloud
+EOF
+}
+
+sub="${1:-help}"
+shift 2>/dev/null
+case "$sub" in
+    start)              cmd_start "${1:-}";;
+    startoffline)       cmd_startoffline "${1:-}";;
+    kill|stop)          cmd_kill;;
+    verbose|logs)       cmd_verbose "${1:-}";;
+    debug|errors)       cmd_debug;;
+    help|-h|--help|"")  cmd_help;;
+    *) echo "Commande inconnue: '$sub'"; echo; cmd_help; exit 1;;
+esac

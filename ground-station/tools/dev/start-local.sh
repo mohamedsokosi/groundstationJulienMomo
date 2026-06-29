@@ -3,6 +3,7 @@
 MQTT=true
 SIMULATOR=false
 RESTART=false
+OFFLINE=false
 BACKEND_PORT=5000
 FRONTEND_PORT=5173
 MQTT_HOST="127.0.0.1"
@@ -12,6 +13,7 @@ while [[ $# -gt 0 ]]; do
         -Mqtt|-mqtt|--mqtt) MQTT=true ;;
         -Simulator|-simulator|--simulator) SIMULATOR=true ;;
         -Restart|-restart|--restart) RESTART=true ;;
+        -Offline|-offline|--offline) OFFLINE=true ;;
         -BackendPort|-backend-port|--backend-port) BACKEND_PORT="$2"; shift ;;
         -FrontendPort|-frontend-port|--frontend-port) FRONTEND_PORT="$2"; shift ;;
         -BrokerHost|-broker-host|--broker-host) MQTT_HOST="$2"; shift ;;
@@ -35,11 +37,19 @@ if [[ -f "$LOCAL_ENV" ]]; then
     source "$LOCAL_ENV"
     set +a
 fi
+
+# -Offline forces the cloud Google Sheet sync off for this run, overriding
+# whatever local.env set. The local CSV capture is unaffected.
+if $OFFLINE; then
+    SHEETS_SYNC_ENABLED=0
+fi
 # Poetry creates an in-project virtualenv at backend/.venv (virtualenvs.in-project
 # = true). Use its interpreter directly — deterministic, and avoids depending on
 # `poetry` being on PATH at runtime or a stray VIRTUAL_ENV confusing resolution.
 PYTHON_EXE="$BACKEND_DIR/.venv/bin/python"
-LOG_DIR="${TMPDIR:-/tmp}/ground-station-dev"
+# Logs live as .txt in a dedicated folder on the Desktop (visible, openable).
+# Override with GS_LOG_DIR. Keep in sync with tools/dev/gss.
+LOG_DIR="${GS_LOG_DIR:-$HOME/Desktop/ground-station-logs}"
 mkdir -p "$LOG_DIR"
 
 if [[ ! -f "$PYTHON_EXE" ]]; then
@@ -70,7 +80,7 @@ launch_in_terminal() {
 
     local slug
     slug=$(echo "$title" | tr '[:upper:] ' '[:lower:]-')
-    local logfile="$LOG_DIR/$slug.log"
+    local logfile="$LOG_DIR/$slug.txt"
 
     # Redirect output to a log file and detach (nohup + disown) so the launched
     # process doesn't spam the interactive terminal and survives this script
@@ -145,7 +155,7 @@ if $MQTT; then
 fi
 
 # Surface ONLY the Vite bootup time line, nothing else.
-FRONTEND_LOG="$LOG_DIR/ground-station-frontend.log"
+FRONTEND_LOG="$LOG_DIR/ground-station-frontend.txt"
 for _ in $(seq 1 20); do
     vite_ready=$(grep -m1 "ready in" "$FRONTEND_LOG" 2>/dev/null || true)
     [[ -n "$vite_ready" ]] && { echo "$vite_ready"; break; }
