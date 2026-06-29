@@ -8,7 +8,7 @@ from fastapi.staticfiles import StaticFiles
 
 from common.logger import logger
 from common.profiling import install_request_timing, stop_boot_profile_and_report
-from pipeline import telemetry_store
+from pipeline import bridge_log_store, telemetry_store
 from pipeline.mqtt_telemetry_receiver import (
     get_mqtt_config,
     is_mqtt_enabled,
@@ -102,6 +102,13 @@ async def get_telemetry_mqtt_status():
 async def clear_telemetry_mqtt_store():
     telemetry_store.clear_frames()
     return {"cleared": True, "stored_frames": telemetry_store.get_count()}
+
+
+@app.get("/api/bridge/logs")
+async def get_bridge_logs(after: int = 0):
+    """Error/warning lines forwarded by the Pi bridge over MQTT. The frontend
+    errors terminal polls this with the last seen id to fetch only new lines."""
+    return {"logs": bridge_log_store.get_logs(after)}
 
 
 @app.get("/{full_path:path}")

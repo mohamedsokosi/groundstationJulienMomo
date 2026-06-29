@@ -47,7 +47,7 @@ ground-station/
 │   ├── pipeline/
 │   │   ├── mqtt_telemetry_receiver.py  # paho MQTT client, topic icarus2/telemetry/frame.pb
 │   │   ├── telemetry_store.py          # In-memory deque for telemetry frames (maxlen 5000)
-│   │   ├── telemetry_csv_logger.py     # Appends each MQTT frame to a local CSV
+│   │   ├── telemetry_csv_logger.py     # Appends each MQTT frame to a per-day local CSV (<date>.csv)
 │   │   └── telemetry_sheets_sync.py    # Batches frames → Google Sheet (Apps Script Web App)
 │   └── common/
 │       ├── arguments.py      # CLI argument parsing (host, port, log-level) + defaults
@@ -119,7 +119,7 @@ ground-station/
 ├── tools/
 │   ├── dev/
 │   │   └── start-local.sh   # Local startup (MQTT, Simulator, Restart, BrokerHost)
-│   │                        # Detaches backend/frontend, logs to $TMPDIR/ground-station-dev/
+│   │                        # Detaches backend/frontend, logs to ~/Desktop/ground-station-logs/*.txt
 │   └── simulators/
 │       └── mqtt_cubesat_simulator.py  # MQTT simulator — publishes protobuf frames
 │
@@ -388,6 +388,60 @@ outages. Two complementary mechanisms preserve them:
    restart starts fresh; QuotaExceeded errors are silently swallowed,
    falling back to `reconstructOutages`.
 
+**Backend watchdog** — the detection above is frontend-only, so it never reaches
+the backend log. A server-side watchdog in `mqtt_telemetry_receiver.py` mirrors
+it: `on_message` stamps `_last_frame_at`, and a 1 Hz thread logs a **WARNING**
+`[RPI_DISCONNECTED] télémétrie non reçue` once no frame has arrived for
+`MQTT_FRAME_TIMEOUT_SEC` (3 s), plus an INFO `[TELEMETRY_RESUMED]` when frames
+return. Because it is a WARNING, the disconnect now also surfaces in
+`gss debug` — not just the frontend errors terminal. It only fires after the
+first frame (a never-yet-connected start is not an outage).
+
+---
+
+## Bridge Log Forwarding (Pi errors → errors terminal)
+
+The Pi-side UART→MQTT bridge (`uart_mqtt_bridge_rfd.py` on `gs-modem`) forwards its
+**error/warning terminal output** to the ground station so the operator sees Pi
+problems (serial port lost, parse/skip errors, reconnects) without SSHing into the
+Pi. It reuses the existing broker — no extra ports.
+
+```
+Pi bridge  ──publish──►  MQTT topic icarus2/bridge/log   (JSON {ts, level, source, msg})
+                              │
+mqtt_telemetry_receiver.py    │  on_message routes the log topic to _handle_bridge_log
+  └─► bridge_log_store (deque maxlen 500, monotonic id)
+        └─► logger.warning("[BRIDGE:gs-modem] …")   → also surfaces in `gss debug`
+        └─► GET /api/bridge/logs?after=<id>  ──►
+                                                 │
+                                                 ▼
+                          telemetryTerminal.jsx (variant="errors")
+                            polls every 2 s with the last seen id (persisted in
+                            Redux terminalState.errors.bridgeLogId so route
+                            changes don't duplicate; F5 re-fetches the buffer once)
+                            → red [gs-modem] lines (WARN = amber, ERROR = red)
+```
+
+- **Pi side** — a `print()` shadow in the bridge publishes any line containing an
+  error/warning hint (`error`, `skipped`, `fail`, `exception`, `reconnect`, …) to
+  `icarus2/bridge/log`. Errors-only by design — per-frame info lines are not sent.
+  The publish is wrapped in `try/except` so it never affects the bridge.
+- **Backend** — `_handle_bridge_log` parses the JSON (falls back to raw text),
+  stores it in `bridge_log_store`, and logs a WARNING. The store is independent of
+  the 5000-frame telemetry deque. Two refinements keep the feed readable:
+  - **Humanize** — `_humanize_bridge_message` rewrites the bridge's raw serial-open
+    failure (`Serial error: … could not open port /dev/ttyUSB0: No such file …`,
+    printed every 3 s while the RFD's USB adapter is unplugged) into a clear
+    **`[RFD_DISCONNECTED] RFD non branché sur le Pi (/dev/ttyUSB0 introuvable)`**.
+  - **Dedup** — `bridge_log_store.add_log` suppresses consecutive identical lines
+    within `_DEDUP_WINDOW_SEC` (60 s) and returns `None`, so the 3 s reconnect
+    loop collapses to one line (re-shown at most once per minute while it
+    persists). The WARNING mirror is gated on a non-`None` return, so `gss debug`
+    isn't flooded either.
+- **Frontend** — the errors terminal merges these into the same 500-line buffer as
+  its telemetry-derived anomalies. CLR keeps the bridge cursor, so clearing shows
+  only new Pi errors going forward.
+
 ---
 
 ## Topbar Widgets (global)
@@ -462,6 +516,7 @@ When a chart contains blackout frames, each Y series is split into a `_normal` l
 | `GET` | `/api/telemetry/mqtt/frames` | MQTT store frames as Protocol Buffers (live only) |
 | `GET` | `/api/telemetry/mqtt/status` | MQTT broker connection status |
 | `POST` | `/api/telemetry/mqtt/clear` | Clear the MQTT store |
+| `GET` | `/api/bridge/logs?after=<id>` | Error/warning lines forwarded by the Pi bridge (incremental by id) |
 | `GET` | `/*` | SPA fallback → `dist/index.html` |
 
 ---
@@ -491,6 +546,27 @@ When a chart contains blackout frames, each Y series is split into a `_normal` l
 
 ## Local Startup
 
+### `gss` CLI (shortcut wrapper)
+
+`tools/dev/gss` is a thin convenience wrapper around `start-local.sh` and the dev
+logs. Install once by symlinking it onto the `PATH`
+(`ln -sf "$PWD/tools/dev/gss" ~/.local/bin/gss`); thereafter:
+
+| Command | Effect |
+|---|---|
+| `gss start [ip]` | `start-local.sh -Restart -BrokerHost <ip>` (cloud sync on). No ip / `defaut` → `10.180.97.23` |
+| `gss startoffline [ip]` | Same, but `-Offline` (Google Sheet sync forced off; local CSV still written) |
+| `gss kill` | Kill whatever listens on the backend/frontend ports |
+| `gss verbose [all\|front]` | `tail -f` the **backend** log (`all` = + frontend, `front` = frontend only) |
+| `gss debug` | Show recent error/warning lines from the backend log |
+| `gss help` | List the commands |
+
+The script resolves its own real path (via the symlink) to locate
+`start-local.sh`, so it works from any directory. **Named `gss`, not `gs` —**
+`gs` is Ghostscript, a standard system binary we must not shadow.
+
+### Direct invocation
+
 **Standard launch with Raspberry Pi 4B broker (live hardware):**
 
 ```bash
@@ -508,6 +584,7 @@ The RPi (`gs-modem`, IP `10.180.97.70`) must have `uart_mqtt_bridge.py` running 
 | Option | Effect |
 |---|---|
 | `-Restart` | Kills processes on backend/frontend ports before restarting |
+| `-Offline` | Forces the cloud Google Sheet sync off (overrides `local.env`); local CSV unaffected |
 | `-Mqtt` | Starts local Mosquitto broker (port 1883) |
 | `-Simulator` | Runs `mqtt_cubesat_simulator.py` (publishes CSV frames over MQTT) |
 | `-BrokerHost <ip>` | Use an external MQTT broker (e.g. the Raspberry Pi 4B) |
@@ -517,16 +594,17 @@ The RPi (`gs-modem`, IP `10.180.97.70`) must have `uart_mqtt_bridge.py` running 
 #### Process detachment & logs
 
 The backend (uvicorn) and frontend (vite) are launched with `nohup … &` + `disown`
-and their stdout/stderr is redirected to per-service log files under
-`${TMPDIR:-/tmp}/ground-station-dev/` (`ground-station-backend.log`,
-`ground-station-frontend.log`). This keeps the interactive prompt usable —
-previously the processes wrote straight to the terminal, burying keystrokes and
-making it look frozen. On startup the script prints only the Vite "ready in … ms"
-line (grepped from the frontend log); everything else stays in the log files.
-Because the processes are detached, **Ctrl+C no longer stops them** — use
-`-Restart` (which kills whatever is listening on the backend/frontend ports) or
-`kill <PID>` with the PIDs printed at launch. Follow logs anytime with
-`tail -f "${TMPDIR:-/tmp}/ground-station-dev"/*.log`.
+and their stdout/stderr is redirected to per-service `.txt` log files in a folder
+on the Desktop: `~/Desktop/ground-station-logs/` (`ground-station-backend.txt`,
+`ground-station-frontend.txt`). Override the location with `GS_LOG_DIR`. This
+keeps the interactive prompt usable — previously the processes wrote straight to
+the terminal, burying keystrokes and making it look frozen. On startup the script
+prints only the Vite "ready in … ms" line (grepped from the frontend log);
+everything else stays in the log files. Because the processes are detached,
+**Ctrl+C no longer stops them** — use `gss kill` / `-Restart` (which kills
+whatever is listening on the backend/frontend ports) or `kill <PID>` with the
+PIDs printed at launch. Follow logs anytime with `gss verbose` or
+`tail -f ~/Desktop/ground-station-logs/*.txt`.
 
 ### Running the backend manually (without the script)
 
@@ -554,9 +632,12 @@ The ground station backend will subscribe to `icarus2/telemetry/frame.pb` on the
 | `MQTT_BROKER_HOST` | `localhost` | MQTT broker host |
 | `MQTT_BROKER_PORT` | `1883` | MQTT port |
 | `MQTT_TELEMETRY_TOPIC` | `icarus2/telemetry/frame.pb` | Telemetry topic |
+| `MQTT_BRIDGE_LOG_TOPIC` | `icarus2/bridge/log` | Topic the Pi bridge publishes error/warning lines to |
+| `MQTT_BRIDGE_LOG_MAXLEN` | `500` | Max bridge log lines kept in backend ring buffer |
 | `MQTT_TELEMETRY_STORE_MAXLEN` | `5000` | Max frames kept in backend store |
+| `MQTT_FRAME_TIMEOUT_SEC` | `3` | Backend watchdog: log `[RPI_DISCONNECTED]` after this many seconds without a frame |
 | `TELEMETRY_CSV_LOG_ENABLED` | `1` | Append each received frame to a local CSV (`0` to disable) |
-| `TELEMETRY_CSV_PATH` | `~/Desktop/telemetry_live.csv` | Path of the local CSV log |
+| `TELEMETRY_CSV_DIR` | `~/Desktop/telemetry` | Folder of per-day CSV logs (`<date>.csv`) |
 | `SHEETS_SYNC_ENABLED` | `0` | Push frames to a Google Sheet (`1` + a URL to enable) |
 | `SHEETS_WEBAPP_URL` | (empty) | Apps Script Web App `/exec` URL to POST batches to |
 | `SHEETS_SYNC_INTERVAL_SEC` | `5` | Seconds between batched Sheet flushes |
@@ -569,15 +650,18 @@ Every frame received over MQTT is appended to a local CSV by
 `pipeline/telemetry_csv_logger.py` (called from the receiver's `on_message`,
 right after `telemetry_store.add_frame`). This is **independent** of the
 in-memory 5000-frame deque — the deque is the live display window, the CSV is a
-durable append-only capture.
+durable per-day capture.
 
+- **Per-day files** — one file per local calendar day, named by the date
+  (`<YYYY-MM-DD>.csv`), so the local archive mirrors the Sheet's per-day tabs.
+  The logger rotates to a new file at midnight; the header is written once per
+  new file.
 - **Format** — identical header/columns to the canonical ICARUS2 recording
   (`m-time, Flight ID, Ublox UTC, U Lat, U Long, U Alt, Speed, Vert speed,
   #Sat, Pressure, MIU, T1…T8`), so the captured log is interchangeable with the
-  original flight data. The header is written once when the file is created.
-- **Location** — `TELEMETRY_CSV_PATH`, default `~/Desktop/telemetry_live.csv`
-  (outside the repo so it is never committed). Disable with
-  `TELEMETRY_CSV_LOG_ENABLED=0`.
+  original flight data.
+- **Location** — `TELEMETRY_CSV_DIR`, default `~/Desktop/telemetry/` (outside
+  the repo so it is never committed). Disable with `TELEMETRY_CSV_LOG_ENABLED=0`.
 - **Durability** — each row is `flush()`ed immediately so an external mirror
   tool always sees the latest data. A single open failure latches logging off
   (no per-second error spam); the rest of the pipeline is unaffected.
@@ -592,11 +676,13 @@ sudo apt install rclone
 rclone config            # new remote → "drive" → authorize in browser → name it "gdrive"
 ```
 
-Then mirror the capture file on a schedule (push-only, every 30 s shown here):
+Then mirror the capture folder on a schedule (push-only, every 30 s shown here);
+`rclone copy` of the directory uploads every per-day file, re-sending only those
+that changed:
 
 ```bash
 while true; do
-  rclone copy ~/Desktop/telemetry_live.csv gdrive:GroundStation/
+  rclone copy ~/Desktop/telemetry gdrive:GroundStation/
   sleep 30
 done
 ```

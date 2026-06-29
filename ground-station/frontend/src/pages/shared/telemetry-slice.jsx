@@ -19,7 +19,7 @@
 
 import { createSlice } from '@reduxjs/toolkit';
 
-const initialTerminalVariantState = { lines: [], cursor: 0, inBlackout: false };
+const initialTerminalVariantState = { lines: [], cursor: 0, inBlackout: false, bridgeLogId: 0 };
 
 const initialState = {
     telemetryData: [],
@@ -105,15 +105,24 @@ const telemetrySlice = createSlice({
             }
         },
         appendTerminalLines: (state, action) => {
-            const { variant, lines, cursor, inBlackout } = action.payload || {};
+            const { variant, lines, cursor, inBlackout, bridgeLogId } = action.payload || {};
             const v = state.terminalState[variant];
             if (!v) return;
             if (cursor !== undefined) v.cursor = cursor;
             if (inBlackout !== undefined) v.inBlackout = inBlackout;
+            if (bridgeLogId !== undefined) v.bridgeLogId = bridgeLogId;
             if (lines?.length) {
-                v.lines.push(...lines);
-                const max = TERMINAL_MAX_LINES[variant] ?? 500;
-                if (v.lines.length > max) v.lines = v.lines.slice(v.lines.length - max);
+                // Dedup by stable id: bridge-log lines carry `bridge-<id>` and a
+                // re-poll can re-deliver the same entry; telemetry lines use unique
+                // random ids so they're never filtered. Keeps the terminal clean
+                // regardless of double-polling (StrictMode, two errors terminals…).
+                const seen = new Set(v.lines.map((l) => l.id));
+                const fresh = lines.filter((l) => !seen.has(l.id));
+                if (fresh.length) {
+                    v.lines.push(...fresh);
+                    const max = TERMINAL_MAX_LINES[variant] ?? 500;
+                    if (v.lines.length > max) v.lines = v.lines.slice(v.lines.length - max);
+                }
             }
         },
         resetTerminalVariant: (state, action) => {

@@ -57,7 +57,11 @@ export function TelemetryTerminal({ variant = 'telemetry' }) {
 
     useEffect(() => {
         if (!data?.length) {
-            if (variantState.cursor > 0 || variantState.lines.length > 0) {
+            // Reset only if telemetry was actually being processed (cursor > 0).
+            // Do NOT key off lines.length: the errors variant can hold bridge-log
+            // lines (forwarded from the Pi) while there is zero telemetry, and a
+            // reset here would wipe them on every poll.
+            if (variantState.cursor > 0) {
                 dispatch(resetTerminalVariant(variant));
             }
             return;
@@ -111,6 +115,45 @@ export function TelemetryTerminal({ variant = 'telemetry' }) {
             inBlackout,
         }));
     }, [data, variant, variantState, dispatch]);
+
+    // Pi bridge errors forwarded over MQTT (icarus2/bridge/log) → red lines in
+    // the errors terminal. Polls /api/bridge/logs with the last seen id so only
+    // new lines are appended; the id persists in Redux so route changes don't
+    // duplicate. Independent of telemetry — surfaces even when no frames flow.
+    const bridgeLogIdRef = useRef(variantState.bridgeLogId ?? 0);
+    useEffect(() => {
+        bridgeLogIdRef.current = variantState.bridgeLogId ?? 0;
+    }, [variantState.bridgeLogId]);
+
+    useEffect(() => {
+        if (variant !== 'errors') return undefined;
+        let cancelled = false;
+        const poll = async () => {
+            try {
+                const res = await fetch(`/api/bridge/logs?after=${bridgeLogIdRef.current}`);
+                if (!res.ok) return;
+                const json = await res.json();
+                const logs = json?.logs ?? [];
+                if (cancelled || logs.length === 0) return;
+                const newLines = logs.map((e) => ({
+                    id: `bridge-${e.id}`,
+                    ts: fmtTime(new Date((e.ts ?? Date.now() / 1000) * 1000)),
+                    text: `[${e.source}] ${e.message}`,
+                    color: String(e.level).startsWith('WARN') ? '#fbbf24' : '#f87171',
+                }));
+                dispatch(appendTerminalLines({
+                    variant: 'errors',
+                    lines: newLines,
+                    bridgeLogId: logs[logs.length - 1].id,
+                }));
+            } catch {
+                /* network blip — retry next tick */
+            }
+        };
+        poll();
+        const timer = setInterval(poll, 2000);
+        return () => { cancelled = true; clearInterval(timer); };
+    }, [variant, dispatch]);
 
     useEffect(() => {
         if (!autoScroll) return;
