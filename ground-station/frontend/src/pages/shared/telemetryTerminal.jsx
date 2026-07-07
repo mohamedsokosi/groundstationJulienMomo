@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Box, Button, Paper, Typography } from '@mui/material';
+import { Box, Paper, Typography } from '@mui/material';
 import { useDispatch, useSelector } from 'react-redux';
 import { appendTerminalLines, resetTerminalVariant } from './telemetry-slice.jsx';
 
@@ -14,6 +14,72 @@ const VARIANT_CONFIG = {
 function fmtTime(d) {
     const p = (v) => String(v).padStart(2, '0');
     return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+}
+
+const STATUS_COLORS = { green: '#59d98b', red: '#f87171', amber: '#fbbf24', grey: '#8a97a8' };
+
+// Turns the /api/status payload into labelled, coloured rows so the operator can
+// see at a glance WHY there's no telemetry (broker down? RFD unplugged? just idle?).
+function buildStatusRows(s) {
+    const { green, red, amber, grey } = STATUS_COLORS;
+    const frames = s.stored_frames ?? 0;
+    const rows = [];
+
+    const bc = s.broker_connected;
+    rows.push({
+        label: 'Broker',
+        mark: bc ? '✓' : '✗',
+        color: bc ? green : red,
+        value: `${bc ? 'connecté' : 'NON connecté'} à ${s.broker_host}:${s.broker_port}`,
+    });
+
+    const ta = s.telemetry_active;
+    let telVal;
+    if (ta) telVal = `active · ${frames} trames · dernière il y a ${s.last_frame_age_sec}s`;
+    else if (frames > 0) telVal = `arrêtée · dernière il y a ${s.last_frame_age_sec}s (${frames} trames)`;
+    else telVal = 'aucune trame reçue';
+    rows.push({
+        label: 'Télémétrie',
+        mark: ta ? '✓' : '✗',
+        color: ta ? green : (frames > 0 ? amber : red),
+        value: telVal,
+    });
+
+    let rfdMark = '?'; let rfdColor = grey; let rfdVal = 'inconnu (pas d\'info du Pi)';
+    if (s.rfd_status === 'connected') { rfdMark = '✓'; rfdColor = green; rfdVal = 'branché (télémétrie reçue)'; }
+    else if (s.rfd_status === 'disconnected') { rfdMark = '✗'; rfdColor = red; rfdVal = 'non branché sur le Pi'; }
+    rows.push({ label: 'RFD', mark: rfdMark, color: rfdColor, value: rfdVal });
+
+    return rows;
+}
+
+function statusHint(s) {
+    if (!s.broker_connected) return '→ Pi éteint ou mauvaise IP ? Relancer : gss start <ip-du-pi>';
+    if (s.rfd_status === 'disconnected') return '→ Brancher le RFD sur le Pi (/dev/ttyUSB0)';
+    if (!s.telemetry_active) return '→ Broker OK — en attente de trames de télémétrie…';
+    return '→ Tout est nominal, télémétrie en cours.';
+}
+
+// Live "what's happening" block shown in a terminal's empty state, instead of a
+// bare "aucune télémétrie". Fed by the /api/status poll.
+function StationStatus({ status }) {
+    const mono = { fontFamily: 'Consolas, "Courier New", monospace', fontSize: 10, lineHeight: 1.5 };
+    if (!status) {
+        return <Typography sx={{ ...mono, color: '#a8b3c4', fontStyle: 'italic' }}>Chargement de l&apos;état…</Typography>;
+    }
+    return (
+        <Box>
+            <Typography sx={{ ...mono, color: '#5cc8ff', fontWeight: 700 }}>── ÉTAT DE LA STATION ──</Typography>
+            {buildStatusRows(status).map((r) => (
+                <Box key={r.label} sx={{ display: 'flex', gap: 0.75 }}>
+                    <Typography component="span" sx={{ ...mono, color: r.color, width: 8, flexShrink: 0 }}>{r.mark}</Typography>
+                    <Typography component="span" sx={{ ...mono, color: '#8a97a8', width: 68, flexShrink: 0 }}>{r.label}</Typography>
+                    <Typography component="span" sx={{ ...mono, color: r.color, wordBreak: 'break-word' }}>{r.value}</Typography>
+                </Box>
+            ))}
+            <Typography sx={{ ...mono, color: '#8a97a8', mt: 0.25 }}>{statusHint(status)}</Typography>
+        </Box>
+    );
 }
 
 function formatLine(variant, pt) {
@@ -54,6 +120,27 @@ export function TelemetryTerminal({ variant = 'telemetry' }) {
     const containerRef = useRef(null);
     const [autoScroll, setAutoScroll] = useState(true);
     const suppressScrollRef = useRef(false);
+    const [stationStatus, setStationStatus] = useState(null);
+
+    // Poll the aggregate station status (broker/telemetry/RFD) so the empty state
+    // of the telemetry/verbose terminals can explain what's happening instead of
+    // just "no data". The errors terminal doesn't use it — when it has no lines it
+    // simply shows "Aucune erreur" — so skip the poll there.
+    useEffect(() => {
+        if (variant === 'errors') return undefined;
+        let cancelled = false;
+        const poll = async () => {
+            try {
+                const res = await fetch('/api/status');
+                if (!res.ok) return;
+                const json = await res.json();
+                if (!cancelled) setStationStatus(json);
+            } catch { /* ignore — keep last known status */ }
+        };
+        poll();
+        const timer = setInterval(poll, 2000);
+        return () => { cancelled = true; clearInterval(timer); };
+    }, [variant]);
 
     useEffect(() => {
         if (!data?.length) {
@@ -173,12 +260,6 @@ export function TelemetryTerminal({ variant = 'telemetry' }) {
         setAutoScroll(el.scrollTop + el.clientHeight >= el.scrollHeight - 12);
     }, []);
 
-    const handleClear = useCallback(() => {
-        dispatch(resetTerminalVariant(variant));
-    }, [dispatch, variant]);
-
-    const emptyMsg = variant === 'errors' ? 'No errors detected.' : 'Waiting for data...';
-
     return (
         <Paper sx={{
             width: '100%',
@@ -218,23 +299,6 @@ export function TelemetryTerminal({ variant = 'telemetry' }) {
                     transition: 'background-color 0.2s',
                     flexShrink: 0,
                 }} />
-                <Button
-                    size="small"
-                    onClick={handleClear}
-                    sx={{
-                        minWidth: 0,
-                        px: 0.75,
-                        py: 0,
-                        fontSize: 9,
-                        lineHeight: 1.6,
-                        fontFamily: 'Consolas, monospace',
-                        fontWeight: 700,
-                        color: '#a8b3c4',
-                        '&:hover': { color: cfg.headerColor, bgcolor: 'transparent' },
-                    }}
-                >
-                    CLR
-                </Button>
             </Box>
 
             <Box
@@ -252,15 +316,17 @@ export function TelemetryTerminal({ variant = 'telemetry' }) {
                 }}
             >
                 {lines.length === 0 ? (
-                    <Typography sx={{
-                        fontFamily: 'Consolas, "Courier New", monospace',
-                        fontSize: 10,
-                        color: '#a8b3c4',
-                        fontStyle: 'italic',
-                        lineHeight: 1.6,
-                    }}>
-                        {emptyMsg}
-                    </Typography>
+                    variant === 'errors' ? (
+                        <Typography sx={{
+                            fontFamily: 'Consolas, "Courier New", monospace',
+                            fontSize: 10,
+                            color: '#59d98b',
+                        }}>
+                            Aucune erreur
+                        </Typography>
+                    ) : (
+                        <StationStatus status={stationStatus} />
+                    )
                 ) : (
                     lines.map((line) => (
                         <Box key={line.id} sx={{ display: 'flex', gap: 1, lineHeight: 1.5 }}>

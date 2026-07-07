@@ -272,6 +272,42 @@ function decodeTelemetryFrame(bytes) {
                 }
                 offset = skipField(bytes, offset, wireType);
                 break;
+            case 21:
+                if (wireType === WIRE_64BIT) {
+                    const result = readDouble(bytes, offset);
+                    frame.quaternionW = result.value;
+                    offset = result.offset;
+                    break;
+                }
+                offset = skipField(bytes, offset, wireType);
+                break;
+            case 22:
+                if (wireType === WIRE_64BIT) {
+                    const result = readDouble(bytes, offset);
+                    frame.quaternionX = result.value;
+                    offset = result.offset;
+                    break;
+                }
+                offset = skipField(bytes, offset, wireType);
+                break;
+            case 23:
+                if (wireType === WIRE_64BIT) {
+                    const result = readDouble(bytes, offset);
+                    frame.quaternionY = result.value;
+                    offset = result.offset;
+                    break;
+                }
+                offset = skipField(bytes, offset, wireType);
+                break;
+            case 24:
+                if (wireType === WIRE_64BIT) {
+                    const result = readDouble(bytes, offset);
+                    frame.quaternionZ = result.value;
+                    offset = result.offset;
+                    break;
+                }
+                offset = skipField(bytes, offset, wireType);
+                break;
             default:
                 offset = skipField(bytes, offset, wireType);
                 break;
@@ -302,6 +338,11 @@ function frameToTelemetryRow(frame, index) {
     const temperature6 = frame.temperature6C ?? 0;
     const temperature7 = frame.temperature7C ?? 0;
     const temperature8 = frame.temperature8C ?? 0;
+    // IMU attitude quaternion [w, x, y, z]; default = identity when absent.
+    const quaternionW = frame.quaternionW ?? 1;
+    const quaternionX = frame.quaternionX ?? 0;
+    const quaternionY = frame.quaternionY ?? 0;
+    const quaternionZ = frame.quaternionZ ?? 0;
 
     return {
         sequenceNumber,
@@ -335,6 +376,10 @@ function frameToTelemetryRow(frame, index) {
         T6: temperature6,
         T7: temperature7,
         T8: temperature8,
+        Quat_w: quaternionW,
+        Quat_x: quaternionX,
+        Quat_y: quaternionY,
+        Quat_z: quaternionZ,
     };
 }
 

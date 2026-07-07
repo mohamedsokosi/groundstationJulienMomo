@@ -10,9 +10,40 @@ BACKEND_DIR = REPO_ROOT / "backend"
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from server.telemetry_protobuf import csv_row_to_telemetry_frame, encode_telemetry_frame  # noqa: E402
+from server.telemetry_protobuf import encode_telemetry_frame, normalize_telemetry_frame  # noqa: E402
 
 DEFAULT_TOPIC = "icarus2/telemetry/frame.pb"
+
+# Canonical ICARUS2 recording headers (telemetrySender/src/telemetry.csv, i.e.
+# telemetry_csv_logger.CSV_HEADER) -> normalized snake_case keys understood by
+# normalize_telemetry_frame(). read_csv_rows() strips surrounding whitespace from
+# the headers, so match the trimmed text here (e.g. "Ublox UTC", not " Ublox UTC").
+CSV_FIELD_ALIASES = {
+    "m-time": "mission_time",
+    "Flight ID": "flight_id",
+    "Ublox UTC": "gnss_time_utc",
+    "U Lat": "latitude_deg",
+    "U Long": "longitude_deg",
+    "U Alt": "altitude_m",
+    "Speed": "speed_mps",
+    "Vert speed": "vertical_speed_mps",
+    "#Sat": "satellite_count",
+    "Pressure": "pressure_hpa",
+    "MIU": "miu_v",
+    "T1": "temperature_1_c",
+    "T2": "temperature_2_c",
+    "T3": "temperature_3_c",
+    "T4": "temperature_4_c",
+    "T5": "temperature_5_c",
+    "T6": "temperature_6_c",
+    "T7": "temperature_7_c",
+    "T8": "temperature_8_c",
+}
+
+
+def row_to_frame_source(row: dict) -> dict:
+    """Rename canonical CSV columns to the snake_case keys the encoder expects."""
+    return {CSV_FIELD_ALIASES.get(key, key): value for key, value in row.items()}
 
 
 def parse_args() -> argparse.Namespace:
@@ -79,7 +110,7 @@ def publish_rows(client, rows: list[dict], args: argparse.Namespace) -> None:
 
     while True:
         for row in rows:
-            frame = csv_row_to_telemetry_frame(row, sequence_number=sequence_number)
+            frame = normalize_telemetry_frame(row_to_frame_source(row), sequence_number=sequence_number)
             payload = encode_telemetry_frame(frame)
             publish_info = client.publish(args.topic, payload=payload, qos=args.qos)
             publish_info.wait_for_publish()

@@ -37,6 +37,29 @@ cmd_startoffline() {
     bash "$START" -Restart -Offline -BrokerHost "$ip"
 }
 
+cmd_simulation() {
+    # Rejoue le CSV de vol canonique ICARUS2 comme si c'était de la télémétrie
+    # live : broker MQTT local + simulateur -> même pipeline que le vrai matériel,
+    # sans matériel. Offline (pas d'upload cloud) et sans capture CSV locale, pour
+    # ne pas polluer l'archive Google Sheet / ~/Desktop/telemetry avec du simulé.
+    local default_csv csv
+    default_csv="$(cd "$SCRIPT_DIR/../../.." && pwd)/Safari_GS_antenna/telemetrySender/src/telemetry.csv"
+    csv="${1:-$default_csv}"
+    if [[ ! -f "$csv" ]]; then
+        echo "CSV de simulation introuvable: $csv" >&2
+        echo "Usage: gss simulation [chemin/vers/telemetry.csv]" >&2
+        return 1
+    fi
+    if ! command -v mosquitto >/dev/null 2>&1; then
+        echo "mosquitto (broker MQTT local) manquant — requis pour la simulation." >&2
+        echo "Installe-le puis relance :  sudo apt install -y mosquitto" >&2
+        return 1
+    fi
+    echo "SIMULATION — BROKER LOCAL + REJEU CSV (offline, sans capture CSV locale)"
+    echo "CSV: $csv"
+    TELEMETRY_CSV_LOG_ENABLED=0 bash "$START" -Restart -Mqtt -Simulator -Offline -SimCsv "$csv"
+}
+
 cmd_kill() {
     local found=0 port pid pids
     echo "ARRÊT DE LA GROUND STATION"
@@ -48,6 +71,13 @@ cmd_kill() {
             found=1
         done
     done
+    # The CubeSat simulator is an MQTT publisher with no listening port, so the
+    # port loop above misses it. Kill it by name too, or it keeps publishing.
+    if pgrep -f "mqtt_cubesat_simulator.py" >/dev/null 2>&1; then
+        echo "kill simulateur CubeSat"
+        pkill -f "mqtt_cubesat_simulator.py" 2>/dev/null || true
+        found=1
+    fi
     if [[ $found -eq 0 ]]; then
         echo "Rien à arrêter (aucun process sur $BACKEND_PORT / $FRONTEND_PORT)."
     else
@@ -96,6 +126,7 @@ gss, Ground Station CLI
   gss start [ip]          Démarre la station (upload cloud activé).  Défaut: 10.180.97.23
   gss start defaut        Démarre avec l'IP par défaut (10.180.97.23)
   gss startoffline [ip]   Démarre SANS upload cloud (Google Sheet désactivé)
+  gss simulation [csv]    Rejoue un CSV comme télémétrie live (broker local, offline)
   gss kill                Arrête la station (backend + frontend)
   gss verbose [all|front] Suit le log backend en direct (all = +frontend)
   gss debug               Affiche les erreurs / warnings récents
@@ -105,6 +136,7 @@ Exemples:
   gss start 10.180.97.45      # broker sur cette IP
   gss start defaut            # IP par défaut
   gss startoffline            # local seulement, pas de cloud
+  gss simulation              # rejoue le CSV de vol ICARUS2 (sans matériel)
 EOF
 }
 
@@ -113,6 +145,7 @@ shift 2>/dev/null
 case "$sub" in
     start)              cmd_start "${1:-}";;
     startoffline)       cmd_startoffline "${1:-}";;
+    simulation|sim|simulate) cmd_simulation "${1:-}";;
     kill|stop)          cmd_kill;;
     verbose|logs)       cmd_verbose "${1:-}";;
     debug|errors)       cmd_debug;;

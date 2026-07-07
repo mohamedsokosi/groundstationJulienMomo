@@ -25,6 +25,26 @@ _watchdog_thread: threading.Thread | None = None
 # Set by on_message on every frame; read by the watchdog to detect a stall.
 _last_frame_at: float | None = None
 _outage_active = False
+# Whether the MQTT client is currently connected to the broker (the Pi). Read by
+# the /api/status endpoint so the operator can tell a broker/Pi problem apart from
+# a merely-idle link.
+_broker_connected = False
+
+
+def get_broker_connected() -> bool:
+    return _broker_connected
+
+
+def get_last_frame_age() -> float | None:
+    """Seconds since the last telemetry frame, or None if none received yet."""
+    if _last_frame_at is None:
+        return None
+    return time.time() - _last_frame_at
+
+
+def get_last_bridge_message() -> dict | None:
+    logs = bridge_log_store.get_logs(0)
+    return logs[-1] if logs else None
 
 
 def _env_int(name: str, default: int) -> int:
@@ -106,8 +126,10 @@ def _run_receiver(config: dict) -> None:
     bridge_log_store.configure_maxlen(config["bridge_log_maxlen"])
 
     def on_connect(client, userdata, flags, reason_code, properties):
+        global _broker_connected
         is_success = reason_code == 0 or getattr(reason_code, "value", None) == 0
         if is_success or str(reason_code).lower() == "success":
+            _broker_connected = True
             logger.info(
                 "MQTT telemetry receiver connected to %s:%s; subscribing to %s and %s",
                 config["broker_host"],
@@ -119,7 +141,13 @@ def _run_receiver(config: dict) -> None:
             client.subscribe(config["bridge_log_topic"], qos=config["qos"])
             return
 
+        _broker_connected = False
         logger.error("MQTT telemetry receiver connection failed: %s", reason_code)
+
+    def on_disconnect(client, userdata, disconnect_flags, reason_code, properties):
+        global _broker_connected
+        _broker_connected = False
+        logger.warning("MQTT telemetry receiver disconnected from broker: %s", reason_code)
 
     def on_message(client, userdata, message):
         global _last_frame_at, _outage_active
@@ -148,14 +176,17 @@ def _run_receiver(config: dict) -> None:
     reconnect_delay = DEFAULT_RECONNECT_DELAY_SECONDS
 
     while True:
+        global _broker_connected
         client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
         client.on_connect = on_connect
+        client.on_disconnect = on_disconnect
         client.on_message = on_message
 
         try:
             client.connect(config["broker_host"], config["broker_port"], keepalive=60)
             client.loop_forever()
         except Exception as exc:
+            _broker_connected = False
             logger.error(
                 "MQTT telemetry receiver connection to %s:%s failed: %s; retrying in %ss",
                 config["broker_host"],
@@ -165,6 +196,7 @@ def _run_receiver(config: dict) -> None:
             )
             time.sleep(reconnect_delay)
         finally:
+            _broker_connected = False
             try:
                 client.disconnect()
             except Exception:

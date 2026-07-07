@@ -19,6 +19,7 @@ import { ChartTitle } from '../shared/chartTitle.jsx';
 import { CesiumViewport } from '../shared/cesiumViewport.jsx';
 import { TelemetryStatsBar } from '../shared/telemetryStatsBar.jsx';
 import { TelemetryTerminal } from '../shared/telemetryTerminal.jsx';
+import { AttitudeCube } from '../shared/attitudeCube.jsx';
 import { getTelemetryRecordGeo, loadGroundStationPosition, saveGroundStationPosition } from '../shared/cesium-utils.js';
 import '../shared/ground-station-view.css';
 
@@ -44,6 +45,15 @@ function loadFavoriteCharts() {
     return [];
 }
 
+// Default left column when nothing is configured yet: a telemetry + a verbose
+// terminal, so a fresh operator always sees the live stream (and the station
+// status block when idle) instead of an empty column.
+const DEFAULT_LEFT_COL_ITEMS = [
+    { id: 'cube-default', type: 'cube' },
+    { id: 'terminal-default-telemetry', type: 'terminal', terminalVariant: 'telemetry' },
+    { id: 'terminal-default-verbose', type: 'terminal', terminalVariant: 'verbose' },
+];
+
 function loadLeftColumnItems() {
     try {
         const saved = localStorage.getItem(STATION_LEFT_COL_KEY);
@@ -52,9 +62,11 @@ function loadLeftColumnItems() {
             if (Array.isArray(parsed) && parsed.length > 0) return parsed;
         }
     } catch (_) { /* ignore */ }
-    return loadFavoriteCharts().map((c) => ({
+    const favorites = loadFavoriteCharts().map((c) => ({
         id: c.id, type: 'chart', xKey: c.xKey, lines: c.lines,
     }));
+    if (favorites.length > 0) return favorites;
+    return DEFAULT_LEFT_COL_ITEMS.map((it) => ({ ...it }));
 }
 
 export default function StationDashboard() {
@@ -119,7 +131,7 @@ export default function StationDashboard() {
     const [favouriteIds, setFavouriteIds] = useState(() =>
         new Set(loadFavoriteCharts().map((c) => c.id))
     );
-    const [mapOptions, setMapOptions] = useState({ follow: false, trajectory: true, linkBeam: true });
+    const [mapOptions, setMapOptions] = useState({ follow: false, trajectory: true, linkBeam: true, projection: true });
     const [groundStationPos, setGroundStationPos] = useState(loadGroundStationPosition);
 
     const handleGroundStationChange = useCallback((pos) => {
@@ -256,6 +268,11 @@ export default function StationDashboard() {
         const variant = newTerminalVariant;
         if (leftItems.some((i) => i.type === 'terminal' && (i.terminalVariant ?? 'telemetry') === variant)) return;
         setLeftItems((prev) => [...prev, { id: `terminal-${Date.now()}`, type: 'terminal', terminalVariant: variant }]);
+    };
+
+    const addCube = () => {
+        if (leftItems.some((i) => i.type === 'cube')) return;
+        setLeftItems((prev) => [...prev, { id: `cube-${Date.now()}`, type: 'cube' }]);
     };
 
     const removeItem = (id) => {
@@ -410,6 +427,11 @@ export default function StationDashboard() {
                                     sx={{ flex: 1 }}>
                                     Terminal
                                 </Button>
+                                <Button size="small" variant="outlined" startIcon={<AddIcon />} onClick={addCube}
+                                    disabled={leftItems.some((i) => i.type === 'cube')}
+                                    sx={{ flex: 1 }}>
+                                    Cube 3D
+                                </Button>
                             </Stack>
                         </Stack>
                     </Paper>
@@ -514,7 +536,9 @@ export default function StationDashboard() {
                                             </IconButton>
                                         </Box>
                                     )}
-                                    <TelemetryTerminal variant={item.terminalVariant ?? 'telemetry'} />
+                                    {item.type === 'cube'
+                                        ? <AttitudeCube />
+                                        : <TelemetryTerminal variant={item.terminalVariant ?? 'telemetry'} />}
                                 </Box>
                             )}
                         </Box>

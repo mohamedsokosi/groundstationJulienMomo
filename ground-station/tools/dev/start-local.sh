@@ -7,6 +7,9 @@ OFFLINE=false
 BACKEND_PORT=5000
 FRONTEND_PORT=5173
 MQTT_HOST="127.0.0.1"
+# CSV replayed by the simulator (-Simulator). Relative paths resolve against the
+# repo root; absolute paths are used as-is. Default is the ground-station root.
+SIM_CSV="telemetry.csv"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -14,6 +17,7 @@ while [[ $# -gt 0 ]]; do
         -Simulator|-simulator|--simulator) SIMULATOR=true ;;
         -Restart|-restart|--restart) RESTART=true ;;
         -Offline|-offline|--offline) OFFLINE=true ;;
+        -SimCsv|-simcsv|--sim-csv) SIM_CSV="$2"; shift ;;
         -BackendPort|-backend-port|--backend-port) BACKEND_PORT="$2"; shift ;;
         -FrontendPort|-frontend-port|--frontend-port) FRONTEND_PORT="$2"; shift ;;
         -BrokerHost|-broker-host|--broker-host) MQTT_HOST="$2"; shift ;;
@@ -73,6 +77,17 @@ stop_listeners_on_port() {
     done
 }
 
+stop_simulator() {
+    # The simulator is an MQTT publisher with NO listening port, so the port-based
+    # restart above never catches it. Left running, every launch stacks another one
+    # and they all replay the CSV into the broker at once → garbled telemetry. Kill
+    # any existing instance before (re)starting.
+    if pgrep -f "mqtt_cubesat_simulator.py" >/dev/null 2>&1; then
+        echo "Stopping previous CubeSat simulator(s)..."
+        pkill -f "mqtt_cubesat_simulator.py" 2>/dev/null || true
+    fi
+}
+
 launch_in_terminal() {
     local title="$1"
     shift
@@ -95,7 +110,17 @@ launch_in_terminal() {
 if $RESTART; then
     stop_listeners_on_port "$BACKEND_PORT"
     stop_listeners_on_port "$FRONTEND_PORT"
-    sleep 1
+    stop_simulator
+    # Wait for the ports to actually be released (kill -TERM is async) before
+    # relaunching. Otherwise the new backend/frontend see "port already in use"
+    # further down and silently don't start — which looks like "everything broke
+    # on the second run". Poll up to ~5 s instead of a fixed sleep.
+    for _ in $(seq 1 20); do
+        if ! test_port_open 127.0.0.1 "$BACKEND_PORT" && ! test_port_open 127.0.0.1 "$FRONTEND_PORT"; then
+            break
+        fi
+        sleep 0.25
+    done
 fi
 
 MQTT_READY=false
@@ -127,7 +152,7 @@ if test_port_open 127.0.0.1 "$BACKEND_PORT"; then
     echo "Warning: Backend port $BACKEND_PORT already in use. Use -Restart to stop it first." >&2
 else
     launch_in_terminal "Ground Station Backend" \
-        "cd '$BACKEND_DIR' && MQTT_TELEMETRY_ENABLED=$MQTT_ENABLED MQTT_BROKER_HOST=$MQTT_HOST MQTT_BROKER_PORT=1883 SHEETS_SYNC_ENABLED=${SHEETS_SYNC_ENABLED:-0} SHEETS_WEBAPP_URL='${SHEETS_WEBAPP_URL:-}' '$PYTHON_EXE' app.py --host 0.0.0.0 --port $BACKEND_PORT"
+        "cd '$BACKEND_DIR' && MQTT_TELEMETRY_ENABLED=$MQTT_ENABLED MQTT_BROKER_HOST=$MQTT_HOST MQTT_BROKER_PORT=1883 TELEMETRY_CSV_LOG_ENABLED=${TELEMETRY_CSV_LOG_ENABLED:-1} SHEETS_SYNC_ENABLED=${SHEETS_SYNC_ENABLED:-0} SHEETS_WEBAPP_URL='${SHEETS_WEBAPP_URL:-}' '$PYTHON_EXE' app.py --host 0.0.0.0 --port $BACKEND_PORT"
 fi
 
 if test_port_open 127.0.0.1 "$FRONTEND_PORT"; then
@@ -139,8 +164,10 @@ fi
 
 if $MQTT && $SIMULATOR; then
     if $MQTT_READY; then
+        # Also guard here so `-Simulator` without `-Restart` can't stack duplicates.
+        stop_simulator
         launch_in_terminal "CubeSat Simulator" \
-            "cd '$REPO_ROOT' && '$PYTHON_EXE' tools/simulators/mqtt_cubesat_simulator.py --csv telemetry.csv --broker 127.0.0.1 --delay 0.2"
+            "cd '$REPO_ROOT' && '$PYTHON_EXE' tools/simulators/mqtt_cubesat_simulator.py --csv '$SIM_CSV' --broker 127.0.0.1 --delay 0.2"
     else
         echo "Warning: Simulator was requested but not started because MQTT is unavailable." >&2
     fi

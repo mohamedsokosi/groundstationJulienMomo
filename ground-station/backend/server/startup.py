@@ -1,4 +1,5 @@
 import os
+import time
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
@@ -10,6 +11,9 @@ from common.logger import logger
 from common.profiling import install_request_timing, stop_boot_profile_and_report
 from pipeline import bridge_log_store, telemetry_store
 from pipeline.mqtt_telemetry_receiver import (
+    get_broker_connected,
+    get_last_bridge_message,
+    get_last_frame_age,
     get_mqtt_config,
     is_mqtt_enabled,
     start_mqtt_receiver_in_background,
@@ -109,6 +113,48 @@ async def get_bridge_logs(after: int = 0):
     """Error/warning lines forwarded by the Pi bridge over MQTT. The frontend
     errors terminal polls this with the last seen id to fetch only new lines."""
     return {"logs": bridge_log_store.get_logs(after)}
+
+
+@app.get("/api/status")
+async def get_operator_status():
+    """Aggregate 'what is happening right now' status for the terminals: is the
+    backend connected to the Pi's broker, is telemetry flowing, is the RFD
+    plugged in. Lets the operator tell a broker/Pi/RFD problem apart instead of
+    only seeing 'no telemetry'."""
+    cfg = get_mqtt_config()
+    frames = telemetry_store.get_count()
+    last_age = get_last_frame_age()
+    telemetry_active = last_age is not None and last_age < 5.0
+
+    last_bridge = get_last_bridge_message()
+    bridge_msg = last_bridge["message"] if last_bridge else None
+    bridge_age = (time.time() - last_bridge["ts"]) if last_bridge else None
+
+    if telemetry_active:
+        rfd_status = "connected"
+    elif (
+        bridge_msg
+        and bridge_age is not None
+        and bridge_age < 15
+        and "rfd" in bridge_msg.lower()
+        and ("branch" in bridge_msg.lower() or "introuvable" in bridge_msg.lower())
+    ):
+        rfd_status = "disconnected"
+    else:
+        rfd_status = "unknown"
+
+    return {
+        "mqtt_enabled": is_mqtt_enabled(),
+        "broker_host": cfg["broker_host"],
+        "broker_port": cfg["broker_port"],
+        "broker_connected": get_broker_connected(),
+        "stored_frames": frames,
+        "last_frame_age_sec": round(last_age, 1) if last_age is not None else None,
+        "telemetry_active": telemetry_active,
+        "rfd_status": rfd_status,
+        "bridge_last_message": bridge_msg,
+        "bridge_last_age_sec": round(bridge_age, 1) if bridge_age is not None else None,
+    }
 
 
 @app.get("/{full_path:path}")

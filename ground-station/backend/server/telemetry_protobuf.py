@@ -26,6 +26,12 @@ TELEMETRY_FRAME_DEFAULTS = {
     "temperature_6_c": 0.0,
     "temperature_7_c": 0.0,
     "temperature_8_c": 0.0,
+    # IMU attitude quaternion (ICM-20948). Default = identity (no rotation) so
+    # frames without IMU data still carry a valid unit quaternion.
+    "quaternion_w": 1.0,
+    "quaternion_x": 0.0,
+    "quaternion_y": 0.0,
+    "quaternion_z": 0.0,
 }
 
 
@@ -99,6 +105,20 @@ def normalize_telemetry_frame(frame: dict, sequence_number: int | None = None) -
         "temperature_8_c": _to_float(
             source.get("temperature_8_c", source.get("temperature8C", source.get("T8", 0.0)))
         ),
+        # IMU quaternion [w, x, y, z]; CSV headers are Quat_w/x/y/z. w defaults to
+        # 1.0 (identity) so a missing quaternion stays a valid unit rotation.
+        "quaternion_w": _to_float(
+            source.get("quaternion_w", source.get("quaternionW", source.get("Quat_w", 1.0))), 1.0
+        ),
+        "quaternion_x": _to_float(
+            source.get("quaternion_x", source.get("quaternionX", source.get("Quat_x", 0.0)))
+        ),
+        "quaternion_y": _to_float(
+            source.get("quaternion_y", source.get("quaternionY", source.get("Quat_y", 0.0)))
+        ),
+        "quaternion_z": _to_float(
+            source.get("quaternion_z", source.get("quaternionZ", source.get("Quat_z", 0.0)))
+        ),
     }
 
 
@@ -156,6 +176,10 @@ def encode_telemetry_frame(frame: dict) -> bytes:
     payload += encode_double(18, normalized["temperature_6_c"])
     payload += encode_double(19, normalized["temperature_7_c"])
     payload += encode_double(20, normalized["temperature_8_c"])
+    payload += encode_double(21, normalized["quaternion_w"])
+    payload += encode_double(22, normalized["quaternion_x"])
+    payload += encode_double(23, normalized["quaternion_y"])
+    payload += encode_double(24, normalized["quaternion_z"])
     return bytes(payload)
 
 
@@ -279,6 +303,14 @@ def decode_telemetry_frame(data: bytes) -> dict:
             frame["temperature_7_c"], offset = _read_double(data, offset)
         elif field_number == 20 and wire_type == WIRE_64BIT:
             frame["temperature_8_c"], offset = _read_double(data, offset)
+        elif field_number == 21 and wire_type == WIRE_64BIT:
+            frame["quaternion_w"], offset = _read_double(data, offset)
+        elif field_number == 22 and wire_type == WIRE_64BIT:
+            frame["quaternion_x"], offset = _read_double(data, offset)
+        elif field_number == 23 and wire_type == WIRE_64BIT:
+            frame["quaternion_y"], offset = _read_double(data, offset)
+        elif field_number == 24 and wire_type == WIRE_64BIT:
+            frame["quaternion_z"], offset = _read_double(data, offset)
         else:
             offset = _skip_field(data, offset, wire_type)
 

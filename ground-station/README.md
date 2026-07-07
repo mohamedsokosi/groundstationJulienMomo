@@ -16,6 +16,7 @@ gss help
 gss start [ip]          Démarre la station (upload cloud activé).  Défaut: 10.180.97.23
 gss start defaut        Démarre avec l'IP par défaut (10.180.97.23)
 gss startoffline [ip]   Démarre SANS upload cloud (Google Sheet désactivé)
+gss simulation [csv]    Rejoue un CSV comme télémétrie live (broker local, offline)
 gss kill                Arrête la station (backend + frontend)
 gss verbose [all|front] Suit le log backend en direct (all = +frontend)
 gss debug               Affiche les erreurs / warnings récents
@@ -25,6 +26,7 @@ gss help                Affiche cette aide
 gss start 10.180.97.45      # broker sur cette IP
 gss start defaut            # IP par défaut
 gss startoffline            # local seulement, pas de cloud
+gss simulation              # rejoue le CSV de vol ICARUS2 (sans matériel)
 
 > Détails techniques approfondis : voir **[ARCHITECTURE.md](ARCHITECTURE.md)**.
 
@@ -75,7 +77,7 @@ gss startoffline            # local seulement, pas de cloud
   un Web App Apps Script — aucune clé/credential côté backend.
 
 ### Outillage
-- **CLI `gss`** : `start`, `startoffline`, `kill`, `verbose`, `debug`, `help`.
+- **CLI `gss`** : `start`, `startoffline`, `simulation`, `kill`, `verbose`, `debug`, `help`.
 - **Logs `.txt`** sur le Desktop : `~/Desktop/ground-station-logs/`.
 
 ---
@@ -113,6 +115,7 @@ gss, Ground Station CLI
   gss start [ip]          Démarre la station (upload cloud activé).  Défaut: 10.180.97.23
   gss start defaut        Démarre avec l'IP par défaut (10.180.97.23)
   gss startoffline [ip]   Démarre SANS upload cloud (Google Sheet désactivé)
+  gss simulation [csv]    Rejoue un CSV comme télémétrie live (broker local, offline)
   gss kill                Arrête la station (backend + frontend)
   gss verbose [all|front] Suit le log backend en direct (all = +frontend)
   gss debug               Affiche les erreurs / warnings récents
@@ -122,6 +125,7 @@ Exemples:
   gss start 10.180.97.45      # broker sur cette IP
   gss start defaut            # IP par défaut
   gss startoffline            # local seulement, pas de cloud
+  gss simulation              # rejoue le CSV de vol ICARUS2 (sans matériel)
 ```
 
 **Installation (une seule fois) :**
@@ -168,6 +172,7 @@ gss help              # aide
 |---|---|
 | `gss start [ip]` | Lance backend + frontend, broker `<ip>` (défaut `10.180.97.23`), cloud ON |
 | `gss startoffline [ip]` | Idem mais **sans** upload Google Sheet (CSV local quand même écrit) |
+| `gss simulation [csv]` | Rejoue un CSV comme télémétrie live (broker local + simulateur), **sans matériel**. Offline et sans capture CSV locale. Défaut : le CSV de vol ICARUS2 (`Safari_GS_antenna/telemetrySender/src/telemetry.csv`). Nécessite `mosquitto`. |
 | `gss kill` | Arrête ce qui écoute sur les ports backend/frontend |
 | `gss verbose [all\|front]` | `tail -f` du log backend (`all` = + frontend) |
 | `gss debug` | Lignes d'erreur/warning récentes du backend |
@@ -177,8 +182,9 @@ gss help              # aide
 # Matériel live (broker sur le Raspberry Pi 4B)
 ./tools/dev/start-local.sh -Restart -BrokerHost 10.180.97.23
 
-# Sans matériel (simulateur)
-./tools/dev/start-local.sh -Restart -Mqtt -Simulator
+# Sans matériel (simulateur) — équivalent bas niveau de `gss simulation`
+./tools/dev/start-local.sh -Restart -Mqtt -Simulator -Offline \
+  -SimCsv ../Safari_GS_antenna/telemetrySender/src/telemetry.csv
 ```
 
 | Option | Effet |
@@ -187,6 +193,7 @@ gss help              # aide
 | `-Offline` | Force le sync Google Sheet OFF (CSV local non affecté) |
 | `-Mqtt` | Démarre un broker Mosquitto local (port 1883) |
 | `-Simulator` | Lance `mqtt_cubesat_simulator.py` (publie des frames de test) |
+| `-SimCsv <chemin>` | CSV rejoué par le simulateur (défaut `telemetry.csv`, relatif à la racine du dépôt) |
 | `-BrokerHost <ip>` | Broker MQTT externe (ex. le Raspberry Pi 4B) |
 | `-BackendPort <p>` / `-FrontendPort <p>` | Surcharge les ports (défaut 5000 / 5173) |
 

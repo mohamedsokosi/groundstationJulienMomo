@@ -6,12 +6,20 @@ import {
     Cartesian3,
     Color,
     ColorMaterialProperty,
+    Ellipsoid,
     HeadingPitchRange,
+    ImageMaterialProperty,
+    IntersectionTests,
     Ion,
     LabelStyle,
     Math as CesiumMath,
+    Matrix3,
     Matrix4,
+    PolygonHierarchy,
     PolylineGlowMaterialProperty,
+    Quaternion,
+    Ray,
+    Transforms,
     VerticalOrigin,
     Viewer,
 } from 'cesium';
@@ -30,6 +38,54 @@ import {
     MAP_MAX_CAMERA_HEIGHT,
     MAP_MIN_CAMERA_HEIGHT,
 } from './cesium-utils.js';
+
+// --- Camera footprint projection -------------------------------------------------
+// Projects heat.jpeg onto the ground where the CubeSat's camera looks, using the
+// IMU attitude quaternion. Camera model (body frame): boresight = -Z, right = +X,
+// image-up = +Y — so at identity attitude the camera looks straight down (nadir).
+// The image is 3:2 (width:height), so the horizontal half-FOV is derived from the
+// vertical one to keep that ratio. Tune PROJ_V_HALF_FOV / the body axes as needed.
+const PROJECTION_IMAGE = '/heat.jpeg';
+const PROJ_V_HALF_FOV = CesiumMath.toRadians(20);
+const PROJ_H_HALF_FOV = Math.atan(1.5 * Math.tan(PROJ_V_HALF_FOV)); // 3:2 aspect
+
+// Boresight-corner signs (right, up) in order top-left, top-right, bottom-right,
+// bottom-left, and the matching image UVs (Cesium texture v=1 = top of image).
+const FOOTPRINT_CORNER_SIGNS = [[-1, 1], [1, 1], [1, -1], [-1, -1]];
+const FOOTPRINT_UVS = new PolygonHierarchy([
+    new Cartesian2(0, 1),
+    new Cartesian2(1, 1),
+    new Cartesian2(1, 0),
+    new Cartesian2(0, 0),
+]);
+
+// Ray-casts the 4 camera-frustum corners onto the WGS84 ellipsoid and returns the
+// 4 ground Cartesian3 corners, or null if the camera doesn't fully see the ground
+// (looking at/above the horizon) or the quaternion is missing/degenerate.
+function computeCameraFootprint(satPosition, q) {
+    if (!satPosition || !q) return null;
+    const quat = new Quaternion(q.x, q.y, q.z, q.w);
+    if (Quaternion.magnitude(quat) < 1e-6) return null;
+    Quaternion.normalize(quat, quat);
+    const bodyRot = Matrix3.fromQuaternion(quat, new Matrix3());
+    const enuRot = Matrix4.getMatrix3(Transforms.eastNorthUpToFixedFrame(satPosition), new Matrix3());
+    const tanH = Math.tan(PROJ_H_HALF_FOV);
+    const tanV = Math.tan(PROJ_V_HALF_FOV);
+
+    const corners = [];
+    for (const [sx, sy] of FOOTPRINT_CORNER_SIGNS) {
+        const dirBody = new Cartesian3(sx * tanH, sy * tanV, -1);
+        Cartesian3.normalize(dirBody, dirBody);
+        const dirEnu = Matrix3.multiplyByVector(bodyRot, dirBody, new Cartesian3());
+        const dirEcef = Matrix3.multiplyByVector(enuRot, dirEnu, new Cartesian3());
+        Cartesian3.normalize(dirEcef, dirEcef);
+        const ray = new Ray(satPosition, dirEcef);
+        const interval = IntersectionTests.rayEllipsoid(ray, Ellipsoid.WGS84);
+        if (!interval) return null;
+        corners.push(Ray.getPoint(ray, interval.start, new Cartesian3()));
+    }
+    return corners;
+}
 
 const GS_INPUT_STYLE = {
     width: '100%', height: 24, padding: '0 6px',
@@ -65,6 +121,7 @@ export const RightControlPanel = ({ groundStationPos, onGroundStationChange, opt
         { key: 'follow',     label: 'Suivre CubeSat' },
         { key: 'trajectory', label: 'Trajectoire'    },
         { key: 'linkBeam',   label: 'Liaison sol'    },
+        { key: 'projection', label: 'Projection'     },
     ];
     return (
         <aside className="gs-right-panel compact" aria-label="Controles carte">
@@ -130,6 +187,8 @@ export const CesiumViewport = ({ currentRecord, groundStationPos, onGroundStatio
     const linkEntityRef = useRef(null);
     const verticalLineEntityRef = useRef(null);
     const groundProjectionEntityRef = useRef(null);
+    const cameraFootprintEntityRef = useRef(null);
+    const footprintCornersRef = useRef(null);
     const trajectoryPositionsRef = useRef([]);
     const linkPositionsRef = useRef([]);
     const verticalPositionsRef = useRef([]);
@@ -210,6 +269,8 @@ export const CesiumViewport = ({ currentRecord, groundStationPos, onGroundStatio
             linkEntityRef.current = null;
             verticalLineEntityRef.current = null;
             groundProjectionEntityRef.current = null;
+            cameraFootprintEntityRef.current = null;
+            footprintCornersRef.current = null;
             initializedRef.current = false;
 
             const maxTextureSize = viewer.scene.context?.maximumTextureSize;
@@ -240,6 +301,8 @@ export const CesiumViewport = ({ currentRecord, groundStationPos, onGroundStatio
             linkEntityRef.current = null;
             verticalLineEntityRef.current = null;
             groundProjectionEntityRef.current = null;
+            cameraFootprintEntityRef.current = null;
+            footprintCornersRef.current = null;
             initializedRef.current = false;
             prevTrajLengthRef.current = 0;
             lastTrajGeoKeyRef.current = null;
@@ -389,6 +452,32 @@ export const CesiumViewport = ({ currentRecord, groundStationPos, onGroundStatio
         }
         groundProjectionEntityRef.current.show = Boolean(groundPosition);
 
+        // --- Camera footprint: heat.jpeg projected on the ground along the IMU look axis ---
+        const quat = currentRecord ? {
+            w: Number(currentRecord.Quat_w ?? 1),
+            x: Number(currentRecord.Quat_x ?? 0),
+            y: Number(currentRecord.Quat_y ?? 0),
+            z: Number(currentRecord.Quat_z ?? 0),
+        } : null;
+        footprintCornersRef.current = currentPosition ? computeCameraFootprint(currentPosition, quat) : null;
+
+        if (!cameraFootprintEntityRef.current) {
+            cameraFootprintEntityRef.current = viewer.entities.add({
+                name: 'Projection caméra (heat)',
+                polygon: {
+                    hierarchy: new CallbackProperty(
+                        () => new PolygonHierarchy(footprintCornersRef.current ?? []),
+                        false,
+                    ),
+                    textureCoordinates: FOOTPRINT_UVS,
+                    material: new ImageMaterialProperty({ image: PROJECTION_IMAGE, transparent: true }),
+                    perPositionHeight: false,
+                    height: 0,
+                },
+            });
+        }
+        cameraFootprintEntityRef.current.show = Boolean(footprintCornersRef.current) && (mapOptions.projection !== false);
+
         // --- Initial camera fit (runs once after first trajectory data arrives) ---
         if (!initializedRef.current && trajectoryPositionsRef.current.length > 1) {
             initializedRef.current = true;
@@ -405,7 +494,7 @@ export const CesiumViewport = ({ currentRecord, groundStationPos, onGroundStatio
                 setThreeDCameraView(viewer, currentGeo.lon, currentGeo.lat, followHeight);
             }
         }
-    }, [currentRecord, groundStationPos, mapOptions.follow, mapOptions.linkBeam, mapOptions.trajectory, trajectoryRecords]);
+    }, [currentRecord, groundStationPos, mapOptions.follow, mapOptions.linkBeam, mapOptions.trajectory, mapOptions.projection, trajectoryRecords]);
 
     return (
         <section

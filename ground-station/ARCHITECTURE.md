@@ -288,6 +288,23 @@ The left column (25% width) is fully configurable by the operator via the **Modi
     out against the red default. Per-frame error detection is suppressed during
     blackout runs so the frozen phantom values don't spam the terminal.
 
+### Empty-state status block (all three terminals)
+
+Instead of a bare "aucune télémétrie", when a terminal has **no lines** it renders
+a live **station status block** (`StationStatus` in `telemetryTerminal.jsx`), so the
+operator can tell *why* nothing is arriving. Every terminal polls `GET /api/status`
+every 2 s and shows three colour-coded rows + a hint:
+
+- **Broker** — ✓ connecté / ✗ NON connecté à `<host:port>` (from the backend's
+  `_broker_connected`, set in the MQTT `on_connect`/`on_disconnect` callbacks).
+- **Télémétrie** — ✓ active / ✗ aucune trame, with frame count and age of the last
+  frame (`last_frame_age_sec`).
+- **RFD** — ✓ branché / ✗ non branché / ? inconnu. Derived server-side: `connected`
+  if telemetry is flowing, `disconnected` if the most recent bridge-log line (< 15 s)
+  is an RFD-not-found message, else `unknown`.
+- A **hint** line tailored to the state (`gss start <ip>` if the broker is down,
+  "brancher le RFD" if disconnected, "en attente de trames" if just idle).
+
 All terminal state (`lines`, processing `cursor`, `inBlackout` flag) lives in
 the Redux `telemetry.terminalState` slice keyed by variant. Lines and cursor
 survive route unmount/remount — switching to `/analyse` and back no longer
@@ -295,6 +312,8 @@ empties the errors log. The processing cursor advances per dispatched batch so
 remounted terminals replay only new frames, never re-emitting past lines.
 
 Configuration persisted in `localStorage` (`station_left_column_config`). Favorite charts synced with `/analyse` via `analyse_charts_config`.
+
+**Default when empty** — `loadLeftColumnItems()` falls back to `DEFAULT_LEFT_COL_ITEMS` (a **telemetry** terminal + a **verbose** terminal) whenever there is no saved config *and* no `/analyse` favorites. So a fresh operator (or one who cleared the column and reloaded) always gets the live stream + the status block instead of a blank column. A saved non-empty config or favorites take precedence.
 
 ### All Temp shortcut (/station and /analyse)
 
@@ -439,8 +458,8 @@ mqtt_telemetry_receiver.py    │  on_message routes the log topic to _handle_br
     persists). The WARNING mirror is gated on a non-`None` return, so `gss debug`
     isn't flooded either.
 - **Frontend** — the errors terminal merges these into the same 500-line buffer as
-  its telemetry-derived anomalies. CLR keeps the bridge cursor, so clearing shows
-  only new Pi errors going forward.
+  its telemetry-derived anomalies. (The per-terminal **CLR** button was removed —
+  it didn't reliably clear, and lines self-cap at their per-variant limit anyway.)
 
 ---
 
@@ -517,6 +536,7 @@ When a chart contains blackout frames, each Y series is split into a `_normal` l
 | `GET` | `/api/telemetry/mqtt/status` | MQTT broker connection status |
 | `POST` | `/api/telemetry/mqtt/clear` | Clear the MQTT store |
 | `GET` | `/api/bridge/logs?after=<id>` | Error/warning lines forwarded by the Pi bridge (incremental by id) |
+| `GET` | `/api/status` | Aggregate operator status: broker connected?, telemetry active?, RFD connected? (drives the terminals' empty-state status block) |
 | `GET` | `/*` | SPA fallback → `dist/index.html` |
 
 ---
