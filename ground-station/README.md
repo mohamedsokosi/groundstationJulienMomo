@@ -8,6 +8,24 @@ archivée **localement** (CSV) et dans le **cloud** (Google Sheet).
 **Stack :** FastAPI + Python (backend) · React + Redux + Cesium (frontend) ·
 MQTT (télémétrie live) · Protocol Buffers (transport).
 
+
+## Commandes
+
+gss help
+
+gss start [ip]          Démarre la station (upload cloud activé).  Défaut: 10.180.97.23
+gss start defaut        Démarre avec l'IP par défaut (10.180.97.23)
+gss startoffline [ip]   Démarre SANS upload cloud (Google Sheet désactivé)
+gss kill                Arrête la station (backend + frontend)
+gss verbose [all|front] Suit le log backend en direct (all = +frontend)
+gss debug               Affiche les erreurs / warnings récents
+gss help                Affiche cette aide
+
+### Exemples:
+gss start 10.180.97.45      # broker sur cette IP
+gss start defaut            # IP par défaut
+gss startoffline            # local seulement, pas de cloud
+
 > Détails techniques approfondis : voir **[ARCHITECTURE.md](ARCHITECTURE.md)**.
 
 ---
@@ -86,6 +104,34 @@ MQTT (télémétrie live) · Protocol Buffers (transport).
 ---
 
 ## Démarrage rapide
+
+### CLI `gss` (recommandé)
+
+```
+gss, Ground Station CLI
+
+  gss start [ip]          Démarre la station (upload cloud activé).  Défaut: 10.180.97.23
+  gss start defaut        Démarre avec l'IP par défaut (10.180.97.23)
+  gss startoffline [ip]   Démarre SANS upload cloud (Google Sheet désactivé)
+  gss kill                Arrête la station (backend + frontend)
+  gss verbose [all|front] Suit le log backend en direct (all = +frontend)
+  gss debug               Affiche les erreurs / warnings récents
+  gss help                Affiche cette aide
+
+Exemples:
+  gss start 10.180.97.45      # broker sur cette IP
+  gss start defaut            # IP par défaut
+  gss startoffline            # local seulement, pas de cloud
+```
+
+**Installation (une seule fois) :**
+```bash
+ln -sf "$PWD/tools/dev/gss" ~/.local/bin/gss      # ~/.local/bin doit être dans le PATH
+```
+
+Puis utilise n'importe quel commande `gss …` de n'importe où.
+
+---
 
 ### Prérequis
 - **Backend** : Python + [Poetry](https://python-poetry.org/).
