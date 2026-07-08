@@ -8,6 +8,7 @@ import {
     ColorMaterialProperty,
     Ellipsoid,
     HeadingPitchRange,
+    HeadingPitchRoll,
     ImageMaterialProperty,
     IntersectionTests,
     Ion,
@@ -85,6 +86,28 @@ function computeCameraFootprint(satPosition, q) {
         corners.push(Ray.getPoint(ray, interval.start, new Cartesian3()));
     }
     return corners;
+}
+
+// --- CubeSat 3D model marker -----------------------------------------------------
+// Replaces the red dot with the actual CubeSat model, oriented by the IMU
+// quaternion. The rendered orientation is model→ECEF = (ENU→ECEF) ⊗ (body→ENU) ⊗
+// MODEL_FIX, so the model sits upright on the curved globe and rotates with the
+// attitude. MODEL_FIX is a constant correction for the model's own rest axes —
+// tweak its heading/pitch/roll (radians) if the CubeSat sits/points wrong.
+const CUBESAT_MODEL = '/cubesat.glb';
+// Rest-axis correction (HeadingPitchRoll radians): roll +90° stands the model
+// upright on the globe (confirmed visually). The IMU quaternion is applied on top.
+const MODEL_FIX = Quaternion.fromHeadingPitchRoll(new HeadingPitchRoll(0, 0, Math.PI / 2), new Quaternion());
+const _enuMat3 = new Matrix3();
+
+function computeModelOrientation(position, q) {
+    const enuMat3 = Matrix4.getMatrix3(Transforms.eastNorthUpToFixedFrame(position), _enuMat3);
+    const enuQuat = Quaternion.fromRotationMatrix(enuMat3, new Quaternion());
+    const bodyQuat = new Quaternion(q.x, q.y, q.z, q.w);
+    if (Quaternion.magnitude(bodyQuat) < 1e-6) Quaternion.clone(Quaternion.IDENTITY, bodyQuat);
+    Quaternion.normalize(bodyQuat, bodyQuat);
+    const out = Quaternion.multiply(bodyQuat, MODEL_FIX, new Quaternion());
+    return Quaternion.multiply(enuQuat, out, out); // model → ECEF
 }
 
 const GS_INPUT_STYLE = {
@@ -189,6 +212,7 @@ export const CesiumViewport = ({ currentRecord, groundStationPos, onGroundStatio
     const groundProjectionEntityRef = useRef(null);
     const cameraFootprintEntityRef = useRef(null);
     const footprintCornersRef = useRef(null);
+    const satelliteOrientationRef = useRef(undefined);
     const trajectoryPositionsRef = useRef([]);
     const linkPositionsRef = useRef([]);
     const verticalPositionsRef = useRef([]);
@@ -199,11 +223,11 @@ export const CesiumViewport = ({ currentRecord, groundStationPos, onGroundStatio
     const initializedRef = useRef(false);
     const cameraHeightRef = useRef(MAP_CAMERA_HEIGHT);
 
-    const setThreeDCameraView = (viewer, lon, lat, height = cameraHeightRef.current) => {
+    const setThreeDCameraView = (viewer, lon, lat, height = cameraHeightRef.current, targetAlt = 0) => {
         const nextHeight = Math.min(MAP_MAX_CAMERA_HEIGHT, Math.max(MAP_MIN_CAMERA_HEIGHT, height));
         cameraHeightRef.current = nextHeight;
         viewer.camera.lookAt(
-            Cartesian3.fromDegrees(lon, lat, 0),
+            Cartesian3.fromDegrees(lon, lat, targetAlt),
             new HeadingPitchRange(
                 CesiumMath.toRadians(MAP_CAMERA_HEADING),
                 CesiumMath.toRadians(MAP_CAMERA_PITCH),
@@ -388,12 +412,19 @@ export const CesiumViewport = ({ currentRecord, groundStationPos, onGroundStatio
         }
         startEntityRef.current.show = true;
 
-        // --- CubeSat current position (red dot) ---
+        // --- CubeSat current position (3D model oriented by the IMU quaternion) ---
         if (!satelliteEntityRef.current) {
             satelliteEntityRef.current = viewer.entities.add({
                 name: 'CubeSat temps reel',
                 position: currentPosition ?? Cartesian3.fromDegrees(0, 0, 0),
-                point: { pixelSize: 13, color: Color.RED, outlineColor: Color.WHITE, outlineWidth: 2 },
+                // Read via CallbackProperty so the attitude always updates live.
+                orientation: new CallbackProperty(() => satelliteOrientationRef.current, false),
+                model: {
+                    uri: CUBESAT_MODEL,
+                    minimumPixelSize: 46, // stay visible when zoomed out (mini CubeSat marker)
+                    maximumScale: 6000,
+                    scale: 1,
+                },
                 label: {
                     text: 'CubeSat',
                     font: '12px Consolas',
@@ -402,12 +433,19 @@ export const CesiumViewport = ({ currentRecord, groundStationPos, onGroundStatio
                     outlineWidth: 3,
                     style: LabelStyle.FILL_AND_OUTLINE,
                     verticalOrigin: VerticalOrigin.BOTTOM,
-                    pixelOffset: new Cartesian2(0, -16),
+                    pixelOffset: new Cartesian2(0, -34),
                 },
             });
         }
         if (currentPosition) {
             satelliteEntityRef.current.position = currentPosition;
+            const q = {
+                w: Number(currentRecord?.Quat_w ?? 1),
+                x: Number(currentRecord?.Quat_x ?? 0),
+                y: Number(currentRecord?.Quat_y ?? 0),
+                z: Number(currentRecord?.Quat_z ?? 0),
+            };
+            satelliteOrientationRef.current = computeModelOrientation(currentPosition, q);
         }
         satelliteEntityRef.current.show = Boolean(currentPosition);
 
@@ -491,7 +529,10 @@ export const CesiumViewport = ({ currentRecord, groundStationPos, onGroundStatio
             const currentGeo = getTelemetryRecordGeo(currentRecord);
             if (currentGeo) {
                 const followHeight = Math.min(cameraHeightRef.current, MAP_FOLLOW_CAMERA_HEIGHT);
-                setThreeDCameraView(viewer, currentGeo.lon, currentGeo.lat, followHeight);
+                // Aim at the CubeSat's real altitude, not the ground point below it
+                // (the yellow projection dot) — otherwise the camera centres on the
+                // sol and the CubeSat drifts off-screen when it is high.
+                setThreeDCameraView(viewer, currentGeo.lon, currentGeo.lat, followHeight, currentGeo.alt);
             }
         }
     }, [currentRecord, groundStationPos, mapOptions.follow, mapOptions.linkBeam, mapOptions.trajectory, mapOptions.projection, trajectoryRecords]);

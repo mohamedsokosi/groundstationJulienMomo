@@ -14,14 +14,21 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 // steady.
 //
 // Convention: THREE.Quaternion is (x, y, z, w); the IMU sends (w, x, y, z).
-// STEP/CAD models are usually Z-up while three.js is Y-up, so the model is
-// stood upright with MODEL_ROT_X (tweak if it still looks lying down / rolled).
+// The scene is set up Z-UP (like Cesium's ENU frame) so the SAME IMU quaternion
+// produces the SAME motion as the CubeSat model on the map — otherwise a Y-up
+// world spins the IMU yaw about a horizontal axis and the model flips upside down.
 
 const MODEL_URL = '/cubesat.glb';
-// Rest orientation applied to the model before the IMU quaternion (Euler radians,
-// XYZ order). Rz(-90°) brings the CubeSat "head" onto -Y (down / opposite the
-// green Y axis, i.e. nadir-facing). If the head ends up the wrong way, tweak this.
-const MODEL_EULER = [0, 0, -Math.PI / 2];
+// Rest orientation before the IMU quaternion (Euler radians, XYZ). Ry(-90°) brings
+// the model's long axis onto +Z (up) in the Z-up world, matching the map's upright.
+const MODEL_EULER = [0, -Math.PI / 2, 0];
+// Widget camera viewpoint. Defaults match the Cesium map (cesium-utils
+// MAP_CAMERA_HEADING 32°, MAP_CAMERA_PITCH -48°). Tweak to line the view up with
+// the map: HEADING rotates the camera around the model (to show the same face),
+// PITCH tilts it, RANGE zooms.
+const CAM_HEADING_DEG = 32;
+const CAM_PITCH_DEG = -48;
+const CAM_RANGE = 4.3;
 const HEADER = '#5cc8ff';
 const BORDER = '#1d2430';
 const BG = '#050a0f';
@@ -53,7 +60,14 @@ export function AttitudeCube() {
 
         const scene = new THREE.Scene();
         const camera = new THREE.PerspectiveCamera(45, 2, 0.1, 100);
-        camera.position.set(2.6, 1.9, 2.6);
+        camera.up.set(0, 0, 1); // Z-up world (matches Cesium ENU) → IMU yaw about vertical
+        const camH = THREE.MathUtils.degToRad(CAM_HEADING_DEG);
+        const camP = THREE.MathUtils.degToRad(CAM_PITCH_DEG);
+        camera.position.set(
+            -CAM_RANGE * Math.cos(camP) * Math.sin(camH),
+            -CAM_RANGE * Math.cos(camP) * Math.cos(camH),
+            -CAM_RANGE * Math.sin(camP),
+        );
         camera.lookAt(0, 0, 0);
 
         const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'low-power' });
@@ -76,7 +90,8 @@ export function AttitudeCube() {
         scene.add(fill);
 
         const grid = new THREE.GridHelper(5, 10, 0x2a3a4a, 0x16202c);
-        grid.position.y = -1.4;
+        grid.rotation.x = Math.PI / 2; // lie flat in the XY plane for a Z-up world
+        grid.position.z = -1.4;
         scene.add(grid);
         disposables.push(grid.geometry, grid.material);
 
@@ -130,13 +145,12 @@ export function AttitudeCube() {
         let raf = 0;
         const animate = () => {
             raf = requestAnimationFrame(animate);
-            const cur = pivot.quaternion;
-            // 1 - |dot| is the angular distance to the target (0 when aligned).
-            const moving = 1 - Math.abs(cur.dot(targetQ.current)) > 1e-6;
-            if (invalidate.current || moving) {
-                cur.slerp(targetQ.current, 0.2);
+            // Snap straight to the latest attitude (no slerp) — the smoothing lagged
+            // visibly behind the telemetry. Render only when a new frame arrived.
+            if (invalidate.current) {
+                pivot.quaternion.copy(targetQ.current);
                 renderer.render(scene, camera);
-                if (!moving) invalidate.current = false;
+                invalidate.current = false;
             }
         };
         animate();
