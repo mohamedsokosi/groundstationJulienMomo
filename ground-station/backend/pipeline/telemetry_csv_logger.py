@@ -4,7 +4,7 @@ file per calendar day (named by date, e.g. ``2026-06-10.csv``).
 This mirrors the per-day tabs of the Google Sheet sync: the local files are the
 durable, unbounded archive; the Sheet is the live/shared view. Columns match the
 canonical ICARUS2 recording (`telemetrySender/src/telemetry.csv`). See
-ARCHITECTURE.md › "Local CSV capture" and "Live Google Sheet sync".
+Documentation.md › "Sauvegarde de la télémétrie".
 """
 
 import csv
@@ -14,11 +14,16 @@ from datetime import date
 
 from common.logger import logger
 
-# Exact header of the canonical ICARUS2 recording (column order matters).
+# Header of the canonical ICARUS2 recording (column order matters), plus the
+# forest-fire danger-zone columns appended at the end. The leading 19 columns are
+# byte-identical to the flight recording, so header-based consumers stay
+# interchangeable; the trailing Fire_* columns are populated only when the CubeSat
+# scan detects a danger zone (otherwise blank/0).
 CSV_HEADER = [
     "m-time", "Flight ID", " Ublox UTC", "U Lat", "U Long", "U Alt",
     "Speed", "Vert speed", "#Sat", "Pressure", "MIU",
     "T1", "T2", "T3", "T4", "T5", "T6", "T7", "T8",
+    "Fire Level", "Fire Lat", "Fire Lon", "Fire Radius", "Fire Shape",
 ]
 
 # Normalized-frame keys in the same order as CSV_HEADER.
@@ -28,6 +33,8 @@ _FRAME_KEYS = [
     "pressure_hpa", "miu_v",
     "temperature_1_c", "temperature_2_c", "temperature_3_c", "temperature_4_c",
     "temperature_5_c", "temperature_6_c", "temperature_7_c", "temperature_8_c",
+    "fire_zone_level", "fire_zone_lat", "fire_zone_lon", "fire_zone_radius_m",
+    "fire_zone_shape",
 ]
 
 

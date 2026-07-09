@@ -25,16 +25,43 @@ resolve_ip() {
     fi
 }
 
+# After a start/simulation, follow the backend log in the foreground so the
+# operator sees telemetry live, and make Ctrl+C stop the WHOLE station (backend +
+# frontend + simulator) instead of just detaching. start-local.sh launches the
+# services detached (nohup+disown); this re-attaches to their log. Set GS_FOLLOW=0
+# to keep the old behaviour (return to the prompt, station keeps running).
+follow_and_wait() {
+    [[ "${GS_FOLLOW:-1}" == "0" ]] && return 0
+    # start-local.sh creates the backend log on launch; wait briefly for it.
+    local _
+    for _ in $(seq 1 20); do
+        [[ -f "$BACKEND_LOG" ]] && break
+        sleep 0.2
+    done
+    if [[ ! -f "$BACKEND_LOG" ]]; then
+        echo "Log backend introuvable — la station n'a peut-être pas démarré (voir 'gss debug')." >&2
+        return 1
+    fi
+    # Ctrl+C interrupts the foreground `tail`; bash then runs this INT trap, which
+    # stops every service and exits cleanly (0) so the shell doesn't report 130.
+    trap 'echo; cmd_kill; exit 0' INT
+    echo
+    echo "LOG BACKEND EN DIRECT — CTRL+C POUR TOUT ARRÊTER (backend + frontend + simulateur)"
+    tail -n 40 -f "$BACKEND_LOG"
+}
+
 cmd_start() {
     local ip; ip="$(resolve_ip "${1:-}")"
     echo "DÉMARRAGE, CLOUD ON, BROKER $ip"
-    bash "$START" -Restart -BrokerHost "$ip"
+    bash "$START" -Restart -BrokerHost "$ip" || return $?
+    follow_and_wait
 }
 
 cmd_startoffline() {
     local ip; ip="$(resolve_ip "${1:-}")"
     echo "DÉMARRAGE HORS-LIGNE, PAS D'UPLOAD CLOUD, BROKER $ip"
-    bash "$START" -Restart -Offline -BrokerHost "$ip"
+    bash "$START" -Restart -Offline -BrokerHost "$ip" || return $?
+    follow_and_wait
 }
 
 cmd_simulation() {
@@ -42,12 +69,22 @@ cmd_simulation() {
     # live : broker MQTT local + simulateur -> même pipeline que le vrai matériel,
     # sans matériel. Offline (pas d'upload cloud) et sans capture CSV locale, pour
     # ne pas polluer l'archive Google Sheet / ~/Desktop/telemetry avec du simulé.
-    local default_csv csv
+    #
+    # `gss simulation fast` -> rejeu 20x plus rapide (0.2s -> 0.01s par frame).
+    # `fast` et le chemin CSV peuvent être donnés dans n'importe quel ordre.
+    local default_csv csv="" delay="0.2" arg
     default_csv="$(cd "$SCRIPT_DIR/../../.." && pwd)/Safari_GS_antenna/telemetrySender/src/telemetry.csv"
-    csv="${1:-$default_csv}"
+    for arg in "$@"; do
+        case "$arg" in
+            fast|Fast|FAST) delay="0.01" ;;   # 20x plus rapide que le défaut 0.2s
+            "") ;;
+            *) csv="$arg" ;;
+        esac
+    done
+    [[ -z "$csv" ]] && csv="$default_csv"
     if [[ ! -f "$csv" ]]; then
         echo "CSV de simulation introuvable: $csv" >&2
-        echo "Usage: gss simulation [chemin/vers/telemetry.csv]" >&2
+        echo "Usage: gss simulation [fast] [chemin/vers/telemetry.csv]" >&2
         return 1
     fi
     if ! command -v mosquitto >/dev/null 2>&1; then
@@ -57,7 +94,9 @@ cmd_simulation() {
     fi
     echo "SIMULATION — BROKER LOCAL + REJEU CSV (offline, sans capture CSV locale)"
     echo "CSV: $csv"
-    TELEMETRY_CSV_LOG_ENABLED=0 bash "$START" -Restart -Mqtt -Simulator -Offline -SimCsv "$csv"
+    [[ "$delay" == "0.01" ]] && echo "MODE FAST — 20x plus rapide (delai ${delay}s/frame)"
+    TELEMETRY_CSV_LOG_ENABLED=0 bash "$START" -Restart -Mqtt -Simulator -Offline -SimCsv "$csv" -SimDelay "$delay" || return $?
+    follow_and_wait
 }
 
 cmd_kill() {
@@ -127,16 +166,22 @@ gss, Ground Station CLI
   gss start defaut        Démarre avec l'IP par défaut (10.180.97.23)
   gss startoffline [ip]   Démarre SANS upload cloud (Google Sheet désactivé)
   gss simulation [csv]    Rejoue un CSV comme télémétrie live (broker local, offline)
+  gss simulation fast     Idem, mais 20x plus rapide (0.01s par frame)
   gss kill                Arrête la station (backend + frontend)
   gss verbose [all|front] Suit le log backend en direct (all = +frontend)
   gss debug               Affiche les erreurs / warnings récents
   gss help                Affiche cette aide
+
+Après start / startoffline / simulation, le terminal reste attaché au log backend :
+  → CTRL+C arrête TOUT (backend + frontend + simulateur).
+  → GS_FOLLOW=0 gss start   garde l'ancien comportement (rend la main, station détachée).
 
 Exemples:
   gss start 10.180.97.45      # broker sur cette IP
   gss start defaut            # IP par défaut
   gss startoffline            # local seulement, pas de cloud
   gss simulation              # rejoue le CSV de vol ICARUS2 (sans matériel)
+  gss simulation fast         # idem, 20x plus rapide
 EOF
 }
 
@@ -145,7 +190,7 @@ shift 2>/dev/null
 case "$sub" in
     start)              cmd_start "${1:-}";;
     startoffline)       cmd_startoffline "${1:-}";;
-    simulation|sim|simulate) cmd_simulation "${1:-}";;
+    simulation|sim|simulate) cmd_simulation "$@";;
     kill|stop)          cmd_kill;;
     verbose|logs)       cmd_verbose "${1:-}";;
     debug|errors)       cmd_debug;;

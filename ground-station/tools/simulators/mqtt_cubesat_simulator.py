@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import argparse
 import csv
+import math
 import sys
 import time
 from pathlib import Path
@@ -41,9 +42,57 @@ CSV_FIELD_ALIASES = {
 }
 
 
+# Accept fire-zone columns too, in case a replayed CSV already carries them.
+CSV_FIELD_ALIASES.update({
+    "Fire Level": "fire_zone_level",
+    "Fire Lat": "fire_zone_lat",
+    "Fire Lon": "fire_zone_lon",
+    "Fire Radius": "fire_zone_radius_m",
+    "Fire Shape": "fire_zone_shape",
+})
+
+
 def row_to_frame_source(row: dict) -> dict:
     """Rename canonical CSV columns to the snake_case keys the encoder expects."""
     return {CSV_FIELD_ALIASES.get(key, key): value for key, value in row.items()}
+
+
+# --- Simulated forest-fire danger zones ------------------------------------------
+# The real CubeSat scans the ground for forest-fire risk and reports detected
+# danger zones in its telemetry. The canonical ICARUS2 flight CSV has no such data,
+# so we synthesise a handful of detections spread along the flight path. Each is
+# emitted on a single frame; the ground station accumulates + draws them on Cesium.
+# level: 1 jaune/petit, 2 orange/danger, 3 rouge/grand. shape: 1 cercle, 2 triangle,
+# 3 carré. Radius scales with danger. Level/shape cycle so the demo shows all three.
+_FIRE_LEVELS = [3, 1, 2, 3, 2, 1]          # rouge, jaune, orange, rouge, orange, jaune
+_FIRE_SHAPES = [1, 2, 3]                    # cercle, triangle, carré
+_FIRE_RADIUS_BY_LEVEL = {1: 1200.0, 2: 2000.0, 3: 3000.0}
+_FIRE_FIRST_FRAME = 25                      # earliest frame a zone may appear on
+
+
+def _safe_float(value, fallback: float = 0.0) -> float:
+    try:
+        return float(value if value not in (None, "") else fallback)
+    except (TypeError, ValueError):
+        return fallback
+
+
+def build_fire_zone(zone_index: int, lat: float, lon: float) -> dict:
+    """Fire-zone fields for the ``zone_index``-th detection near (lat, lon)."""
+    level = _FIRE_LEVELS[zone_index % len(_FIRE_LEVELS)]
+    shape = _FIRE_SHAPES[zone_index % len(_FIRE_SHAPES)]
+    # Keep the zone centre right on the ground track (only a ~300 m jitter) so the
+    # camera footprint actually sweeps across it — the ground station reveals a
+    # zone only where the footprint has passed, so a far-off zone would stay unseen.
+    lat_offset = 0.003 * math.sin(zone_index * 1.7)
+    lon_offset = 0.003 * math.cos(zone_index * 2.3)
+    return {
+        "fire_zone_level": level,
+        "fire_zone_lat": lat + lat_offset,
+        "fire_zone_lon": lon + lon_offset,
+        "fire_zone_radius_m": _FIRE_RADIUS_BY_LEVEL[level],
+        "fire_zone_shape": shape,
+    }
 
 
 def parse_args() -> argparse.Namespace:
@@ -57,6 +106,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--delay", default=0.2, type=float, help="Delay between frames in seconds.")
     parser.add_argument("--loop", action="store_true", help="Replay the CSV continuously.")
     parser.add_argument("--qos", default=1, type=int, choices=(0, 1, 2), help="MQTT QoS level.")
+    parser.add_argument(
+        "--no-fire-zones", dest="fire_zones", action="store_false",
+        help="Do not inject simulated forest-fire danger zones into the telemetry.",
+    )
+    parser.add_argument(
+        "--fire-interval", default=450, type=int,
+        help="Frames between two simulated fire-zone detections (default 450).",
+    )
+    parser.add_argument(
+        "--fire-max", default=14, type=int,
+        help="Maximum number of simulated fire-zone detections (default 14).",
+    )
+    parser.set_defaults(fire_zones=True)
     return parser.parse_args()
 
 
@@ -107,10 +169,40 @@ def connect_client(args: argparse.Namespace):
 
 def publish_rows(client, rows: list[dict], args: argparse.Namespace) -> None:
     sequence_number = 0
+    zones_injected = 0
+    last_zone_seq = -10**9
 
     while True:
         for row in rows:
-            frame = normalize_telemetry_frame(row_to_frame_source(row), sequence_number=sequence_number)
+            frame_source = row_to_frame_source(row)
+
+            # Inject a simulated fire-zone detection once every args.fire_interval
+            # frames, but only where the CubeSat has a valid GPS fix so the zone
+            # lands near the ground track. Skipped if the row already carries one.
+            if (
+                args.fire_zones
+                and zones_injected < args.fire_max
+                and not _safe_float(frame_source.get("fire_zone_level"))
+                and sequence_number >= _FIRE_FIRST_FRAME
+                and sequence_number - last_zone_seq >= args.fire_interval
+            ):
+                lat = _safe_float(frame_source.get("latitude_deg"))
+                lon = _safe_float(frame_source.get("longitude_deg"))
+                if lat and lon and abs(lat) <= 90 and abs(lon) <= 180:
+                    zone = build_fire_zone(zones_injected, lat, lon)
+                    frame_source.update(zone)
+                    last_zone_seq = sequence_number
+                    zones_injected += 1
+                    print(
+                        "  FIRE ZONE #{n} level={lvl} shape={shape} "
+                        "radius={r:.0f}m @ ({lat:.4f},{lon:.4f})".format(
+                            n=zones_injected, lvl=zone["fire_zone_level"],
+                            shape=zone["fire_zone_shape"], r=zone["fire_zone_radius_m"],
+                            lat=zone["fire_zone_lat"], lon=zone["fire_zone_lon"],
+                        )
+                    )
+
+            frame = normalize_telemetry_frame(frame_source, sequence_number=sequence_number)
             payload = encode_telemetry_frame(frame)
             publish_info = client.publish(args.topic, payload=payload, qos=args.qos)
             publish_info.wait_for_publish()

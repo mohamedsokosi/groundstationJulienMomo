@@ -41,14 +41,20 @@ import {
 } from './cesium-utils.js';
 
 // --- Camera footprint projection -------------------------------------------------
-// Projects heat.jpeg onto the ground where the CubeSat's camera looks, using the
+// Projects stripes.png onto the ground where the CubeSat's camera looks, using the
 // IMU attitude quaternion. Camera model (body frame): boresight = -Z, right = +X,
 // image-up = +Y — so at identity attitude the camera looks straight down (nadir).
-// The image is 3:2 (width:height), so the horizontal half-FOV is derived from the
-// vertical one to keep that ratio. Tune PROJ_V_HALF_FOV / the body axes as needed.
-const PROJECTION_IMAGE = '/heat.jpeg';
-const PROJ_V_HALF_FOV = CesiumMath.toRadians(20);
-const PROJ_H_HALF_FOV = Math.atan(1.5 * Math.tan(PROJ_V_HALF_FOV)); // 3:2 aspect
+// The half-FOVs are derived from the real optics: a 400 mm lens on a full-frame
+// 3:2 sensor (Sony a7, 36×24 mm). The sensor's own 3:2 ratio (36/24) makes the
+// footprint 3:2, matching the 3:2 stripes.png. At ~30 km altitude this is a narrow
+// ~2.7×1.8 km footprint (H FOV ≈ 5.15°, V FOV ≈ 3.44°). Update the three constants
+// below if the lens focal length or sensor size changes.
+const PROJECTION_IMAGE = '/stripes.png';
+const LENS_FOCAL_MM = 400;   // objective focal length
+const SENSOR_W_MM = 36.0;    // full-frame sensor width  (landscape = image right, +X)
+const SENSOR_H_MM = 24.0;    // full-frame sensor height (image up, +Y)
+const PROJ_H_HALF_FOV = Math.atan((SENSOR_W_MM / 2) / LENS_FOCAL_MM); // ≈ 2.58°
+const PROJ_V_HALF_FOV = Math.atan((SENSOR_H_MM / 2) / LENS_FOCAL_MM); // ≈ 1.72°
 
 // Boresight-corner signs (right, up) in order top-left, top-right, bottom-right,
 // bottom-left, and the matching image UVs (Cesium texture v=1 = top of image).
@@ -86,6 +92,119 @@ function computeCameraFootprint(satPosition, q) {
         corners.push(Ray.getPoint(ray, interval.start, new Cartesian3()));
     }
     return corners;
+}
+
+// --- Forest-fire danger zones ----------------------------------------------------
+// The CubeSat scans the ground for wildfire risk and reports detected danger zones
+// in its telemetry (Fire_Level/Lat/Lon/Radius/Shape). A zone is NEVER drawn in full
+// from one glimpse — the operator only ever sees the part of the zone that is inside
+// the camera footprint (the same stripes.png quad projected on the ground). Each
+// frame we clip the zone's geometric shape by the footprint quad and paint only that
+// intersection; those patches accumulate, so if the camera has only seen a quarter
+// of a circle, only that quarter is shown — never the whole circle.
+// Level → colour: red = grand danger, orange = danger, yellow = petit danger.
+// Shape codes: 1 = cercle, 2 = triangle, 3 = carré.
+const FIRE_ZONE_LEVELS = {
+    1: { color: '#ffd60a', label: 'PETIT DANGER' },
+    2: { color: '#ff8c00', label: 'DANGER' },
+    3: { color: '#ff2d2d', label: 'GRAND DANGER' },
+};
+// Corner bearings (degrees from north) per shape; circle falls back to an N-gon.
+const FIRE_SHAPE_BEARINGS = {
+    2: [0, 120, 240],           // triangle (une pointe vers le nord)
+    3: [45, 135, 225, 315],     // carré
+};
+const FIRE_CIRCLE_SEGMENTS = 48;
+const METERS_PER_DEG_LAT = 111320;
+const FIRE_FOOTPRINT_REACH_M = 3000;   // skip frames farther than this from a zone
+const FIRE_SAMPLE_FRACTION = 0.6;      // re-clip after the footprint moves ~60% of its size
+const FIRE_SAMPLE_MIN_M = 120;         // ...but never sample finer than this
+const FIRE_MIN_PATCH_M2 = 2500;        // drop slivers smaller than ~50 m × 50 m
+const FIRE_MAX_PATCHES = 80;           // safety cap on patches per zone
+
+// Zone geometric outline as {x: lon°, y: lat°} ground vertices around its centre.
+function fireZoneShapeLonLat(lat, lon, radiusM, shape) {
+    const bearings = FIRE_SHAPE_BEARINGS[shape]
+        ?? Array.from({ length: FIRE_CIRCLE_SEGMENTS }, (_, i) => (360 * i) / FIRE_CIRCLE_SEGMENTS);
+    const mPerDegLon = METERS_PER_DEG_LAT * Math.max(Math.cos(CesiumMath.toRadians(lat)), 1e-6);
+    return bearings.map((deg) => {
+        const rad = CesiumMath.toRadians(deg);
+        return {
+            x: lon + (radiusM * Math.sin(rad)) / mPerDegLon,
+            y: lat + (radiusM * Math.cos(rad)) / METERS_PER_DEG_LAT,
+        };
+    });
+}
+
+// Sutherland–Hodgman: clip `subject` by the CONVEX `clip` polygon (both [{x, y}]).
+// Returns the intersection polygon (possibly []). Used to keep only the part of a
+// zone that lies inside the camera footprint quad.
+function clipPolygonConvex(subject, clip) {
+    if (subject.length < 3 || clip.length < 3) return [];
+    let signedArea = 0;
+    for (let i = 0, j = clip.length - 1; i < clip.length; j = i++) {
+        signedArea += clip[j].x * clip[i].y - clip[i].x * clip[j].y;
+    }
+    const ccw = signedArea > 0;
+    const insideEdge = (p, a, b) => {
+        const cross = (b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x);
+        return ccw ? cross >= 0 : cross <= 0;
+    };
+    const lineIntersect = (p, q, a, b) => {
+        const rpx = q.x - p.x, rpy = q.y - p.y;
+        const rax = b.x - a.x, ray = b.y - a.y;
+        const denom = rpx * ray - rpy * rax;
+        if (Math.abs(denom) < 1e-15) return q;
+        const t = ((a.x - p.x) * ray - (a.y - p.y) * rax) / denom;
+        return { x: p.x + t * rpx, y: p.y + t * rpy };
+    };
+    let output = subject;
+    for (let e = 0; e < clip.length && output.length; e++) {
+        const a = clip[e];
+        const b = clip[(e + 1) % clip.length];
+        const input = output;
+        output = [];
+        for (let i = 0; i < input.length; i++) {
+            const cur = input[i];
+            const prev = input[(i + input.length - 1) % input.length];
+            const curIn = insideEdge(cur, a, b);
+            const prevIn = insideEdge(prev, a, b);
+            if (curIn) {
+                if (!prevIn) output.push(lineIntersect(prev, cur, a, b));
+                output.push(cur);
+            } else if (prevIn) {
+                output.push(lineIntersect(prev, cur, a, b));
+            }
+        }
+    }
+    return output;
+}
+
+// Shoelace area (m²) of a lon/lat polygon, near reference latitude.
+function firePolygonAreaM2(points, refLat) {
+    if (points.length < 3) return 0;
+    const mPerDegLon = METERS_PER_DEG_LAT * Math.cos(CesiumMath.toRadians(refLat));
+    let a2 = 0;
+    for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
+        const xi = points[i].x * mPerDegLon, yi = points[i].y * METERS_PER_DEG_LAT;
+        const xj = points[j].x * mPerDegLon, yj = points[j].y * METERS_PER_DEG_LAT;
+        a2 += xj * yi - xi * yj;
+    }
+    return Math.abs(a2) / 2;
+}
+
+// Equirectangular metre distance — cheap "is this frame near the zone?" reject.
+function fireApproxDistM(aLat, aLon, bLat, bLon) {
+    const mPerDegLon = METERS_PER_DEG_LAT * Math.cos(CesiumMath.toRadians((aLat + bLat) / 2));
+    const dy = (aLat - bLat) * METERS_PER_DEG_LAT;
+    const dx = (aLon - bLon) * mPerDegLon;
+    return Math.hypot(dx, dy);
+}
+
+// ECEF footprint corner → { x: lon°, y: lat° }.
+function fireCartToLonLat(cartesian) {
+    const carto = Ellipsoid.WGS84.cartesianToCartographic(cartesian);
+    return { x: CesiumMath.toDegrees(carto.longitude), y: CesiumMath.toDegrees(carto.latitude) };
 }
 
 // --- CubeSat 3D model marker -----------------------------------------------------
@@ -145,6 +264,12 @@ export const RightControlPanel = ({ groundStationPos, onGroundStationChange, opt
         { key: 'trajectory', label: 'Trajectoire'    },
         { key: 'linkBeam',   label: 'Liaison sol'    },
         { key: 'projection', label: 'Projection'     },
+        { key: 'fireZones',  label: 'Zones feu'      },
+    ];
+    const fireLegend = [
+        ['#ff2d2d', 'Grand danger'],
+        ['#ff8c00', 'Danger'],
+        ['#ffd60a', 'Petit danger'],
     ];
     return (
         <aside className="gs-right-panel compact" aria-label="Controles carte">
@@ -159,6 +284,16 @@ export const RightControlPanel = ({ groundStationPos, onGroundStationChange, opt
                         {control.label} {options[control.key] ? 'ON' : 'OFF'}
                     </button>
                 ))}
+                {options.fireZones && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 3, padding: '1px 0 2px' }}>
+                        {fireLegend.map(([color, text]) => (
+                            <div key={text} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                <span style={{ width: 10, height: 10, background: color, borderRadius: 2, flex: '0 0 auto' }} />
+                                <span style={{ fontSize: 9, color: '#a8b3c4', fontFamily: 'Consolas' }}>{text}</span>
+                            </div>
+                        ))}
+                    </div>
+                )}
                 <button
                     className={`gs-cyan-button${showGsForm ? ' is-on' : ''}`}
                     onClick={() => setShowGsForm((v) => !v)}
@@ -212,6 +347,14 @@ export const CesiumViewport = ({ currentRecord, groundStationPos, onGroundStatio
     const groundProjectionEntityRef = useRef(null);
     const cameraFootprintEntityRef = useRef(null);
     const footprintCornersRef = useRef(null);
+    // Map keyed by "lat_lon" → fire-zone record { shapeLonLat, lastSample*, entities[] }.
+    // Each zone is clipped to the camera footprint per frame; the seen patches
+    // accumulate as coloured polygons that persist.
+    const fireZonesRef = useRef(new Map());
+    // Mission-time of the last frame processed by the reveal pass, so each poll only
+    // scans newly-arrived frames (or all of them once, after a refresh).
+    const fireRevealKeyRef = useRef(null);
+    const prevFireVisibleRef = useRef(true);
     const satelliteOrientationRef = useRef(undefined);
     const trajectoryPositionsRef = useRef([]);
     const linkPositionsRef = useRef([]);
@@ -222,6 +365,10 @@ export const CesiumViewport = ({ currentRecord, groundStationPos, onGroundStatio
     // It is reset to false whenever the viewer is (re)created.
     const initializedRef = useRef(false);
     const cameraHeightRef = useRef(MAP_CAMERA_HEIGHT);
+    // Tracks whether follow mode was active on the previous frame, so we can
+    // snap to a nice zoom once when it is first enabled and then leave zoom
+    // entirely under the operator's control.
+    const wasFollowingRef = useRef(false);
 
     const setThreeDCameraView = (viewer, lon, lat, height = cameraHeightRef.current, targetAlt = 0) => {
         const nextHeight = Math.min(MAP_MAX_CAMERA_HEIGHT, Math.max(MAP_MIN_CAMERA_HEIGHT, height));
@@ -295,6 +442,8 @@ export const CesiumViewport = ({ currentRecord, groundStationPos, onGroundStatio
             groundProjectionEntityRef.current = null;
             cameraFootprintEntityRef.current = null;
             footprintCornersRef.current = null;
+            fireZonesRef.current = new Map();
+            fireRevealKeyRef.current = null;
             initializedRef.current = false;
 
             const maxTextureSize = viewer.scene.context?.maximumTextureSize;
@@ -327,6 +476,8 @@ export const CesiumViewport = ({ currentRecord, groundStationPos, onGroundStatio
             groundProjectionEntityRef.current = null;
             cameraFootprintEntityRef.current = null;
             footprintCornersRef.current = null;
+            fireZonesRef.current = new Map();
+            fireRevealKeyRef.current = null;
             initializedRef.current = false;
             prevTrajLengthRef.current = 0;
             lastTrajGeoKeyRef.current = null;
@@ -344,10 +495,15 @@ export const CesiumViewport = ({ currentRecord, groundStationPos, onGroundStatio
         const newGeoKey = lastTraj ? `${lastTraj['U_Lat']}-${lastTraj['U_Long']}` : null;
 
         if (trajectoryRecords.length < prevTrajLengthRef.current) {
-            // Data was reset — clear cached positions
+            // Data was reset — clear cached positions and drawn fire zones
             trajectoryPositionsRef.current = [];
             prevTrajLengthRef.current = 0;
             lastTrajGeoKeyRef.current = null;
+            for (const zone of fireZonesRef.current.values()) {
+                for (const ent of zone.entities) viewer.entities.remove(ent);
+            }
+            fireZonesRef.current.clear();
+            fireRevealKeyRef.current = null;
         }
         if (newGeoKey !== lastTrajGeoKeyRef.current) {
             if (trajectoryRecords.length > prevTrajLengthRef.current) {
@@ -490,7 +646,7 @@ export const CesiumViewport = ({ currentRecord, groundStationPos, onGroundStatio
         }
         groundProjectionEntityRef.current.show = Boolean(groundPosition);
 
-        // --- Camera footprint: heat.jpeg projected on the ground along the IMU look axis ---
+        // --- Camera footprint: stripes.png projected on the ground along the IMU look axis ---
         const quat = currentRecord ? {
             w: Number(currentRecord.Quat_w ?? 1),
             x: Number(currentRecord.Quat_x ?? 0),
@@ -501,7 +657,7 @@ export const CesiumViewport = ({ currentRecord, groundStationPos, onGroundStatio
 
         if (!cameraFootprintEntityRef.current) {
             cameraFootprintEntityRef.current = viewer.entities.add({
-                name: 'Projection caméra (heat)',
+                name: 'Projection caméra (stripes)',
                 polygon: {
                     hierarchy: new CallbackProperty(
                         () => new PolygonHierarchy(footprintCornersRef.current ?? []),
@@ -516,6 +672,102 @@ export const CesiumViewport = ({ currentRecord, groundStationPos, onGroundStatio
         }
         cameraFootprintEntityRef.current.show = Boolean(footprintCornersRef.current) && (mapOptions.projection !== false);
 
+        // --- Fire-danger zones: only paint what the camera footprint has covered ---
+        // (1) Register each detected zone once (Fire_Level > 0) with its geometric
+        //     outline. Nothing is drawn yet — patches appear only where the camera
+        //     footprint clips the shape.
+        for (const rec of trajectoryRecords) {
+            const level = Number(rec?.Fire_Level ?? 0);
+            if (!level) continue;
+            const zLat = Number(rec.Fire_Lat ?? 0);
+            const zLon = Number(rec.Fire_Lon ?? 0);
+            if (!zLat || !zLon) continue;
+            const key = `${zLat.toFixed(4)}_${zLon.toFixed(4)}`;
+            if (fireZonesRef.current.has(key)) continue;
+            const meta = FIRE_ZONE_LEVELS[level] ?? FIRE_ZONE_LEVELS[3];
+            const radius = Number(rec.Fire_Radius ?? 0) || 1500;
+            const shape = Number(rec.Fire_Shape ?? 1);
+            fireZonesRef.current.set(key, {
+                lat: zLat, lon: zLon, radius,
+                color: Color.fromCssColorString(meta.color),
+                shapeLonLat: fireZoneShapeLonLat(zLat, zLon, radius, shape),
+                lastSampleLat: null, lastSampleLon: null,
+                entities: [],
+            });
+        }
+
+        // (2) Reveal pass — for every frame not yet processed, clip each nearby zone
+        //     by that frame's camera footprint and paint the intersection (never the
+        //     whole zone). Sampled by footprint movement so patches don't stack.
+        //     Incremental: resumes after the last processed frame (by mission-time),
+        //     or scans all frames on the first pass / after a refresh.
+        const fireVisible = mapOptions.fireZones !== false;
+        if (fireZonesRef.current.size > 0 && trajectoryRecords.length > 0) {
+            const frameKey = (r) => r?.m_time ?? r?.['m-time'] ?? null;
+            let startIdx = 0;
+            if (fireRevealKeyRef.current != null) {
+                const found = trajectoryRecords.findIndex((r) => frameKey(r) === fireRevealKeyRef.current);
+                startIdx = found >= 0 ? found + 1 : 0;
+            }
+            for (let i = startIdx; i < trajectoryRecords.length; i++) {
+                const rec = trajectoryRecords[i];
+                if (rec._blackout) continue;
+                const geo = getTelemetryRecordGeo(rec);
+                if (!geo) continue;
+                // Cheap reject: skip frames that can't reach any zone.
+                let anyNear = false;
+                for (const zone of fireZonesRef.current.values()) {
+                    if (fireApproxDistM(geo.lat, geo.lon, zone.lat, zone.lon) <= zone.radius + FIRE_FOOTPRINT_REACH_M) {
+                        anyNear = true;
+                        break;
+                    }
+                }
+                if (!anyNear) continue;
+                const pos = getCesiumRecordPosition(rec);
+                const q = {
+                    w: Number(rec.Quat_w ?? 1), x: Number(rec.Quat_x ?? 0),
+                    y: Number(rec.Quat_y ?? 0), z: Number(rec.Quat_z ?? 0),
+                };
+                const corners = computeCameraFootprint(pos, q);
+                if (!corners) continue;
+                const footprint = corners.map(fireCartToLonLat);
+                // Footprint size (avg diagonal, m) → how far to move before re-clipping.
+                const diagA = fireApproxDistM(footprint[0].y, footprint[0].x, footprint[2].y, footprint[2].x);
+                const diagB = fireApproxDistM(footprint[1].y, footprint[1].x, footprint[3].y, footprint[3].x);
+                const sampleStep = Math.max(FIRE_SAMPLE_MIN_M, FIRE_SAMPLE_FRACTION * (diagA + diagB) / 2);
+                for (const zone of fireZonesRef.current.values()) {
+                    if (zone.entities.length >= FIRE_MAX_PATCHES) continue;
+                    if (fireApproxDistM(geo.lat, geo.lon, zone.lat, zone.lon) > zone.radius + FIRE_FOOTPRINT_REACH_M) continue;
+                    if (zone.lastSampleLat != null
+                        && fireApproxDistM(geo.lat, geo.lon, zone.lastSampleLat, zone.lastSampleLon) < sampleStep) continue;
+                    const inter = clipPolygonConvex(zone.shapeLonLat, footprint);
+                    if (inter.length < 3 || firePolygonAreaM2(inter, zone.lat) < FIRE_MIN_PATCH_M2) continue;
+                    zone.lastSampleLat = geo.lat;
+                    zone.lastSampleLon = geo.lon;
+                    const coords = [];
+                    for (const p of inter) coords.push(p.x, p.y);
+                    zone.entities.push(viewer.entities.add({
+                        name: 'Zone feu (vue)',
+                        polygon: {
+                            hierarchy: new PolygonHierarchy(Cartesian3.fromDegreesArray(coords)),
+                            material: new ColorMaterialProperty(zone.color.withAlpha(0.4)),
+                            height: 0,
+                        },
+                        show: fireVisible,
+                    }));
+                }
+            }
+            fireRevealKeyRef.current = frameKey(trajectoryRecords[trajectoryRecords.length - 1]);
+        }
+
+        // (3) Toggle visibility only when it changes (avoid churning 100s of cells).
+        if (fireVisible !== prevFireVisibleRef.current) {
+            for (const zone of fireZonesRef.current.values()) {
+                for (const ent of zone.entities) ent.show = fireVisible;
+            }
+            prevFireVisibleRef.current = fireVisible;
+        }
+
         // --- Initial camera fit (runs once after first trajectory data arrives) ---
         if (!initializedRef.current && trajectoryPositionsRef.current.length > 1) {
             initializedRef.current = true;
@@ -528,14 +780,30 @@ export const CesiumViewport = ({ currentRecord, groundStationPos, onGroundStatio
         if (mapOptions.follow && currentRecord) {
             const currentGeo = getTelemetryRecordGeo(currentRecord);
             if (currentGeo) {
-                const followHeight = Math.min(cameraHeightRef.current, MAP_FOLLOW_CAMERA_HEIGHT);
                 // Aim at the CubeSat's real altitude, not the ground point below it
                 // (the yellow projection dot) — otherwise the camera centres on the
                 // sol and the CubeSat drifts off-screen when it is high.
-                setThreeDCameraView(viewer, currentGeo.lon, currentGeo.lat, followHeight, currentGeo.alt);
+                const targetAlt = currentGeo.alt || 0;
+                let followHeight;
+                if (!wasFollowingRef.current) {
+                    // Follow just enabled: snap once to a sensible zoom so the
+                    // CubeSat is actually framed, without exceeding whatever the
+                    // operator was already at if they were tighter.
+                    followHeight = Math.min(cameraHeightRef.current, MAP_FOLLOW_CAMERA_HEIGHT);
+                } else {
+                    // Already following: preserve the operator's current zoom by
+                    // reusing the real camera→CubeSat distance, so re-centering
+                    // never forces the zoom in or out — only the center is locked.
+                    const target = Cartesian3.fromDegrees(currentGeo.lon, currentGeo.lat, targetAlt);
+                    followHeight = Cartesian3.distance(viewer.camera.positionWC, target);
+                }
+                setThreeDCameraView(viewer, currentGeo.lon, currentGeo.lat, followHeight, targetAlt);
             }
+            wasFollowingRef.current = true;
+        } else {
+            wasFollowingRef.current = false;
         }
-    }, [currentRecord, groundStationPos, mapOptions.follow, mapOptions.linkBeam, mapOptions.trajectory, mapOptions.projection, trajectoryRecords]);
+    }, [currentRecord, groundStationPos, mapOptions.follow, mapOptions.linkBeam, mapOptions.trajectory, mapOptions.projection, mapOptions.fireZones, trajectoryRecords]);
 
     return (
         <section

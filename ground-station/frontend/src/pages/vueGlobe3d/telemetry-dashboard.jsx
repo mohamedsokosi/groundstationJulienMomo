@@ -35,7 +35,7 @@ const MQTT_STATUS_POLL_MS = 2000;
 export default function TelemetryDashboard() {
     const { chartData, loading, hasData } = useTelemetryStream();
     const [mqttStatus, setMqttStatus] = useState(null);
-    const [mapOptions, setMapOptions] = useState({ follow: false, trajectory: true, linkBeam: true, projection: true });
+    const [mapOptions, setMapOptions] = useState({ follow: false, trajectory: true, linkBeam: true, projection: true, fireZones: true });
     const [groundStationPos, setGroundStationPos] = useState(loadGroundStationPosition);
 
     useEffect(() => {

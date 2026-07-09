@@ -10,6 +10,8 @@ MQTT_HOST="127.0.0.1"
 # CSV replayed by the simulator (-Simulator). Relative paths resolve against the
 # repo root; absolute paths are used as-is. Default is the ground-station root.
 SIM_CSV="telemetry.csv"
+# Seconds between simulated frames (-SimDelay). 0.2 = real-time-ish; smaller = faster.
+SIM_DELAY="0.2"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -18,6 +20,7 @@ while [[ $# -gt 0 ]]; do
         -Restart|-restart|--restart) RESTART=true ;;
         -Offline|-offline|--offline) OFFLINE=true ;;
         -SimCsv|-simcsv|--sim-csv) SIM_CSV="$2"; shift ;;
+        -SimDelay|-simdelay|--sim-delay) SIM_DELAY="$2"; shift ;;
         -BackendPort|-backend-port|--backend-port) BACKEND_PORT="$2"; shift ;;
         -FrontendPort|-frontend-port|--frontend-port) FRONTEND_PORT="$2"; shift ;;
         -BrokerHost|-broker-host|--broker-host) MQTT_HOST="$2"; shift ;;
@@ -167,7 +170,7 @@ if $MQTT && $SIMULATOR; then
         # Also guard here so `-Simulator` without `-Restart` can't stack duplicates.
         stop_simulator
         launch_in_terminal "CubeSat Simulator" \
-            "cd '$REPO_ROOT' && '$PYTHON_EXE' tools/simulators/mqtt_cubesat_simulator.py --csv '$SIM_CSV' --broker 127.0.0.1 --delay 0.2"
+            "cd '$REPO_ROOT' && '$PYTHON_EXE' tools/simulators/mqtt_cubesat_simulator.py --csv '$SIM_CSV' --broker 127.0.0.1 --delay '$SIM_DELAY'"
     else
         echo "Warning: Simulator was requested but not started because MQTT is unavailable." >&2
     fi

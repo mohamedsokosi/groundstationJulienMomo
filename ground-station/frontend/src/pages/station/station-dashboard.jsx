@@ -131,7 +131,7 @@ export default function StationDashboard() {
     const [favouriteIds, setFavouriteIds] = useState(() =>
         new Set(loadFavoriteCharts().map((c) => c.id))
     );
-    const [mapOptions, setMapOptions] = useState({ follow: false, trajectory: true, linkBeam: true, projection: true });
+    const [mapOptions, setMapOptions] = useState({ follow: false, trajectory: true, linkBeam: true, projection: true, fireZones: true });
     const [groundStationPos, setGroundStationPos] = useState(loadGroundStationPosition);
 
     const handleGroundStationChange = useCallback((pos) => {

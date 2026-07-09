@@ -4,7 +4,7 @@ Web App.
 Frames are buffered and flushed in batches (one HTTP POST every
 ``SHEETS_SYNC_INTERVAL_SEC``) to stay well under Apps Script quotas and to avoid
 one request per frame. The Web App's ``doPost`` appends the rows to the sheet —
-see ARCHITECTURE.md › "Live Google Sheet sync (Apps Script Web App)".
+see Documentation.md › "Sync Google Sheet en direct (Apps Script Web App)".
 
 No external dependency: the POST uses the standard library (``urllib``). The
 Apps Script ``/exec`` endpoint answers a 302 redirect to the result URL; urllib
@@ -20,11 +20,13 @@ from datetime import date
 
 from common.logger import logger
 
-# Same column order as the canonical recording / the local CSV log.
+# Same column order as the canonical recording / the local CSV log, plus the
+# trailing forest-fire danger-zone columns (populated only on detection frames).
 SHEET_HEADER = [
     "m-time", "Flight ID", " Ublox UTC", "U Lat", "U Long", "U Alt",
     "Speed", "Vert speed", "#Sat", "Pressure", "MIU",
     "T1", "T2", "T3", "T4", "T5", "T6", "T7", "T8",
+    "Fire Level", "Fire Lat", "Fire Lon", "Fire Radius", "Fire Shape",
 ]
 _FRAME_KEYS = [
     "mission_time", "flight_id", "gnss_time_utc", "latitude_deg", "longitude_deg",
@@ -32,6 +34,8 @@ _FRAME_KEYS = [
     "pressure_hpa", "miu_v",
     "temperature_1_c", "temperature_2_c", "temperature_3_c", "temperature_4_c",
     "temperature_5_c", "temperature_6_c", "temperature_7_c", "temperature_8_c",
+    "fire_zone_level", "fire_zone_lat", "fire_zone_lon", "fire_zone_radius_m",
+    "fire_zone_shape",
 ]
 
 _MAX_BUFFER = 5000  # cap so a long outage can't grow the buffer unbounded
