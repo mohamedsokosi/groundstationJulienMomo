@@ -95,116 +95,35 @@ function computeCameraFootprint(satPosition, q) {
 }
 
 // --- Forest-fire danger zones ----------------------------------------------------
-// The CubeSat scans the ground for wildfire risk and reports detected danger zones
-// in its telemetry (Fire_Level/Lat/Lon/Radius/Shape). A zone is NEVER drawn in full
-// from one glimpse — the operator only ever sees the part of the zone that is inside
-// the camera footprint (the same stripes.png quad projected on the ground). Each
-// frame we clip the zone's geometric shape by the footprint quad and paint only that
-// intersection; those patches accumulate, so if the camera has only seen a quarter
-// of a circle, only that quarter is shown — never the whole circle.
+// The CubeSat transmits the danger zones it has imaged as GeoJSON polygons — the
+// irregular outline already within its camera vision. Each detection frame carries
+// Fire_GeoJSON (a GeoJSON Polygon string) + Fire_Level (colour). The ground station
+// just parses and draws each polygon it receives, once, and keeps it — no clipping,
+// no generation.
 // Level → colour: red = grand danger, orange = danger, yellow = petit danger.
-// Shape codes: 1 = cercle, 2 = triangle, 3 = carré.
 const FIRE_ZONE_LEVELS = {
     1: { color: '#ffd60a', label: 'PETIT DANGER' },
     2: { color: '#ff8c00', label: 'DANGER' },
     3: { color: '#ff2d2d', label: 'GRAND DANGER' },
 };
-// Corner bearings (degrees from north) per shape; circle falls back to an N-gon.
-const FIRE_SHAPE_BEARINGS = {
-    2: [0, 120, 240],           // triangle (une pointe vers le nord)
-    3: [45, 135, 225, 315],     // carré
-};
-const FIRE_CIRCLE_SEGMENTS = 48;
-const METERS_PER_DEG_LAT = 111320;
-const FIRE_FOOTPRINT_REACH_M = 3000;   // skip frames farther than this from a zone
-const FIRE_SAMPLE_FRACTION = 0.6;      // re-clip after the footprint moves ~60% of its size
-const FIRE_SAMPLE_MIN_M = 120;         // ...but never sample finer than this
-const FIRE_MIN_PATCH_M2 = 2500;        // drop slivers smaller than ~50 m × 50 m
-const FIRE_MAX_PATCHES = 80;           // safety cap on patches per zone
 
-// Zone geometric outline as {x: lon°, y: lat°} ground vertices around its centre.
-function fireZoneShapeLonLat(lat, lon, radiusM, shape) {
-    const bearings = FIRE_SHAPE_BEARINGS[shape]
-        ?? Array.from({ length: FIRE_CIRCLE_SEGMENTS }, (_, i) => (360 * i) / FIRE_CIRCLE_SEGMENTS);
-    const mPerDegLon = METERS_PER_DEG_LAT * Math.max(Math.cos(CesiumMath.toRadians(lat)), 1e-6);
-    return bearings.map((deg) => {
-        const rad = CesiumMath.toRadians(deg);
-        return {
-            x: lon + (radiusM * Math.sin(rad)) / mPerDegLon,
-            y: lat + (radiusM * Math.cos(rad)) / METERS_PER_DEG_LAT,
-        };
-    });
-}
-
-// Sutherland–Hodgman: clip `subject` by the CONVEX `clip` polygon (both [{x, y}]).
-// Returns the intersection polygon (possibly []). Used to keep only the part of a
-// zone that lies inside the camera footprint quad.
-function clipPolygonConvex(subject, clip) {
-    if (subject.length < 3 || clip.length < 3) return [];
-    let signedArea = 0;
-    for (let i = 0, j = clip.length - 1; i < clip.length; j = i++) {
-        signedArea += clip[j].x * clip[i].y - clip[i].x * clip[j].y;
+// Parse a GeoJSON Polygon string → outer-ring Cesium ground positions (height 0),
+// or null if malformed. Accepts a Polygon geometry or a Feature wrapping one.
+function fireGeojsonPositions(geojson) {
+    let parsed;
+    try {
+        parsed = typeof geojson === 'string' ? JSON.parse(geojson) : geojson;
+    } catch (_) {
+        return null;
     }
-    const ccw = signedArea > 0;
-    const insideEdge = (p, a, b) => {
-        const cross = (b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x);
-        return ccw ? cross >= 0 : cross <= 0;
-    };
-    const lineIntersect = (p, q, a, b) => {
-        const rpx = q.x - p.x, rpy = q.y - p.y;
-        const rax = b.x - a.x, ray = b.y - a.y;
-        const denom = rpx * ray - rpy * rax;
-        if (Math.abs(denom) < 1e-15) return q;
-        const t = ((a.x - p.x) * ray - (a.y - p.y) * rax) / denom;
-        return { x: p.x + t * rpx, y: p.y + t * rpy };
-    };
-    let output = subject;
-    for (let e = 0; e < clip.length && output.length; e++) {
-        const a = clip[e];
-        const b = clip[(e + 1) % clip.length];
-        const input = output;
-        output = [];
-        for (let i = 0; i < input.length; i++) {
-            const cur = input[i];
-            const prev = input[(i + input.length - 1) % input.length];
-            const curIn = insideEdge(cur, a, b);
-            const prevIn = insideEdge(prev, a, b);
-            if (curIn) {
-                if (!prevIn) output.push(lineIntersect(prev, cur, a, b));
-                output.push(cur);
-            } else if (prevIn) {
-                output.push(lineIntersect(prev, cur, a, b));
-            }
-        }
+    const geom = parsed?.type === 'Feature' ? parsed.geometry : parsed;
+    if (!geom || geom.type !== 'Polygon' || !Array.isArray(geom.coordinates?.[0])) return null;
+    const coords = [];
+    for (const pt of geom.coordinates[0]) {
+        if (Array.isArray(pt) && pt.length >= 2) coords.push(pt[0], pt[1]); // [lon, lat]
     }
-    return output;
-}
-
-// Shoelace area (m²) of a lon/lat polygon, near reference latitude.
-function firePolygonAreaM2(points, refLat) {
-    if (points.length < 3) return 0;
-    const mPerDegLon = METERS_PER_DEG_LAT * Math.cos(CesiumMath.toRadians(refLat));
-    let a2 = 0;
-    for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
-        const xi = points[i].x * mPerDegLon, yi = points[i].y * METERS_PER_DEG_LAT;
-        const xj = points[j].x * mPerDegLon, yj = points[j].y * METERS_PER_DEG_LAT;
-        a2 += xj * yi - xi * yj;
-    }
-    return Math.abs(a2) / 2;
-}
-
-// Equirectangular metre distance — cheap "is this frame near the zone?" reject.
-function fireApproxDistM(aLat, aLon, bLat, bLon) {
-    const mPerDegLon = METERS_PER_DEG_LAT * Math.cos(CesiumMath.toRadians((aLat + bLat) / 2));
-    const dy = (aLat - bLat) * METERS_PER_DEG_LAT;
-    const dx = (aLon - bLon) * mPerDegLon;
-    return Math.hypot(dx, dy);
-}
-
-// ECEF footprint corner → { x: lon°, y: lat° }.
-function fireCartToLonLat(cartesian) {
-    const carto = Ellipsoid.WGS84.cartesianToCartographic(cartesian);
-    return { x: CesiumMath.toDegrees(carto.longitude), y: CesiumMath.toDegrees(carto.latitude) };
+    if (coords.length < 6) return null;
+    return Cartesian3.fromDegreesArray(coords);
 }
 
 // --- CubeSat 3D model marker -----------------------------------------------------
@@ -347,13 +266,9 @@ export const CesiumViewport = ({ currentRecord, groundStationPos, onGroundStatio
     const groundProjectionEntityRef = useRef(null);
     const cameraFootprintEntityRef = useRef(null);
     const footprintCornersRef = useRef(null);
-    // Map keyed by "lat_lon" → fire-zone record { shapeLonLat, lastSample*, entities[] }.
-    // Each zone is clipped to the camera footprint per frame; the seen patches
-    // accumulate as coloured polygons that persist.
+    // Map keyed by GeoJSON content → the Cesium entity drawn for one received fire
+    // zone, so each transmitted polygon is drawn once and persists.
     const fireZonesRef = useRef(new Map());
-    // Mission-time of the last frame processed by the reveal pass, so each poll only
-    // scans newly-arrived frames (or all of them once, after a refresh).
-    const fireRevealKeyRef = useRef(null);
     const prevFireVisibleRef = useRef(true);
     const satelliteOrientationRef = useRef(undefined);
     const trajectoryPositionsRef = useRef([]);
@@ -443,7 +358,6 @@ export const CesiumViewport = ({ currentRecord, groundStationPos, onGroundStatio
             cameraFootprintEntityRef.current = null;
             footprintCornersRef.current = null;
             fireZonesRef.current = new Map();
-            fireRevealKeyRef.current = null;
             initializedRef.current = false;
 
             const maxTextureSize = viewer.scene.context?.maximumTextureSize;
@@ -477,7 +391,6 @@ export const CesiumViewport = ({ currentRecord, groundStationPos, onGroundStatio
             cameraFootprintEntityRef.current = null;
             footprintCornersRef.current = null;
             fireZonesRef.current = new Map();
-            fireRevealKeyRef.current = null;
             initializedRef.current = false;
             prevTrajLengthRef.current = 0;
             lastTrajGeoKeyRef.current = null;
@@ -499,11 +412,8 @@ export const CesiumViewport = ({ currentRecord, groundStationPos, onGroundStatio
             trajectoryPositionsRef.current = [];
             prevTrajLengthRef.current = 0;
             lastTrajGeoKeyRef.current = null;
-            for (const zone of fireZonesRef.current.values()) {
-                for (const ent of zone.entities) viewer.entities.remove(ent);
-            }
+            for (const ent of fireZonesRef.current.values()) viewer.entities.remove(ent);
             fireZonesRef.current.clear();
-            fireRevealKeyRef.current = null;
         }
         if (newGeoKey !== lastTrajGeoKeyRef.current) {
             if (trajectoryRecords.length > prevTrajLengthRef.current) {
@@ -672,99 +582,37 @@ export const CesiumViewport = ({ currentRecord, groundStationPos, onGroundStatio
         }
         cameraFootprintEntityRef.current.show = Boolean(footprintCornersRef.current) && (mapOptions.projection !== false);
 
-        // --- Fire-danger zones: only paint what the camera footprint has covered ---
-        // (1) Register each detected zone once (Fire_Level > 0) with its geometric
-        //     outline. Nothing is drawn yet — patches appear only where the camera
-        //     footprint clips the shape.
+        // --- Fire-danger zones: draw the GeoJSON polygons the CubeSat transmits ---
+        // Each detection frame carries a GeoJSON Polygon (already the outline within
+        // the camera vision). We parse and add each one once (dedup by content) and
+        // keep it, so the map shows exactly what the satellite has imaged.
+        const fireVisible = mapOptions.fireZones !== false;
         for (const rec of trajectoryRecords) {
             const level = Number(rec?.Fire_Level ?? 0);
-            if (!level) continue;
-            const zLat = Number(rec.Fire_Lat ?? 0);
-            const zLon = Number(rec.Fire_Lon ?? 0);
-            if (!zLat || !zLon) continue;
-            const key = `${zLat.toFixed(4)}_${zLon.toFixed(4)}`;
+            const geojson = rec?.Fire_GeoJSON;
+            if (!level || !geojson) continue;
+            const key = `${level}:${geojson}`;
             if (fireZonesRef.current.has(key)) continue;
+            const positions = fireGeojsonPositions(geojson);
+            if (!positions) continue;
             const meta = FIRE_ZONE_LEVELS[level] ?? FIRE_ZONE_LEVELS[3];
-            const radius = Number(rec.Fire_Radius ?? 0) || 1500;
-            const shape = Number(rec.Fire_Shape ?? 1);
-            fireZonesRef.current.set(key, {
-                lat: zLat, lon: zLon, radius,
-                color: Color.fromCssColorString(meta.color),
-                shapeLonLat: fireZoneShapeLonLat(zLat, zLon, radius, shape),
-                lastSampleLat: null, lastSampleLon: null,
-                entities: [],
-            });
+            const color = Color.fromCssColorString(meta.color);
+            fireZonesRef.current.set(key, viewer.entities.add({
+                name: 'Zone feu',
+                polygon: {
+                    hierarchy: new PolygonHierarchy(positions),
+                    material: new ColorMaterialProperty(color.withAlpha(0.45)),
+                    outline: true,
+                    outlineColor: color,
+                    height: 0,
+                },
+                show: fireVisible,
+            }));
         }
 
-        // (2) Reveal pass — for every frame not yet processed, clip each nearby zone
-        //     by that frame's camera footprint and paint the intersection (never the
-        //     whole zone). Sampled by footprint movement so patches don't stack.
-        //     Incremental: resumes after the last processed frame (by mission-time),
-        //     or scans all frames on the first pass / after a refresh.
-        const fireVisible = mapOptions.fireZones !== false;
-        if (fireZonesRef.current.size > 0 && trajectoryRecords.length > 0) {
-            const frameKey = (r) => r?.m_time ?? r?.['m-time'] ?? null;
-            let startIdx = 0;
-            if (fireRevealKeyRef.current != null) {
-                const found = trajectoryRecords.findIndex((r) => frameKey(r) === fireRevealKeyRef.current);
-                startIdx = found >= 0 ? found + 1 : 0;
-            }
-            for (let i = startIdx; i < trajectoryRecords.length; i++) {
-                const rec = trajectoryRecords[i];
-                if (rec._blackout) continue;
-                const geo = getTelemetryRecordGeo(rec);
-                if (!geo) continue;
-                // Cheap reject: skip frames that can't reach any zone.
-                let anyNear = false;
-                for (const zone of fireZonesRef.current.values()) {
-                    if (fireApproxDistM(geo.lat, geo.lon, zone.lat, zone.lon) <= zone.radius + FIRE_FOOTPRINT_REACH_M) {
-                        anyNear = true;
-                        break;
-                    }
-                }
-                if (!anyNear) continue;
-                const pos = getCesiumRecordPosition(rec);
-                const q = {
-                    w: Number(rec.Quat_w ?? 1), x: Number(rec.Quat_x ?? 0),
-                    y: Number(rec.Quat_y ?? 0), z: Number(rec.Quat_z ?? 0),
-                };
-                const corners = computeCameraFootprint(pos, q);
-                if (!corners) continue;
-                const footprint = corners.map(fireCartToLonLat);
-                // Footprint size (avg diagonal, m) → how far to move before re-clipping.
-                const diagA = fireApproxDistM(footprint[0].y, footprint[0].x, footprint[2].y, footprint[2].x);
-                const diagB = fireApproxDistM(footprint[1].y, footprint[1].x, footprint[3].y, footprint[3].x);
-                const sampleStep = Math.max(FIRE_SAMPLE_MIN_M, FIRE_SAMPLE_FRACTION * (diagA + diagB) / 2);
-                for (const zone of fireZonesRef.current.values()) {
-                    if (zone.entities.length >= FIRE_MAX_PATCHES) continue;
-                    if (fireApproxDistM(geo.lat, geo.lon, zone.lat, zone.lon) > zone.radius + FIRE_FOOTPRINT_REACH_M) continue;
-                    if (zone.lastSampleLat != null
-                        && fireApproxDistM(geo.lat, geo.lon, zone.lastSampleLat, zone.lastSampleLon) < sampleStep) continue;
-                    const inter = clipPolygonConvex(zone.shapeLonLat, footprint);
-                    if (inter.length < 3 || firePolygonAreaM2(inter, zone.lat) < FIRE_MIN_PATCH_M2) continue;
-                    zone.lastSampleLat = geo.lat;
-                    zone.lastSampleLon = geo.lon;
-                    const coords = [];
-                    for (const p of inter) coords.push(p.x, p.y);
-                    zone.entities.push(viewer.entities.add({
-                        name: 'Zone feu (vue)',
-                        polygon: {
-                            hierarchy: new PolygonHierarchy(Cartesian3.fromDegreesArray(coords)),
-                            material: new ColorMaterialProperty(zone.color.withAlpha(0.4)),
-                            height: 0,
-                        },
-                        show: fireVisible,
-                    }));
-                }
-            }
-            fireRevealKeyRef.current = frameKey(trajectoryRecords[trajectoryRecords.length - 1]);
-        }
-
-        // (3) Toggle visibility only when it changes (avoid churning 100s of cells).
+        // Toggle visibility only when it changes (avoid per-poll churn).
         if (fireVisible !== prevFireVisibleRef.current) {
-            for (const zone of fireZonesRef.current.values()) {
-                for (const ent of zone.entities) ent.show = fireVisible;
-            }
+            for (const ent of fireZonesRef.current.values()) ent.show = fireVisible;
             prevFireVisibleRef.current = fireVisible;
         }
 

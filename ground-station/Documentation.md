@@ -35,6 +35,7 @@ gss, Ground Station CLI
   gss startoffline [ip]   Démarre SANS upload cloud (Google Sheet désactivé)
   gss simulation [csv]    Rejoue un CSV comme télémétrie live (broker local, offline)
   gss simulation fast     Idem, mais 20x plus rapide (0.01s par frame)
+  gss simulation fast <N> Idem, Nx plus rapide (N dans ]0, 50] ; ex: fast 5, fast 10)
   gss kill                Arrête la station (backend + frontend)
   gss verbose [all|front] Suit le log backend en direct (all = +frontend)
   gss debug               Affiche les erreurs / warnings récents
@@ -56,7 +57,8 @@ Exemples:
 | `gss start [ip]` | `start-local.sh -Restart -BrokerHost <ip>` (sync cloud ON). Sans ip / `defaut` → `10.180.97.23` |
 | `gss startoffline [ip]` | Idem mais `-Offline` (sync Google Sheet forcé OFF ; CSV local quand même écrit) |
 | `gss simulation [csv]` | Rejoue un CSV comme télémétrie live (broker local + simulateur), **sans matériel**. Offline et sans capture CSV locale. Défaut : le CSV de vol ICARUS2 (`../Safari_GS_antenna/telemetrySender/src/telemetry.csv`). Nécessite `mosquitto`. |
-| `gss simulation fast [csv]` | Idem, mais rejeu **20x plus rapide** (`--delay 0.01` au lieu de `0.2`). `fast` et le CSV sont acceptés dans n'importe quel ordre. |
+| `gss simulation fast [csv]` | Idem, mais rejeu **20x plus rapide** (`--delay 0.01` au lieu de `0.2`). |
+| `gss simulation fast <N> [csv]` | Mode rapide avec multiplicateur **N** (`--delay 0.2/N`). N dans `]0, 50]`. Ex : `gss simulation fast 10` = 10x, `fast 5` = 5x. `fast`, N et le CSV sont acceptés dans n'importe quel ordre. |
 | `gss kill` | Arrête backend + frontend (+ le simulateur CubeSat, qui n'a pas de port d'écoute) |
 | `gss verbose [all\|front]` | `tail -f` du log **backend** (`all` = + frontend, `front` = frontend seul) |
 | `gss debug` | Lignes d'erreur/warning récentes du log backend |
@@ -119,7 +121,7 @@ Une fois lancé : **frontend** `http://localhost:5173` · **backend**
 | `-Mqtt` | Démarre un broker Mosquitto local (port 1883) si `MQTT_HOST` est local et non joignable |
 | `-Simulator` | Lance `mqtt_cubesat_simulator.py` (publie des frames de test) |
 | `-SimCsv <chemin>` | CSV rejoué par le simulateur (défaut `telemetry.csv`, relatif à la racine du dépôt) |
-| `-SimDelay <s>` | Délai entre frames simulées (défaut `0.2` ; `gss simulation fast` passe `0.01`) |
+| `-SimDelay <s>` | Délai entre frames simulées (défaut `0.2` ; `gss simulation fast` = 20x → `0.01`, `fast <N>` passe `0.2/N`) |
 | `-BrokerHost <ip>` | Broker MQTT externe (ex. le Raspberry Pi 4B) |
 | `-BackendPort <p>` / `-FrontendPort <p>` | Surcharge les ports (défaut 5000 / 5173) |
 
@@ -196,13 +198,12 @@ mosquitto accessible (`listener 1883`, `allow_anonymous true`).
   (zoom ~27 km).
 - **Position GS** configurable et persistée (partagée entre les vues).
 - Trajectoire **incrémentale** (perf : O(1) par rafraîchissement).
-- **Zones de danger feu de forêt** : le CubeSat scanne le sol et signale des zones
-  à risque dans sa télémétrie. Elles ne s'affichent **pas d'un bloc** : la forme est
-  **découpée par l'empreinte caméra** et seule la partie **vue** (dans le rectangle
-  de projection) est peinte, au fil du balayage — s'il n'a vu qu'un quart d'un
-  cercle, seul ce quart apparaît. Couleurs — **rouge = grand danger**, **orange =
-  danger**, **jaune = petit danger**. Toggle **« Zones feu »** + légende dans le
-  panneau droit Cesium.
+- **Zones de danger feu de forêt** : des **polygones GeoJSON irréguliers** bakés
+  dans le CSV de vol (colonnes `Fire Level` / `Fire GeoJSON`) sont transmis dans la
+  télémétrie ; la station sol **dessine ce qu'elle reçoit** (aucune génération ni
+  découpage au runtime). Couleurs — **rouge = grand danger**, **orange = danger**,
+  **jaune = petit danger**. Toggle **« Zones feu »** + légende dans le panneau droit
+  Cesium. Regénérables via `tools/simulators/generate_fire_zones.py`.
 
 ### Barre supérieure (topbar)
 - **Heure** — horloge locale en direct.
@@ -334,7 +335,8 @@ ground-station/
 │   │   ├── start-local.sh   # Démarrage local (MQTT, Simulator, Restart, BrokerHost…)
 │   │   └── local.env        # Secrets/overrides (git-ignoré)
 │   └── simulators/
-│       └── mqtt_cubesat_simulator.py  # Simulateur MQTT — publie des frames protobuf
+│       ├── mqtt_cubesat_simulator.py  # Simulateur MQTT — rejoue le CSV en frames protobuf
+│       └── generate_fire_zones.py     # One-shot — bake les zones feu GeoJSON dans telemetry.csv
 │
 ├── Dockerfile               # Build multi-étapes : Node → Python 3.12
 ├── LICENSE
@@ -414,23 +416,26 @@ remonte le composant de page, dont son hook `useTelemetryStream`. L'effet MQTT :
 
 La ligne du haut de la colonne droite est un conteneur flex horizontal :
 
-- **TelemetryStatsBar** (flex: 1) — 8 cartes à largeur fixe :
+- **TelemetryStatsBar** (flex: 1) — 7 cartes à largeur fixe :
 
-  | Carte | Clé | Largeur | Couleur |
+  | Carte | Clé | Largeur | Couleur de remplissage |
   |---|---|---|---|
-  | ALTITUDE | `U_Alt` | 80 px | vert |
-  | DISTANCE | calculée | 80 px | bleu |
-  | VITESSE | `Speed` | 80 px | orange |
-  | GPS SAT | `#_Sat` | 60 px | violet |
-  | PRESSION | `Pressure` | 80 px | cyan |
-  | LINK BDG | `_bilan` | 80 px | #22d3ee |
-  | STATUS | — | 80 px | vert |
-  | SOURCE | état MQTT | 75 px | vert/orange/gris |
+  | ALTITUDE | `U_Alt` | 80 px | vert `#9ece6a` |
+  | DISTANCE | calculée | 80 px | bleu `#7aa2f7` |
+  | VITESSE | `Speed` | 80 px | corail `#f7768e` |
+  | GPS SAT | `#_Sat` | 60 px | lavande `#bb9af7` |
+  | PRESSION | `Pressure` | 80 px | ciel `#7dcfff` |
+  | LINK BDG | `_bilan` | 80 px | or `#e0af68` |
+  | SOURCE | état MQTT | 75 px | teal / or / ardoise (selon l'état) |
 
-  Les cartes ont une largeur max fixe et ne grandissent jamais. `valueFontSize()`
-  réduit la taille du texte (12 → 10 → 9 → 8 px) quand la valeur dépasse 8
-  caractères pour toujours tenir sans débordement. `pointer-events: none` — pas
-  d'effet au survol.
+  **Style : tuiles à remplissage plein** — chaque carte est un bloc plat à coins
+  carrés (`border-radius: 3px`) rempli de sa couleur d'accent (`--gs-stat-accent`),
+  avec le texte en **encre sombre** (`--gs-stat-ink: #10131a`) : label muté, valeur
+  pleine. Pas de dégradé ni de liseré latéral. La palette est **harmonisée** (une
+  seule famille de tons, pas un arc-en-ciel). Les cartes ont une largeur max fixe et
+  ne grandissent jamais. `valueFontSize()` réduit la taille du texte (12 → 10 → 9 →
+  8 px) quand la valeur dépasse 8 caractères pour toujours tenir sans débordement.
+  `pointer-events: none` — pas d'effet au survol.
 
 - **TelemetryTerminal variant="errors"** (largeur 25vw) — terminal d'erreurs
   toujours visible à l'extrême droite, même largeur que la colonne gauche.
@@ -602,54 +607,53 @@ apparaisse dans la légende Recharts.
 
 ### 7.8 Zones de danger feu de forêt
 
-Le CubeSat scanne le sol à la recherche de risques de feu de forêt et signale les
-zones détectées **dans sa télémétrie**. La station sol ne dessine **jamais la zone
-entière d'un coup** : l'opérateur ne voit que la partie de la zone **à l'intérieur
-de l'empreinte caméra** (le même rectangle `stripes.png` projeté au sol). À chaque
-frame, la forme géométrique de la zone est **découpée (clippée) par le quadrilatère
-d'empreinte** et seule cette intersection est peinte ; les morceaux s'accumulent. Si
-la caméra n'a vu qu'un **quart** d'un cercle, seul ce quart est affiché — jamais le
-cercle complet.
+Les zones de danger feu de forêt sont des **données statiques bakées dans le CSV de
+vol** (pas de génération au runtime). Chaque zone est un **polygone GeoJSON
+irrégulier** (un blob réaliste, pas un cercle/triangle/carré parfait), déjà
+dimensionné pour tenir **dans la vision caméra** du CubeSat à cette frame. La station
+sol se contente de **parser et dessiner le GeoJSON qu'elle reçoit** — aucun clipping,
+aucune génération.
 
 ```
-Simulateur (mqtt_cubesat_simulator.py)
-  build_fire_zone() injecte une détection toutes les ~450 frames, SUR le track
-  (jitter ~300 m) pour que l'empreinte caméra passe réellement dessus
-  → champs protobuf 25-29 : fire_zone_level / lat / lon / radius_m / shape
-        (émis SEULEMENT quand level>0 — les frames normales gardent leur taille)
+tools/simulators/generate_fire_zones.py   (script one-shot, exécuté UNE fois)
+  plante ~12 zones espacées le long du vol ; à chaque emplacement projette l'empreinte
+  caméra avec le QUATERNION IMU réel (Quat_w/x/y/z) — pas nadir : l'IMU tangue de
+  20-38°, donc l'empreinte (et la zone) tombe 2-12 km HORS de la trace, dispersée et
+  pas en ligne droite. Génère un blob irrégulier, le CLIPPE à l'empreinte → 2 colonnes
+  dans telemetry.csv :
+     "Fire Level" (1/2/3)  +  "Fire GeoJSON" (géométrie GeoJSON Polygon)
+  (backup pristine → telemetry.csv.bak ; idempotent)
+      │
+      ▼   (au runtime, plus aucune génération)
+  mqtt_cubesat_simulator.py rejoue le CSV : "Fire Level"/"Fire GeoJSON" passent par
+    CSV_FIELD_ALIASES → fire_zone_level / fire_zone_geojson
+  → champs protobuf 25-26 : fire_zone_level (varint) + fire_zone_geojson (string)
+        (émis seulement si level>0 — les frames normales gardent leur taille)
       └─► broker MQTT → mqtt_telemetry_receiver → store → /api/telemetry/mqtt/frames
-            └─► telemetry-protobuf.js décode → Fire_Level / Fire_Lat / Fire_Lon /
-                Fire_Radius / Fire_Shape sur chaque record (préservés par ...item)
-                  └─► cesiumViewport.jsx :
-                      (1) enregistre chaque zone avec son contour (fireZoneShapeLonLat)
-                          — rien n'est dessiné à ce stade
-                      (2) passe de révélation : pour chaque frame, calcule l'empreinte
-                          caméra (computeCameraFootprint) et CLIPPE la forme par le
-                          quad (clipPolygonConvex, Sutherland–Hodgman) → peint
-                          l'intersection zone ∩ vision
-                      (3) échantillonné au déplacement (~60% de la taille d'empreinte)
-                          pour ne pas empiler les patchs ; les patchs persistent (même
-                          après éviction de la frame du deque)
+            └─► telemetry-protobuf.js décode → Fire_Level + Fire_GeoJSON sur chaque
+                record (préservés par ...item)
+                  └─► cesiumViewport.jsx : fireGeojsonPositions() parse le Polygon et
+                      ajoute UNE entité polygone colorée (dédup par contenu), gardée
+                      même après éviction de la frame du deque
 ```
 
 - **Niveau → couleur** : `1` jaune (**petit danger**), `2` orange (**danger**),
-  `3` rouge (**grand danger**). **Forme** : `1` cercle (48-gone), `2` triangle,
-  `3` carré — c'est le **sujet** du clipping, donc le bord extérieur du patch suit
-  exactement la géométrie de la zone ET l'empreinte.
-- **Révélation = empreinte caméra** : mêmes optiques que la projection `stripes.png`
-  (`computeCameraFootprint`), donc les patchs apparaissent exactement là où passe le
-  rectangle de projection, et **jamais en dehors**. La passe est **incrémentale**
-  (reprend après la dernière frame traitée via `m-time`) et **rejoue tout
-  l'historique** au refresh pour reconstruire le balayage.
+  `3` rouge (**grand danger**) — la couleur vient de `Fire_Level`, la forme du
+  GeoJSON. Les polygones sont **irréguliers** (16 sommets bruités puis clippés à
+  l'empreinte, donc parfois partiels au bord de la vision).
+- **Aucun traitement au sol** : le frontend n'a plus de logique d'empreinte/clipping
+  pour les zones — il dessine le GeoJSON reçu tel quel (`JSON.parse` →
+  `Cartesian3.fromDegreesArray`).
+- **Régénérer** (rare) : `python3 tools/simulators/generate_fire_zones.py` réécrit
+  les colonnes dans `telemetry.csv` (idempotent, backup une fois). Ensuite les zones
+  sont **dans la télémétrie pour toujours**.
 - **Toggle** `mapOptions.fireZones` (bouton **« Zones feu »**) + légende couleurs
   dans le panneau droit ; visible sur `/station` et `/vueGlobe3d`.
-- **Persistance** : les champs `Fire_*` voyagent sur les frames (survivent au refresh
-  via sessionStorage) ; les patchs déjà dessinés restent affichés même après éviction
-  de la frame source du deque.
-- **Enregistrement** : les colonnes `Fire Level / Fire Lat / Fire Lon / Fire Radius
-  / Fire Shape` sont ajoutées **en fin** du CSV local par jour et du Google Sheet
-  (les 19 colonnes ICARUS2 de tête restent identiques). Désactiver l'injection
-  simulée : `mqtt_cubesat_simulator.py --no-fire-zones`.
+- **Persistance** : `Fire_Level` + `Fire_GeoJSON` voyagent sur les frames (survivent
+  au refresh via sessionStorage) ; les polygones déjà dessinés restent affichés.
+- **Enregistrement** : deux colonnes `Fire Level` et `Fire GeoJSON` sont ajoutées
+  **en fin** du CSV local par jour et du Google Sheet (les 19 colonnes ICARUS2 de
+  tête restent identiques).
 
 ### 7.9 État Redux
 
@@ -703,9 +707,9 @@ deque est la fenêtre d'affichage live, le CSV est une capture durable par jour.
   fichier.
 - **Format** — 19 colonnes de tête identiques à l'enregistrement canonique ICARUS2
   (`m-time, Flight ID, Ublox UTC, U Lat, U Long, U Alt, Speed, Vert speed, #Sat,
-  Pressure, MIU, T1…T8`), donc interchangeable avec la donnée de vol, suivies des
-  5 colonnes de zone feu (`Fire Level, Fire Lat, Fire Lon, Fire Radius, Fire
-  Shape`), non nulles seulement sur les frames de détection.
+  Pressure, MIU, T1…T8`), donc interchangeable avec la donnée de vol, suivies de
+  2 colonnes de zone feu (`Fire Level`, `Fire GeoJSON` = le polygone GeoJSON de la
+  zone), non nulles seulement sur les frames de détection.
 - **Emplacement** — `TELEMETRY_CSV_DIR`, défaut `~/Desktop/telemetry/` (hors du
   dépôt). Désactivable avec `TELEMETRY_CSV_LOG_ENABLED=0`.
 - **Durabilité** — chaque ligne est `flush()`ée immédiatement. Un seul échec

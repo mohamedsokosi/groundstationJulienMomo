@@ -20,13 +20,14 @@ from datetime import date
 
 from common.logger import logger
 
-# Same column order as the canonical recording / the local CSV log, plus the
+# Same column order as the canonical recording / the local CSV log, plus the two
 # trailing forest-fire danger-zone columns (populated only on detection frames).
+# "Fire GeoJSON" is the zone outline as a GeoJSON Polygon.
 SHEET_HEADER = [
     "m-time", "Flight ID", " Ublox UTC", "U Lat", "U Long", "U Alt",
     "Speed", "Vert speed", "#Sat", "Pressure", "MIU",
     "T1", "T2", "T3", "T4", "T5", "T6", "T7", "T8",
-    "Fire Level", "Fire Lat", "Fire Lon", "Fire Radius", "Fire Shape",
+    "Fire Level", "Fire GeoJSON",
 ]
 _FRAME_KEYS = [
     "mission_time", "flight_id", "gnss_time_utc", "latitude_deg", "longitude_deg",
@@ -34,8 +35,7 @@ _FRAME_KEYS = [
     "pressure_hpa", "miu_v",
     "temperature_1_c", "temperature_2_c", "temperature_3_c", "temperature_4_c",
     "temperature_5_c", "temperature_6_c", "temperature_7_c", "temperature_8_c",
-    "fire_zone_level", "fire_zone_lat", "fire_zone_lon", "fire_zone_radius_m",
-    "fire_zone_shape",
+    "fire_zone_level", "fire_zone_geojson",
 ]
 
 _MAX_BUFFER = 5000  # cap so a long outage can't grow the buffer unbounded

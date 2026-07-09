@@ -23,7 +23,6 @@ export function TelemetryStatsBar({ currentRecord, distance, mqttStatus }) {
         { label: 'GPS SAT',   value: satellites.toFixed(0),                      tone: 'satellites', narrow: true },
         { label: 'PRESSION',  value: `${pressure.toFixed(1)} hPa`,              tone: 'pressure'   },
         { label: 'LINK BDG',  value: bilan !== null ? `${bilan.toFixed(1)} dBm` : '— dBm', tone: 'link' },
-        { label: 'STATUS',    value: 'NOMINAL', status: true,                    tone: 'success'    },
         { ...getMqttSourceStat(mqttStatus), medium: true },
     ];
     return (
@@ -35,7 +34,6 @@ export function TelemetryStatsBar({ currentRecord, distance, mqttStatus }) {
                         stat.narrow      ? 'gs-stat-narrow'                        : '',
                         stat.medium      ? 'gs-stat-medium'                        : '',
                         stat.tone        ? `gs-stat-tone-${stat.tone}`             : '',
-                        stat.status      ? 'gs-stat-status'                        : '',
                         stat.sourceState ? `gs-stat-source is-${stat.sourceState}` : '',
                     ].filter(Boolean).join(' ')}
                     key={stat.label}

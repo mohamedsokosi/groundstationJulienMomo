@@ -318,36 +318,10 @@ function decodeTelemetryFrame(bytes) {
                 offset = skipField(bytes, offset, wireType);
                 break;
             case 26:
-                if (wireType === WIRE_64BIT) {
-                    const result = readDouble(bytes, offset);
-                    frame.fireZoneLat = result.value;
-                    offset = result.offset;
-                    break;
-                }
-                offset = skipField(bytes, offset, wireType);
-                break;
-            case 27:
-                if (wireType === WIRE_64BIT) {
-                    const result = readDouble(bytes, offset);
-                    frame.fireZoneLon = result.value;
-                    offset = result.offset;
-                    break;
-                }
-                offset = skipField(bytes, offset, wireType);
-                break;
-            case 28:
-                if (wireType === WIRE_64BIT) {
-                    const result = readDouble(bytes, offset);
-                    frame.fireZoneRadiusM = result.value;
-                    offset = result.offset;
-                    break;
-                }
-                offset = skipField(bytes, offset, wireType);
-                break;
-            case 29:
-                if (wireType === WIRE_VARINT) {
-                    const result = readVarint(bytes, offset);
-                    frame.fireZoneShape = result.value;
+                // Fire-zone geometry: a GeoJSON Polygon string, drawn verbatim.
+                if (wireType === WIRE_LENGTH_DELIMITED) {
+                    const result = readString(bytes, offset);
+                    frame.fireZoneGeojson = result.value;
                     offset = result.offset;
                     break;
                 }
@@ -388,12 +362,10 @@ function frameToTelemetryRow(frame, index) {
     const quaternionX = frame.quaternionX ?? 0;
     const quaternionY = frame.quaternionY ?? 0;
     const quaternionZ = frame.quaternionZ ?? 0;
-    // Forest-fire danger zone (0 = no detection on this frame).
+    // Forest-fire danger zone the CubeSat imaged (0 / '' = no detection). The
+    // geometry is a GeoJSON Polygon string, drawn verbatim by the map.
     const fireLevel = frame.fireZoneLevel ?? 0;
-    const fireLat = frame.fireZoneLat ?? 0;
-    const fireLon = frame.fireZoneLon ?? 0;
-    const fireRadius = frame.fireZoneRadiusM ?? 0;
-    const fireShape = frame.fireZoneShape ?? 0;
+    const fireGeojson = frame.fireZoneGeojson ?? '';
 
     return {
         sequenceNumber,
@@ -432,10 +404,7 @@ function frameToTelemetryRow(frame, index) {
         Quat_y: quaternionY,
         Quat_z: quaternionZ,
         Fire_Level: fireLevel,
-        Fire_Lat: fireLat,
-        Fire_Lon: fireLon,
-        Fire_Radius: fireRadius,
-        Fire_Shape: fireShape,
+        Fire_GeoJSON: fireGeojson,
     };
 }
 

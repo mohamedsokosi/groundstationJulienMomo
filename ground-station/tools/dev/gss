@@ -70,17 +70,34 @@ cmd_simulation() {
     # sans matériel. Offline (pas d'upload cloud) et sans capture CSV locale, pour
     # ne pas polluer l'archive Google Sheet / ~/Desktop/telemetry avec du simulé.
     #
-    # `gss simulation fast` -> rejeu 20x plus rapide (0.2s -> 0.01s par frame).
-    # `fast` et le chemin CSV peuvent être donnés dans n'importe quel ordre.
-    local default_csv csv="" delay="0.2" arg
+    # Vitesse de rejeu : le défaut 0.2s/frame = temps réel (~1 Hz). Le mot-clé
+    # `fast` active le mode rapide ; un nombre optionnel après `fast` fixe le
+    # multiplicateur de vitesse -> délai = 0.2 / N (N dans ]0, 50]) :
+    #   `gss simulation fast`     -> 20x plus rapide (0.01s/frame)  [défaut]
+    #   `gss simulation fast 5`   -> 5x plus rapide  (0.04s/frame)
+    #   `gss simulation fast 10`  -> 10x plus rapide (0.02s/frame)
+    #   `gss simulation fast 20`  -> 20x plus rapide (0.01s/frame)
+    # `fast`, le multiplicateur et le chemin CSV peuvent être donnés dans
+    # n'importe quel ordre.
+    local default_csv csv="" fast=false mult="" delay="0.2" arg
     default_csv="$(cd "$SCRIPT_DIR/../../.." && pwd)/Safari_GS_antenna/telemetrySender/src/telemetry.csv"
     for arg in "$@"; do
         case "$arg" in
-            fast|Fast|FAST) delay="0.01" ;;   # 20x plus rapide que le défaut 0.2s
+            fast|Fast|FAST) fast=true ;;
             "") ;;
-            *) csv="$arg" ;;
+            *[!0-9.]*) csv="$arg" ;;          # contient une lettre/slash -> chemin CSV
+            *) mult="$arg"; fast=true ;;      # purement numérique -> multiplicateur (implique fast)
         esac
     done
+    if $fast; then
+        [[ -z "$mult" ]] && mult="20"         # `fast` seul = 20x par défaut
+        if ! awk -v m="$mult" 'BEGIN { exit !(m+0 > 0 && m+0 <= 50) }'; then
+            echo "Multiplicateur de vitesse invalide : '$mult' (attendu un nombre dans ]0, 50])." >&2
+            echo "Usage: gss simulation fast [N] [csv]   # N = multiplicateur, ex: 5, 10, 20" >&2
+            return 1
+        fi
+        delay="$(awk -v m="$mult" 'BEGIN { printf "%.5g", 0.2 / m }')"
+    fi
     [[ -z "$csv" ]] && csv="$default_csv"
     if [[ ! -f "$csv" ]]; then
         echo "CSV de simulation introuvable: $csv" >&2
@@ -94,7 +111,7 @@ cmd_simulation() {
     fi
     echo "SIMULATION — BROKER LOCAL + REJEU CSV (offline, sans capture CSV locale)"
     echo "CSV: $csv"
-    [[ "$delay" == "0.01" ]] && echo "MODE FAST — 20x plus rapide (delai ${delay}s/frame)"
+    $fast && echo "MODE RAPIDE — ${mult}x plus rapide (delai ${delay}s/frame)"
     TELEMETRY_CSV_LOG_ENABLED=0 bash "$START" -Restart -Mqtt -Simulator -Offline -SimCsv "$csv" -SimDelay "$delay" || return $?
     follow_and_wait
 }
@@ -167,6 +184,7 @@ gss, Ground Station CLI
   gss startoffline [ip]   Démarre SANS upload cloud (Google Sheet désactivé)
   gss simulation [csv]    Rejoue un CSV comme télémétrie live (broker local, offline)
   gss simulation fast     Idem, mais 20x plus rapide (0.01s par frame)
+  gss simulation fast <N> Idem, Nx plus rapide (N dans ]0, 50] ; ex: fast 5, fast 10)
   gss kill                Arrête la station (backend + frontend)
   gss verbose [all|front] Suit le log backend en direct (all = +frontend)
   gss debug               Affiche les erreurs / warnings récents
@@ -182,6 +200,7 @@ Exemples:
   gss startoffline            # local seulement, pas de cloud
   gss simulation              # rejoue le CSV de vol ICARUS2 (sans matériel)
   gss simulation fast         # idem, 20x plus rapide
+  gss simulation fast 10      # idem, 10x plus rapide
 EOF
 }
 

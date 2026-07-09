@@ -32,15 +32,12 @@ TELEMETRY_FRAME_DEFAULTS = {
     "quaternion_x": 0.0,
     "quaternion_y": 0.0,
     "quaternion_z": 0.0,
-    # Forest-fire danger zone detected by the CubeSat scan. level: 0 none,
-    # 1 jaune/petit danger, 2 orange/danger, 3 rouge/grand danger. shape:
-    # 1 cercle, 2 triangle, 3 carré. lat/lon/radius describe the ground zone.
-    # Default level 0 = "no detection on this frame".
+    # Forest-fire danger zone the CubeSat has imaged. level: 0 none, 1 jaune/petit,
+    # 2 orange/danger, 3 rouge/grand danger. The geometry travels verbatim as a
+    # GeoJSON Polygon string (the irregular outline already within the camera
+    # vision); the ground station just draws what it receives. "" = no detection.
     "fire_zone_level": 0,
-    "fire_zone_lat": 0.0,
-    "fire_zone_lon": 0.0,
-    "fire_zone_radius_m": 0.0,
-    "fire_zone_shape": 0,
+    "fire_zone_geojson": "",
 }
 
 
@@ -128,27 +125,15 @@ def normalize_telemetry_frame(frame: dict, sequence_number: int | None = None) -
         "quaternion_z": _to_float(
             source.get("quaternion_z", source.get("quaternionZ", source.get("Quat_z", 0.0)))
         ),
-        # Fire-danger zone detection. CSV/alias headers: Fire Level / Fire_Level,
-        # Fire Lat, Fire Lon, Fire Radius, Fire Shape. level 0 = no detection.
+        # Fire-danger zone. CSV/alias headers: Fire Level / Fire_Level and
+        # Fire GeoJSON / Fire_GeoJSON. level 0 / empty geojson = no detection.
         "fire_zone_level": _to_uint32(
             source.get("fire_zone_level", source.get("fireZoneLevel",
                 source.get("Fire Level", source.get("Fire_Level", 0))))
         ),
-        "fire_zone_lat": _to_float(
-            source.get("fire_zone_lat", source.get("fireZoneLat",
-                source.get("Fire Lat", source.get("Fire_Lat", 0.0))))
-        ),
-        "fire_zone_lon": _to_float(
-            source.get("fire_zone_lon", source.get("fireZoneLon",
-                source.get("Fire Lon", source.get("Fire_Lon", 0.0))))
-        ),
-        "fire_zone_radius_m": _to_float(
-            source.get("fire_zone_radius_m", source.get("fireZoneRadiusM",
-                source.get("Fire Radius", source.get("Fire_Radius", 0.0))))
-        ),
-        "fire_zone_shape": _to_uint32(
-            source.get("fire_zone_shape", source.get("fireZoneShape",
-                source.get("Fire Shape", source.get("Fire_Shape", 0))))
+        "fire_zone_geojson": _to_string(
+            source.get("fire_zone_geojson", source.get("fireZoneGeojson",
+                source.get("Fire GeoJSON", source.get("Fire_GeoJSON", ""))))
         ),
     }
 
@@ -211,15 +196,12 @@ def encode_telemetry_frame(frame: dict) -> bytes:
     payload += encode_double(22, normalized["quaternion_x"])
     payload += encode_double(23, normalized["quaternion_y"])
     payload += encode_double(24, normalized["quaternion_z"])
-    # Fire-zone fields are only emitted on detection frames (level > 0), so the
-    # overwhelming majority of frames stay byte-for-byte identical; the decoder
-    # falls back to the level-0 defaults when the fields are absent.
-    if normalized["fire_zone_level"]:
+    # Fire-zone fields are only emitted on detection frames (level > 0 with a
+    # non-empty GeoJSON), so the overwhelming majority of frames stay byte-for-byte
+    # identical; the decoder falls back to defaults when the fields are absent.
+    if normalized["fire_zone_level"] and normalized["fire_zone_geojson"]:
         payload += encode_uint32(25, normalized["fire_zone_level"])
-        payload += encode_double(26, normalized["fire_zone_lat"])
-        payload += encode_double(27, normalized["fire_zone_lon"])
-        payload += encode_double(28, normalized["fire_zone_radius_m"])
-        payload += encode_uint32(29, normalized["fire_zone_shape"])
+        payload += encode_string(26, normalized["fire_zone_geojson"])
     return bytes(payload)
 
 
@@ -353,14 +335,9 @@ def decode_telemetry_frame(data: bytes) -> dict:
             frame["quaternion_z"], offset = _read_double(data, offset)
         elif field_number == 25 and wire_type == WIRE_VARINT:
             frame["fire_zone_level"], offset = decode_varint(data, offset)
-        elif field_number == 26 and wire_type == WIRE_64BIT:
-            frame["fire_zone_lat"], offset = _read_double(data, offset)
-        elif field_number == 27 and wire_type == WIRE_64BIT:
-            frame["fire_zone_lon"], offset = _read_double(data, offset)
-        elif field_number == 28 and wire_type == WIRE_64BIT:
-            frame["fire_zone_radius_m"], offset = _read_double(data, offset)
-        elif field_number == 29 and wire_type == WIRE_VARINT:
-            frame["fire_zone_shape"], offset = decode_varint(data, offset)
+        elif field_number == 26 and wire_type == WIRE_LENGTH_DELIMITED:
+            raw_value, offset = _read_length_delimited(data, offset)
+            frame["fire_zone_geojson"] = raw_value.decode("utf-8")
         else:
             offset = _skip_field(data, offset, wire_type)
 

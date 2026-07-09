@@ -95,7 +95,10 @@
 }
 
 .gs-stat-card {
-    --gs-stat-accent: var(--mui-palette-primary-main, #2196f3);
+    /* Solid-fill tiles: the accent IS the background; text is dark ink on top.
+       No gradient, no left-border stripe, squared corners — flat blocks. */
+    --gs-stat-accent: #7aa2f7;
+    --gs-stat-ink: #10131a;
     position: relative;
     display: flex;
     flex-direction: column;
@@ -105,14 +108,11 @@
     max-width: 80px;
     height: 44px;
     min-height: 44px;
-    padding: 7px 11px;
+    padding: 6px 10px;
     overflow: hidden;
-    border: 1px solid color-mix(in srgb, var(--gs-stat-accent) 24%, var(--mui-palette-border-main, #293241));
-    border-left: 4px solid var(--gs-stat-accent);
-    border-radius: 6px;
-    background:
-        linear-gradient(135deg, color-mix(in srgb, var(--gs-stat-accent) 12%, transparent), transparent 70%),
-        var(--mui-palette-background-paper, #151a21);
+    border: none;
+    border-radius: 3px;
+    background: var(--gs-stat-accent);
     box-shadow: none;
     transition: none;
     pointer-events: none;
@@ -131,68 +131,68 @@
 }
 
 .gs-stat-card:nth-child(5),
-.gs-stat-card:nth-child(6),
-.gs-stat-card:nth-child(7),
-.gs-stat-status {
+.gs-stat-card:nth-child(6) {
     min-width: 96px;
 }
 
+/* Curated, harmonized fill palette (single tone family, not a rainbow).
+   All are light-enough saturated hues so the dark ink stays readable. */
 .gs-stat-tone-altitude {
-    --gs-stat-accent: var(--mui-palette-success-main, #4caf50);
+    --gs-stat-accent: #9ece6a;   /* green  */
 }
 
 .gs-stat-tone-distance {
-    --gs-stat-accent: var(--mui-palette-info-main, #2196f3);
+    --gs-stat-accent: #7aa2f7;   /* periwinkle */
 }
 
 .gs-stat-tone-speed {
-    --gs-stat-accent: var(--mui-palette-warning-main, #ff9800);
+    --gs-stat-accent: #f7768e;   /* coral */
 }
 
 .gs-stat-tone-satellites {
-    --gs-stat-accent: var(--mui-palette-secondary-main, #9c27b0);
+    --gs-stat-accent: #bb9af7;   /* lavender */
 }
 
 .gs-stat-tone-pressure {
-    --gs-stat-accent: #00bcd4;
+    --gs-stat-accent: #7dcfff;   /* sky */
 }
 
 .gs-stat-tone-link {
-    --gs-stat-accent: #22d3ee;
+    --gs-stat-accent: #e0af68;   /* gold */
 }
 
 .gs-stat-tone-success,
 .gs-stat-source.is-live {
-    --gs-stat-accent: var(--mui-palette-success-main, #4caf50);
+    --gs-stat-accent: #73daca;   /* teal */
 }
 
 .gs-stat-tone-warning,
 .gs-stat-source.is-waiting {
-    --gs-stat-accent: var(--mui-palette-warning-main, #ff9800);
+    --gs-stat-accent: #e0af68;   /* gold */
 }
 
 .gs-stat-tone-neutral,
 .gs-stat-source.is-fallback,
 .gs-stat-source.is-unknown {
-    --gs-stat-accent: var(--mui-palette-text-secondary, #90a4ae);
+    --gs-stat-accent: #9aa5ce;   /* slate */
 }
 
 .gs-stat-label {
     display: block;
-    margin-bottom: 5px;
-    color: var(--mui-palette-text-secondary, #a8b3c4);
+    margin-bottom: 4px;
+    color: color-mix(in srgb, var(--gs-stat-ink) 68%, transparent);
     font-size: 9px;
-    font-weight: 700;
+    font-weight: 800;
     line-height: 1.1;
-    letter-spacing: 0;
+    letter-spacing: 0.4px;
     text-transform: uppercase;
 }
 
 .gs-stat-value {
     display: block;
     width: 100%;
-    color: var(--gs-stat-accent);
-    font-size: 12px;
+    color: var(--gs-stat-ink);
+    font-size: 13px;
     font-weight: 800;
     line-height: 1;
     white-space: nowrap;
@@ -200,44 +200,21 @@
     font-family: Roboto, Arial, sans-serif;
 }
 
-.gs-stat-status .gs-stat-value {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: fit-content;
-    min-height: 18px;
-    padding: 0 7px;
-    border: 1px solid color-mix(in srgb, var(--gs-stat-accent) 58%, transparent);
-    border-radius: 4px;
-    color: var(--gs-stat-accent);
-    background: color-mix(in srgb, var(--gs-stat-accent) 12%, transparent);
-    box-shadow: none;
-    text-shadow: none;
-    font-size: 10px;
-}
-
 .gs-stat-source {
     min-width: 116px;
 }
 
 .gs-stat-source .gs-stat-value {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: fit-content;
-    min-height: 18px;
-    padding: 0 7px;
-    border: 1px solid color-mix(in srgb, var(--gs-stat-accent) 58%, transparent);
-    border-radius: 4px;
-    color: var(--gs-stat-accent);
-    background: color-mix(in srgb, var(--gs-stat-accent) 12%, transparent);
-    font-size: 10px;
+    display: block;
+    width: 100%;
+    color: var(--gs-stat-ink);
+    font-size: 11px;
     white-space: nowrap;
 }
 
 .gs-stat-detail {
-    margin-top: 4px;
-    color: var(--mui-palette-text-secondary, #a8b3c4);
+    margin-top: 3px;
+    color: color-mix(in srgb, var(--gs-stat-ink) 60%, transparent);
     font-size: 8px;
     font-weight: 700;
     line-height: 1;
