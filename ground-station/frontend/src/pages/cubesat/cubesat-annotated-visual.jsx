@@ -89,10 +89,17 @@ export default function CubeSatAnnotatedVisual({
     const handleSvgMouseUp = useCallback(() => setDragging(null), []);
 
     const handleCopy = useCallback(() => {
+        // Emit config-shaped hotspot blocks (anchor = middle circle, polygon =
+        // pointer lines) so they can be pasted straight back into cubesat-config.js.
+        // labelOffset is kept from the current config (not draggable here).
         const text = CUBESAT_SUBSYSTEMS.map((s, i) => {
-            const pts = editPolygons[i].map(([x, y]) => `    [${x}, ${y}]`).join(',\n');
             const a = editAnchors[i];
-            return `${s.id}:\npolygon:\n[\n${pts}\n]\nanchor: { x: ${a.x}, y: ${a.y} }`;
+            const off = s.hotspot.labelOffset;
+            const pts = editPolygons[i].map(([x, y]) => `        [${x}, ${y}],`).join('\n');
+            return `// ${s.id}\nhotspot: {\n`
+                + `    anchor: { x: ${a.x}, y: ${a.y} },\n`
+                + `    labelOffset: { x: ${off.x}, y: ${off.y} },\n`
+                + `    polygon: [\n${pts}\n    ],\n},`;
         }).join('\n\n');
         navigator.clipboard.writeText(text);
         setCopied(true);
@@ -107,6 +114,7 @@ export default function CubeSatAnnotatedVisual({
 
     return (
         <Box
+            onClick={editMode ? undefined : () => onSelectSubsystem(null)}
             sx={{
                 position: 'relative',
                 width: '100%',
@@ -190,25 +198,28 @@ export default function CubeSatAnnotatedVisual({
                                 points={getPolygonPath(poly)}
                                 fill={editMode ? alpha(subsystem.color, 0.12) : (isActive ? fillColor : 'transparent')}
                                 stroke={editMode ? subsystem.color : (isActive ? subsystem.color : alpha(subsystem.color, 0.28))}
-                                strokeWidth={editMode ? 1.2 : (isActive ? 1.7 : 1.1)}
-                                strokeDasharray={(!editMode && subsystem.id !== selectedSubsystemId) ? '4 4' : 'none'}
+                                strokeWidth={editMode ? 0.6 : (isActive ? 0.85 : 0.4)}
+                                strokeDasharray="none"
                                 style={{
                                     cursor: editMode ? 'default' : 'pointer',
                                     transition: editMode ? 'none' : 'all 160ms ease',
                                 }}
                                 onMouseEnter={editMode ? undefined : () => onHoverSubsystem(subsystem.id)}
                                 onMouseLeave={editMode ? undefined : onLeaveSubsystem}
-                                onClick={editMode ? undefined : () => onSelectSubsystem(subsystem.id)}
+                                onClick={editMode ? undefined : (e) => {
+                                    e.stopPropagation();
+                                    onSelectSubsystem(subsystem.id);
+                                }}
                             />
                             {editMode && poly.map(([px, py], vtxIdx) => (
                                 <circle
                                     key={vtxIdx}
                                     cx={px}
                                     cy={py}
-                                    r={2.2}
+                                    r={1.65}
                                     fill={subsystem.color}
                                     stroke="white"
-                                    strokeWidth={0.5}
+                                    strokeWidth={0.375}
                                     style={{ cursor: dragging ? 'grabbing' : 'grab' }}
                                     onMouseDown={handleVertexMouseDown(sysIdx, vtxIdx)}
                                 />
@@ -217,10 +228,10 @@ export default function CubeSatAnnotatedVisual({
                                 <circle
                                     cx={anchor.x}
                                     cy={anchorSvgY}
-                                    r={3.5}
+                                    r={2.625}
                                     fill={subsystem.color}
                                     stroke="white"
-                                    strokeWidth={1}
+                                    strokeWidth={0.75}
                                     strokeDasharray="2 1.5"
                                     style={{ cursor: dragging ? 'grabbing' : 'grab' }}
                                     onMouseDown={handleAnchorMouseDown(sysIdx)}
@@ -241,26 +252,29 @@ export default function CubeSatAnnotatedVisual({
                         <ButtonBase
                             onMouseEnter={() => onHoverSubsystem(subsystem.id)}
                             onMouseLeave={onLeaveSubsystem}
-                            onClick={() => onSelectSubsystem(subsystem.id)}
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                onSelectSubsystem(subsystem.id);
+                            }}
                             sx={{
                                 position: 'absolute',
                                 left: `${anchor.x}%`,
                                 top: `${anchor.y}%`,
                                 transform: 'translate(-50%, -50%)',
-                                width: isSelected ? 22 : 18,
-                                height: isSelected ? 22 : 18,
+                                width: isSelected ? 16.5 : 13.5,
+                                height: isSelected ? 16.5 : 13.5,
                                 borderRadius: '50%',
                                 border: `2px solid ${theme.palette.background.paper}`,
                                 backgroundColor: subsystem.color,
                                 zIndex: 3,
                                 boxShadow: isHovered || isSelected
-                                    ? `0 0 0 8px ${alpha(subsystem.color, 0.18)}`
-                                    : `0 0 0 4px ${alpha(subsystem.color, 0.12)}`,
+                                    ? `0 0 0 6px ${alpha(subsystem.color, 0.18)}`
+                                    : `0 0 0 3px ${alpha(subsystem.color, 0.12)}`,
                                 transition: 'all 160ms ease',
                                 '&::after': {
                                     content: '""',
                                     position: 'absolute',
-                                    inset: -6,
+                                    inset: -4.5,
                                     borderRadius: '50%',
                                     border: `1px solid ${alpha(subsystem.color, 0.45)}`,
                                 },

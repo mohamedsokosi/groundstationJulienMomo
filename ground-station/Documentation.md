@@ -418,7 +418,7 @@ La ligne du haut de la colonne droite est un conteneur flex horizontal :
 
 - **TelemetryStatsBar** (flex: 1) — 7 cartes à largeur fixe :
 
-  | Carte | Clé | Largeur | Couleur de remplissage |
+  | Carte | Clé | Largeur | Couleur d'accent |
   |---|---|---|---|
   | ALTITUDE | `U_Alt` | 80 px | vert `#9ece6a` |
   | DISTANCE | calculée | 80 px | bleu `#7aa2f7` |
@@ -428,14 +428,15 @@ La ligne du haut de la colonne droite est un conteneur flex horizontal :
   | LINK BDG | `_bilan` | 80 px | or `#e0af68` |
   | SOURCE | état MQTT | 75 px | teal / or / ardoise (selon l'état) |
 
-  **Style : tuiles à remplissage plein** — chaque carte est un bloc plat à coins
-  carrés (`border-radius: 3px`) rempli de sa couleur d'accent (`--gs-stat-accent`),
-  avec le texte en **encre sombre** (`--gs-stat-ink: #10131a`) : label muté, valeur
-  pleine. Pas de dégradé ni de liseré latéral. La palette est **harmonisée** (une
-  seule famille de tons, pas un arc-en-ciel). Les cartes ont une largeur max fixe et
-  ne grandissent jamais. `valueFontSize()` réduit la taille du texte (12 → 10 → 9 →
-  8 px) quand la valeur dépasse 8 caractères pour toujours tenir sans débordement.
-  `pointer-events: none` — pas d'effet au survol.
+  **Style : tuiles à contour** — l'intérieur de la carte garde le **fond de page**
+  (`--mui-palette-background-default`, `#0d0f13`, comme la barre) ; la couleur
+  d'accent (`--gs-stat-accent`) ne colore que le **contour** (`border: 1px solid`)
+  et le **texte** (label muté, valeur pleine). Pas de remplissage, ni de dégradé,
+  ni de liseré latéral. La palette est **harmonisée** (une seule famille de tons,
+  pas un arc-en-ciel). Les cartes ont une largeur max fixe et ne grandissent jamais.
+  `valueFontSize()` réduit la taille du texte (12 → 10 → 9 → 8 px) quand la valeur
+  dépasse 8 caractères pour toujours tenir sans débordement. `pointer-events: none`
+  — pas d'effet au survol.
 
 - **TelemetryTerminal variant="errors"** (largeur 25vw) — terminal d'erreurs
   toujours visible à l'extrême droite, même largeur que la colonne gauche.

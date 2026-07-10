@@ -95,10 +95,9 @@
 }
 
 .gs-stat-card {
-    /* Solid-fill tiles: the accent IS the background; text is dark ink on top.
-       No gradient, no left-border stripe, squared corners — flat blocks. */
+    /* Outlined tiles: the box interior stays the page background; the accent
+       colours only the border and the text — no fill, no gradient, no stripe. */
     --gs-stat-accent: #7aa2f7;
-    --gs-stat-ink: #10131a;
     position: relative;
     display: flex;
     flex-direction: column;
@@ -110,9 +109,9 @@
     min-height: 44px;
     padding: 6px 10px;
     overflow: hidden;
-    border: none;
-    border-radius: 3px;
-    background: var(--gs-stat-accent);
+    border: 1px solid var(--gs-stat-accent);
+    border-radius: 4px;
+    background: var(--mui-palette-background-default, #0d0f13);
     box-shadow: none;
     transition: none;
     pointer-events: none;
@@ -180,7 +179,7 @@
 .gs-stat-label {
     display: block;
     margin-bottom: 4px;
-    color: color-mix(in srgb, var(--gs-stat-ink) 68%, transparent);
+    color: color-mix(in srgb, var(--gs-stat-accent) 78%, transparent);
     font-size: 9px;
     font-weight: 800;
     line-height: 1.1;
@@ -191,7 +190,7 @@
 .gs-stat-value {
     display: block;
     width: 100%;
-    color: var(--gs-stat-ink);
+    color: var(--gs-stat-accent);
     font-size: 13px;
     font-weight: 800;
     line-height: 1;
@@ -207,14 +206,14 @@
 .gs-stat-source .gs-stat-value {
     display: block;
     width: 100%;
-    color: var(--gs-stat-ink);
+    color: var(--gs-stat-accent);
     font-size: 11px;
     white-space: nowrap;
 }
 
 .gs-stat-detail {
     margin-top: 3px;
-    color: color-mix(in srgb, var(--gs-stat-ink) 60%, transparent);
+    color: color-mix(in srgb, var(--gs-stat-accent) 62%, transparent);
     font-size: 8px;
     font-weight: 700;
     line-height: 1;
