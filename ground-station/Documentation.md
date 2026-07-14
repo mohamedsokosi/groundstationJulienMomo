@@ -1,734 +1,817 @@
-# Documentation — Ground Station (SAFARI / ICARUS2)
+# Documentation - Ground Station (SAFARI / ICARUS2)
 
-Documentation **complète** de la station sol : présentation, installation,
-utilisation, fonctionnalités, architecture technique interne, sauvegarde de la
-télémétrie, variables d'environnement, Docker et dépannage.
+**Complete** documentation of the ground station: overview, installation, usage,
+features, internal technical architecture, telemetry backup, environment
+variables, Docker and troubleshooting.
 
-> Pour démarrer en 2 minutes, voir **[README.md](README.md)**. Ce document est la
-> référence détaillée qui couvre toute la base de code.
-
----
-
-## 1. Présentation
-
-Application web **temps réel** de station sol pour le suivi d'un ballon
-stratosphérique / CubeSat (projet **ICARUS2**). La télémétrie arrive en direct
-par **MQTT**, s'affiche sur un globe 3D **Cesium** et des graphes, et est
-archivée **localement** (CSV) et dans le **cloud** (Google Sheet).
-
-**Stack :** FastAPI + Python (backend) · React + Redux + Cesium (frontend) ·
-MQTT (télémétrie live) · Protocol Buffers (transport).
+> To get started in 2 minutes, see **[README.md](README.md)**. This document is the
+> detailed reference covering the whole codebase.
 
 ---
 
-## 2. Commandes `gss`
+## 1. Overview
 
-`tools/dev/gss` est un wrapper de commodité autour de `start-local.sh` et des
-logs de dev. Installé une fois par symlink sur le `PATH`, il s'utilise depuis
-n'importe où.
+**Real-time** web ground-station application for tracking a stratospheric balloon
+/ CubeSat (the **ICARUS2** project). Telemetry arrives live over **MQTT**, is
+displayed on a **Cesium** 3D globe and charts, and is archived **locally** (CSV)
+and in the **cloud** (Google Sheet).
+
+**Stack:** FastAPI + Python (backend) · React + Redux + Cesium (frontend) ·
+MQTT (live telemetry) · Protocol Buffers (transport).
+
+---
+
+## 2. `gss` commands
+
+`tools/dev/gss` is a convenience wrapper around `start-local.sh` and the dev logs.
+Installed once via a symlink on the `PATH`, it can be used from anywhere.
 
 ```
 gss, Ground Station CLI
 
-  gss start [ip]          Démarre la station (upload cloud activé).  Défaut: 10.180.97.23
-  gss start defaut        Démarre avec l'IP par défaut (10.180.97.23)
-  gss startoffline [ip]   Démarre SANS upload cloud (Google Sheet désactivé)
-  gss simulation [csv]    Rejoue un CSV comme télémétrie live (broker local, offline)
-  gss simulation fast     Idem, mais 20x plus rapide (0.01s par frame)
-  gss simulation fast <N> Idem, Nx plus rapide (N dans ]0, 50] ; ex: fast 5, fast 10)
-  gss kill                Arrête la station (backend + frontend)
-  gss verbose [all|front] Suit le log backend en direct (all = +frontend)
-  gss debug               Affiche les erreurs / warnings récents
-  gss help                Affiche cette aide
+  gss start [ip]          Start the station (cloud upload enabled).  Default: 10.180.97.23
+  gss start default       Start with the default IP (10.180.97.23)
+  gss startoffline [ip]   Start WITHOUT cloud upload (Google Sheet disabled)
+  gss simulation [csv]    Replay a CSV as live telemetry (local broker, offline)
+  gss simulation fast     Same, but 20x faster (0.01s per frame)
+  gss simulation fast <N> Same, Nx faster (N in ]0, 50]; e.g. fast 5, fast 10)
+  gss simulation corrupt  Same, but injects faults every 50 frames to rehearse
+                          failures: corrupt, truncate, garbage, empty, drop,
+                          duplicate, outoforder, outofrange, badgeojson
+  gss simulation corrupt <list>  Only those faults (e.g. corrupt drop,truncate)
+  gss kill                Stop the station (backend + frontend)
+  gss verbose [all|front] Follow the backend log live (all = +frontend)
+  gss debug               Show recent errors / warnings
+  gss help                Show this help
 
-Après start / startoffline / simulation, le terminal reste attaché au log backend :
-  → CTRL+C arrête TOUT (backend + frontend + simulateur).
-  → GS_FOLLOW=0 gss start   garde l'ancien comportement (rend la main, station détachée).
+After start / startoffline / simulation, the terminal stays attached to the backend log:
+  -> CTRL+C stops EVERYTHING (backend + frontend + simulator).
+  -> GS_FOLLOW=0 gss start   keeps the old behaviour (returns to the prompt, station detached).
 
-Exemples:
-  gss start 10.180.97.45      # broker sur cette IP
-  gss start defaut            # IP par défaut
-  gss startoffline            # local seulement, pas de cloud
-  gss simulation              # rejoue le CSV de vol ICARUS2 (sans matériel)
+Examples:
+  gss start 10.180.97.45      # broker on this IP
+  gss start default           # default IP
+  gss startoffline            # local only, no cloud
+  gss simulation              # replay the ICARUS2 flight CSV (no hardware)
+  gss simulation corrupt      # same + ALL fault types (launch-day rehearsal)
 ```
 
-| Commande | Effet |
+| Command | Effect |
 |---|---|
-| `gss start [ip]` | `start-local.sh -Restart -BrokerHost <ip>` (sync cloud ON). Sans ip / `defaut` → `10.180.97.23` |
-| `gss startoffline [ip]` | Idem mais `-Offline` (sync Google Sheet forcé OFF ; CSV local quand même écrit) |
-| `gss simulation [csv]` | Rejoue un CSV comme télémétrie live (broker local + simulateur), **sans matériel**. Offline et sans capture CSV locale. Défaut : le CSV de vol ICARUS2 (`../Safari_GS_antenna/telemetrySender/src/telemetry.csv`). Nécessite `mosquitto`. |
-| `gss simulation fast [csv]` | Idem, mais rejeu **20x plus rapide** (`--delay 0.01` au lieu de `0.2`). |
-| `gss simulation fast <N> [csv]` | Mode rapide avec multiplicateur **N** (`--delay 0.2/N`). N dans `]0, 50]`. Ex : `gss simulation fast 10` = 10x, `fast 5` = 5x. `fast`, N et le CSV sont acceptés dans n'importe quel ordre. |
-| `gss kill` | Arrête backend + frontend (+ le simulateur CubeSat, qui n'a pas de port d'écoute) |
-| `gss verbose [all\|front]` | `tail -f` du log **backend** (`all` = + frontend, `front` = frontend seul) |
-| `gss debug` | Lignes d'erreur/warning récentes du log backend |
-| `gss help` | Affiche l'aide |
+| `gss start [ip]` | `start-local.sh -Restart -BrokerHost <ip>` (cloud sync ON). Without ip / `default` → `10.180.97.23`. **Resumes** the previous session's graphs (mission history survives a restart) unless the **Reset** button on `/rapport` was used |
+| `gss startoffline [ip]` | Same but `-Offline` (Google Sheet sync forced OFF; local CSV still written) |
+| `gss simulation [csv]` | Replays a CSV as live telemetry (local broker + simulator), **without hardware**. Offline and without local CSV capture. Default: the ICARUS2 flight CSV (`../Safari_GS_antenna/telemetrySender/src/telemetry.csv`). Requires `mosquitto`. **Each simulation start auto-resets the graphs** (a `gss start` resumes instead — see the session semantics in §7.2). |
+| `gss simulation fast [csv]` | Same, but replay **20x faster** (`--delay 0.01` instead of `0.2`). |
+| `gss simulation fast <N> [csv]` | Fast mode with multiplier **N** (`--delay 0.2/N`). N in `]0, 50]`. E.g. `gss simulation fast 10` = 10x, `fast 5` = 5x. `fast`, N and the CSV are accepted in any order. |
+| `gss simulation corrupt [faults]` | Same replay, but the simulator **injects faults** into the MQTT stream (one every 50 frames, cycling) to **rehearse failure handling before a launch**. `corrupt` alone = all fault types; a comma list narrows it (e.g. `corrupt drop,truncate`). Composes with `fast N`. See **[§2.1](#21-fault-injection-gss-simulation-corrupt)**. |
+| `gss kill` | Stop backend + frontend (+ the CubeSat simulator, which has no listening port) |
+| `gss verbose [all\|front]` | `tail -f` of the **backend** log (`all` = + frontend, `front` = frontend only) |
+| `gss debug` | Recent error/warning lines from the backend log |
+| `gss help` | Show the help |
 
-> **Nommé `gss`, pas `gs`** — `gs` est Ghostscript, un binaire système standard
-> qu'on ne doit pas masquer. Le script résout son propre chemin réel (via le
-> symlink) pour retrouver `start-local.sh`, donc il fonctionne depuis n'importe
-> quel dossier.
+> **Named `gss`, not `gs`** - `gs` is Ghostscript, a standard system binary that
+> must not be shadowed. The script resolves its own real path (via the symlink) to
+> find `start-local.sh`, so it works from any directory.
+
+### 2.1 Fault injection (`gss simulation corrupt`)
+
+Launch-day rehearsal mode: the simulator replays the flight CSV **but
+deliberately mangles the stream** so the station's failure handling can be
+exercised without hardware. One fault every **50 frames**, cycling through the
+enabled types; the RNG is **seeded** (default 42) so a run is reproducible.
+Each injection prints a **banner** in the simulator log
+(`~/Desktop/ground-station-logs/cubesat-simulator.txt`) stating what was sent
+and the expected station reaction - the operator checks them off against the
+frontend and `gss debug`.
+
+| Fault | What is sent | Expected station reaction |
+|---|---|---|
+| `corrupt` | 1-3 random bits flipped in the payload | Backend logs `Failed to decode…` **or** the frame decodes with silently wrong values (realistic RF corruption - watch for a spike) |
+| `truncate` | Payload cut mid-message | Backend logs `Failed to decode MQTT telemetry payload`, frame skipped, station keeps running |
+| `garbage` | Random bytes, not protobuf at all | Same as `truncate` - no crash, next frame displays normally |
+| `empty` | 0-byte payload | Decodes to an all-defaults frame (GPS 0,0, empty `mission_time`) - globe/charts must not break |
+| `drop` | ~4.5 s of silence (all frames dropped) | Gap > 3 s → backend `[RPI_DISCONNECTED]` (visible in `gss debug`) + red ghost line, then `[TELEMETRY_RESUMED]` |
+| `duplicate` | The exact same frame twice (QoS-1 redelivery) | Charts / local CSV / Google Sheet must not double-count |
+| `outoforder` | Two consecutive frames swapped | X axis must not zigzag |
+| `outofrange` | Decodes fine but **physically wrong** (rotating: GPS 0,0 + 0 sats, ~5000 km teleport, altitude −500 m / 99 999 m, all temps −999, zero quaternion, pressure 0, `mission_time` −2 h) | Globe must not teleport, chart axes must survive the spikes, 3D cube must not NaN out, errors terminal flags GPS/pressure anomalies |
+| `badgeojson` | Fire zone with truncated JSON / a `Point` instead of a `Polygon` / a ~200 KB payload | Cesium must not crash; invalid zones silently skipped; the pipeline absorbs the oversized frame |
+
+```bash
+gss simulation corrupt              # all fault types, full rehearsal
+gss simulation corrupt drop         # only the missing-frames outage
+gss simulation corrupt drop,truncate,outofrange
+gss simulation corrupt fast 5       # faults + 5x replay speed
+tail -f ~/Desktop/ground-station-logs/cubesat-simulator.txt   # fault banners
+```
+
+Cadence/seed are tunable when running the simulator directly:
+`mqtt_cubesat_simulator.py --faults all --fault-every 50 --fault-seed 42`.
 
 ---
 
-## 3. Démarrage rapide & installation
+## 3. Quick start & installation
 
-### Prérequis
-- **Backend** : Python + [Poetry](https://python-poetry.org/).
-- **Frontend** : Node.js.
-- Un **broker MQTT** accessible (le Raspberry Pi du pont UART→MQTT), **ou** le
-  simulateur intégré (sans matériel).
+### Prerequisites
+- **Backend**: Python + [Poetry](https://python-poetry.org/).
+- **Frontend**: Node.js.
+- An accessible **MQTT broker** (the Raspberry Pi of the UART→MQTT bridge), **or**
+  the built-in simulator (no hardware).
 
 ### Installation
 ```bash
-# Backend (crée backend/.venv via Poetry — virtualenvs.in-project = true)
+# Backend (creates backend/.venv via Poetry - virtualenvs.in-project = true)
 cd backend && poetry install && cd ..
 
 # Frontend
 cd frontend && npm install && cd ..
 ```
 
-### Installer la CLI `gss` (une seule fois)
+### Install the `gss` CLI (once)
 ```bash
-ln -sf "$PWD/tools/dev/gss" ~/.local/bin/gss      # ~/.local/bin doit être dans le PATH
+ln -sf "$PWD/tools/dev/gss" ~/.local/bin/gss      # ~/.local/bin must be on the PATH
 ```
-Puis :
+Then:
 ```bash
-gss start defaut      # démarre, broker = 10.180.97.23, sync cloud ON
-gss start <ip>        # broker sur une autre IP
-gss startoffline      # local seulement (pas d'upload Google Sheet)
-gss simulation        # rejoue le CSV de vol ICARUS2, sans matériel
-gss kill              # tout arrêter (backend + frontend)
+gss start default     # start, broker = 10.180.97.23, cloud sync ON
+gss start <ip>        # broker on another IP
+gss startoffline      # local only (no Google Sheet upload)
+gss simulation        # replay the ICARUS2 flight CSV, no hardware
+gss kill              # stop everything (backend + frontend)
 ```
 
-Une fois lancé : **frontend** `http://localhost:5173` · **backend**
+Once running: **frontend** `http://localhost:5173` · **backend**
 `http://localhost:5000`.
 
-### Ou directement via le script `start-local.sh`
+### Or directly via the `start-local.sh` script
 ```bash
-# Matériel live (broker sur le Raspberry Pi 4B)
+# Live hardware (broker on the Raspberry Pi 4B)
 ./tools/dev/start-local.sh -Restart -BrokerHost 10.180.97.23
 
-# Sans matériel (simulateur) — équivalent bas niveau de `gss simulation`
+# Without hardware (simulator) - low-level equivalent of `gss simulation`
 ./tools/dev/start-local.sh -Restart -Mqtt -Simulator -Offline \
   -SimCsv ../Safari_GS_antenna/telemetrySender/src/telemetry.csv
 ```
 
-| Option | Effet |
+| Option | Effect |
 |---|---|
-| `-Restart` | Tue les process sur les ports backend/frontend (+ simulateur) avant de relancer |
-| `-Offline` | Force le sync Google Sheet OFF (CSV local non affecté) |
-| `-Mqtt` | Démarre un broker Mosquitto local (port 1883) si `MQTT_HOST` est local et non joignable |
-| `-Simulator` | Lance `mqtt_cubesat_simulator.py` (publie des frames de test) |
-| `-SimCsv <chemin>` | CSV rejoué par le simulateur (défaut `telemetry.csv`, relatif à la racine du dépôt) |
-| `-SimDelay <s>` | Délai entre frames simulées (défaut `0.2` ; `gss simulation fast` = 20x → `0.01`, `fast <N>` passe `0.2/N`) |
-| `-BrokerHost <ip>` | Broker MQTT externe (ex. le Raspberry Pi 4B) |
-| `-BackendPort <p>` / `-FrontendPort <p>` | Surcharge les ports (défaut 5000 / 5173) |
+| `-Restart` | Kills the processes on the backend/frontend ports (+ simulator) before relaunching |
+| `-Offline` | Forces the Google Sheet sync OFF (local CSV unaffected) |
+| `-Mqtt` | Starts a local Mosquitto broker (port 1883) if `MQTT_HOST` is local and unreachable |
+| `-Simulator` | Launches `mqtt_cubesat_simulator.py` (publishes test frames) |
+| `-SimCsv <path>` | CSV replayed by the simulator (default `telemetry.csv`, relative to the repo root) |
+| `-SimDelay <s>` | Delay between simulated frames (default `0.2`; `gss simulation fast` = 20x → `0.01`, `fast <N>` passes `0.2/N`) |
+| `-SimFaults <spec>` | Fault types injected by the simulator (`all` or a comma list, e.g. `drop,truncate`). Empty = normal replay. Passed by `gss simulation corrupt` (see §2.1) |
+| `-BrokerHost <ip>` | External MQTT broker (e.g. the Raspberry Pi 4B) |
+| `-BackendPort <p>` / `-FrontendPort <p>` | Override the ports (default 5000 / 5173) |
 
-### Configuration locale (`local.env`)
-Les secrets/réglages (ex. l'URL du Google Sheet) vont dans
-`tools/dev/local.env` (git-ignoré), chargé automatiquement par `start-local.sh` :
+### Local configuration (`local.env`)
+Secrets/settings (e.g. the Google Sheet URL) go into `tools/dev/local.env`
+(git-ignored), loaded automatically by `start-local.sh`:
 ```bash
 SHEETS_SYNC_ENABLED=1
 SHEETS_WEBAPP_URL="https://script.google.com/macros/s/XXXX/exec"
 ```
 
-### Détachement des process & logs
-Le backend (uvicorn) et le frontend (vite) sont lancés avec `nohup … &` +
-`disown` et leurs sorties sont redirigées vers des fichiers `.txt` par service
-dans `~/Desktop/ground-station-logs/` (`ground-station-backend.txt`,
-`ground-station-frontend.txt`). Emplacement surchargeable via `GS_LOG_DIR`. Cela
-garde le prompt interactif utilisable — sinon les logs uvicorn/vite noient les
-frappes.
+### Process detachment & logs
+The backend (uvicorn) and frontend (vite) are launched with `nohup … &` +
+`disown` and their outputs are redirected to per-service `.txt` files in
+`~/Desktop/ground-station-logs/` (`ground-station-backend.txt`,
+`ground-station-frontend.txt`). Location overridable via `GS_LOG_DIR`. This keeps
+the interactive prompt usable - otherwise the uvicorn/vite logs would drown out
+keystrokes.
 
-Les services restent détachés, mais **`gss start` / `startoffline` / `simulation`
-se ré-attachent ensuite au log backend** (équivalent d'un `gss verbose`
-automatique) via un `tail -f` en avant-plan avec un trap `SIGINT`. Dans ce
-terminal, **`Ctrl+C` arrête toute la station** (le trap appelle `cmd_kill` :
-backend + frontend + simulateur). Depuis un autre terminal — ou si l'on a lancé
-avec **`GS_FOLLOW=0`** (qui garde l'ancien comportement : rend la main
-immédiatement, station détachée) — utiliser `gss kill` / `-Restart` (qui tuent ce
-qui écoute sur les ports backend/frontend). Suivre les logs avec `gss verbose` ou
-`tail -f ~/Desktop/ground-station-logs/*.txt`.
+The services stay detached, but **`gss start` / `startoffline` / `simulation`
+then re-attach to the backend log** (equivalent of an automatic `gss verbose`) via
+a foreground `tail -f` with a `SIGINT` trap. In that terminal, **`Ctrl+C` stops
+the whole station** (the trap calls `cmd_kill`: backend + frontend + simulator).
+From another terminal - or if launched with **`GS_FOLLOW=0`** (which keeps the old
+behaviour: returns control immediately, station detached) - use `gss kill` /
+`-Restart` (which kill whatever is listening on the backend/frontend ports).
+Follow the logs with `gss verbose` or `tail -f ~/Desktop/ground-station-logs/*.txt`.
 
-### Lancer le backend manuellement (sans le script)
+### Run the backend manually (without the script)
 ```bash
 cd backend
 MQTT_TELEMETRY_ENABLED=1 MQTT_BROKER_HOST=10.180.97.70 .venv/bin/python app.py
 ```
-Poetry crée le virtualenv à `backend/.venv` (`virtualenvs.in-project = true` dans
-`poetry.toml`). Lancer `poetry install` une fois dans `backend/`.
+Poetry creates the virtualenv at `backend/.venv` (`virtualenvs.in-project = true`
+in `poetry.toml`). Run `poetry install` once inside `backend/`.
 
 ---
 
-## 4. Pipeline matériel
+## 4. Hardware pipeline
 
 ```
 ┌─────────────────────────┐
-│   Raspberry Pi Pico     │  Rejoue la donnée de vol ICARUS2 (7 681 records @ 1 s)
-│   (émetteur télémétrie) │  depuis un CSV embarqué, encapsulée CFDP sur USB série
+│   Raspberry Pi Pico     │  Replays the ICARUS2 flight data (7,681 records @ 1 s)
+│   (telemetry emitter)   │  from an embedded CSV, CFDP-encapsulated over USB serial
 └────────────┬────────────┘
-             │  USB CDC — /dev/ttyACM0 (115200 bauds)
+             │  USB CDC - /dev/ttyACM0 (115200 baud)
              ▼
 ┌─────────────────────────┐
-│   Raspberry Pi 4B       │  uart_mqtt_bridge.py : retire l'entête CFDP,
-│   (gs-modem)            │  encode en protobuf, publie sur le broker MQTT
+│   Raspberry Pi 4B       │  uart_mqtt_bridge.py: strips the CFDP header,
+│   (gs-modem)            │  encodes to protobuf, publishes to the MQTT broker
 └────────────┬────────────┘
-             │  MQTT — topic : icarus2/telemetry/frame.pb (port 1883)
+             │  MQTT - topic: icarus2/telemetry/frame.pb (port 1883)
              ▼
 ┌─────────────────────────┐
-│   Ground Station        │  Backend FastAPI + frontend React
-│   (cette application)   │  affiche la télémétrie en direct
+│   Ground Station        │  FastAPI backend + React frontend
+│   (this application)    │  displays the telemetry live
 └─────────────────────────┘
 ```
 
-Le backend se connecte directement au broker du RPi — pas besoin de mosquitto
-local. Le RPi (`gs-modem`) doit avoir `uart_mqtt_bridge.py` en marche et son
-mosquitto accessible (`listener 1883`, `allow_anonymous true`).
+The backend connects directly to the Pi's broker - no local mosquitto needed. The
+Pi (`gs-modem`) must have `uart_mqtt_bridge.py` running and its mosquitto reachable
+(`listener 1883`, `allow_anonymous true`).
 
 ---
 
-## 5. Fonctionnalités
+## 5. Features
 
-### Visualisation temps réel
-- Globe **3D Cesium** : trajectoire du CubeSat, modèle 3D du CubeSat orienté par
-  l'IMU, position de la station sol (GS), faisceau de liaison, projection au sol
-  — mis à jour à 1 Hz.
-- Mode **« Suivre CubeSat »** : caméra verrouillée sur la position courante
-  (zoom ~27 km).
-- **Position GS** configurable et persistée (partagée entre les vues).
-- Trajectoire **incrémentale** (perf : O(1) par rafraîchissement).
-- **Zones de danger feu de forêt** : des **polygones GeoJSON irréguliers** bakés
-  dans le CSV de vol (colonnes `Fire Level` / `Fire GeoJSON`) sont transmis dans la
-  télémétrie ; la station sol **dessine ce qu'elle reçoit** (aucune génération ni
-  découpage au runtime). Couleurs — **rouge = grand danger**, **orange = danger**,
-  **jaune = petit danger**. Toggle **« Zones feu »** + légende dans le panneau droit
-  Cesium. Regénérables via `tools/simulators/generate_fire_zones.py`.
+### Real-time visualization
+- **Cesium 3D globe**: CubeSat trajectory, 3D CubeSat model oriented by the IMU,
+  ground-station (GS) position, link beam, ground projection - updated at 1 Hz.
+- **"Follow CubeSat" mode**: camera locked on the current position (zoom ~27 km).
+- **GS position** configurable and persisted (shared across views).
+- **Incremental** trajectory (perf: O(1) per refresh).
+- **Forest-fire danger zones**: **irregular GeoJSON polygons** baked into the
+  flight CSV (columns `Fire Level` / `Fire GeoJSON`) are carried in the telemetry;
+  the ground station **draws what it receives** (no runtime generation or clipping).
+  Colours - **red = extreme risk**, **orange = high risk**, **yellow = risk**.
+  **"Fire zones"** toggle + legend in the Cesium right panel. Regenerable via
+  `tools/simulators/generate_fire_zones.py`.
 
-### Barre supérieure (topbar)
-- **Heure** — horloge locale en direct.
-- **Météo** + **Vent** — via Open-Meteo (sans clé API), basés sur la position GS.
-- **Décompte T** — sélecteur date/heure de lancement → compte à rebours
-  **T- / T+** en direct.
+### Top bar (topbar)
+- **Time** - live local clock.
+- **Weather** + **Wind** - via Open-Meteo (no API key), based on the GS position.
+- **T Countdown** - launch date/time picker → live **T- / T+** countdown.
 
-### `/station` configurable
-- **Panneaux graphes** : n'importe quel couple de champs X/Y, glisser-déposer,
-  favoris (synchronisés avec `/analyse`), bouton **All Temp** (T1–T8 d'un coup).
-- **Panneau cube 3D** : widget d'attitude du CubeSat (modèle `cubesat.glb`)
-  orienté en direct par le quaternion IMU.
-- **Panneaux terminaux** : `télémétrie` / `verbose` / `erreurs`.
-- Configuration **persistée** (localStorage), **import/export JSON**.
+The widget cluster sits to the **right of the per-page Export / Import / Edit
+buttons** (when a page provides them), and left of the partner logos.
 
-### Détection de coupure de télémétrie
-- **Frontend** : ligne rouge fantôme + `[RPI_DISCONNECTED]` dès que la
-  télémétrie s'arrête (> 3 s), `[TELEMETRY_RESUMED]` au retour. Les coupures
-  passées sont reconstruites au rafraîchissement de la page.
-- **Backend** : watchdog qui logge `[RPI_DISCONNECTED]` en **WARNING** →
-  visible dans `gss debug`.
+### Configurable `/station`
+- **Chart panels**: any X/Y field pair, drag-and-drop, favorites (synced with
+  `/analyse`), **All Temp** button (T1-T8 at once).
+- **3D cube panel**: CubeSat attitude widget (`cubesat.glb` model) oriented live by
+  the IMU quaternion.
+- **Terminal panels**: `telemetry` / `verbose` / `errors`.
+- Configuration **persisted** (localStorage), **JSON import/export**.
 
-### Sauvegarde de la télémétrie (en parallèle, indépendantes)
-- **CSV local par jour** sur le Desktop : `~/Desktop/telemetry/<date>.csv`
-  (même format que la donnée de vol ICARUS2, donc réutilisable tel quel).
-- **Google Sheet en direct** : un **onglet par jour** (nommé par la date), via
-  un Web App Apps Script — aucune clé/credential côté backend.
+### Telemetry-outage detection
+- **Frontend**: ghost red line + `[RPI_DISCONNECTED]` as soon as telemetry stops
+  (> 3 s), `[TELEMETRY_RESUMED]` on return. Past outages are reconstructed on page
+  refresh.
+- **Backend**: watchdog that logs `[RPI_DISCONNECTED]` at **WARNING** → visible in
+  `gss debug`.
 
-### Outillage
-- **CLI `gss`** : `start`, `startoffline`, `simulation`, `kill`, `verbose`, `debug`, `help`.
-- **Logs `.txt`** sur le Desktop : `~/Desktop/ground-station-logs/`.
+### Telemetry backup (parallel, independent)
+- **Per-day local CSV** on the Desktop: `~/Desktop/telemetry/<date>.csv`
+  (same format as the ICARUS2 flight data, so reusable as-is).
+- **Live Google Sheet**: one **tab per day** (named by the date), via an Apps
+  Script Web App - no key/credential on the backend side.
+
+### Tooling
+- **`gss` CLI**: `start`, `startoffline`, `simulation`, `kill`, `verbose`, `debug`, `help`.
+- **`.txt` logs** on the Desktop: `~/Desktop/ground-station-logs/`.
 
 ---
 
 ## 6. Pages & routes
 
-| Route | Composant | Rôle |
+| Route | Component | Role |
 |---|---|---|
-| `/` | redirect | Redirige vers `/station` |
-| `/station` | `StationDashboard` | Vue opérateur : carte Cesium + colonne gauche **configurable** (graphes + cube 3D + terminaux) + barre de stats + terminal d'erreurs |
-| `/vueGlobe3d` | `TelemetryDashboard` | Globe 3D Cesium plein écran (trajectoire, stats) |
-| `/analyse` | `AnalyseDashboard` | Grille de graphes Recharts entièrement configurable |
-| `/cubesat` | `CubeSatDashboard` | Vue annotée du CubeSat et de ses sous-systèmes |
-| `/rapport` | `RapportDashboard` | Export **PDF** des graphes (/station + /analyse) en un clic (`window.print()`) |
+| `/` | redirect | Redirects to `/station` |
+| `/station` | `StationDashboard` | Operator view: Cesium map + **configurable** left column (charts + 3D cube + terminals) + stats bar + errors terminal |
+| `/vueGlobe3d` | `TelemetryDashboard` | Full-screen Cesium 3D globe (trajectory, stats) |
+| `/analyse` | `AnalyseDashboard` | Fully configurable grid of Recharts charts |
+| `/cubesat` | `CubeSatDashboard` | Annotated view of the CubeSat and its subsystems |
+| `/rapport` | `RapportDashboard` | One-click **PDF** export of the charts (/station + /analyse) (`window.print()`) + **Reset data** button (confirmation dialog) — the manual way to clear a live session's graphs |
 
-### Source de données MQTT unique
-Toutes les routes consomment la télémétrie MQTT live — le sélecteur de source
-CSV/MQTT a été retiré de la topbar. Le `sourceMode` Redux reste à sa valeur par
-défaut `'mqtt'` ; l'action `setSourceMode` et le helper `parseTelemetryCsv`
-restent disponibles pour un usage futur mais aucune UI ne change plus de mode.
+### Single MQTT data source
+All routes consume live MQTT telemetry - the CSV/MQTT source selector was removed
+from the topbar. The Redux `sourceMode` stays at its default value `'mqtt'`; the
+`setSourceMode` action and the `parseTelemetryCsv` helper remain available for
+future use but no UI changes the mode anymore.
 
 ---
 
-## 7. Architecture technique
+## 7. Technical architecture
 
-### 7.1 Structure du dépôt
+### 7.1 Repository structure
 
 ```
 ground-station/
-├── backend/                  # Serveur Python (FastAPI) — Poetry
-│   ├── app.py                # Point d'entrée — démarre Uvicorn
-│   ├── logconfig.yaml        # Configuration de logs (colorlog)
-│   ├── poetry.toml           # virtualenvs.in-project = true (.venv dans backend/)
+├── backend/                  # Python server (FastAPI) - Poetry
+│   ├── app.py                # Entry point - starts Uvicorn
+│   ├── logconfig.yaml        # Log configuration (colorlog)
+│   ├── poetry.toml           # virtualenvs.in-project = true (.venv in backend/)
 │   ├── server/
-│   │   ├── startup.py        # App FastAPI, routes HTTP, CORS, fichiers statiques
-│   │   └── telemetry_protobuf.py  # Encode/décode Protocol Buffers
+│   │   ├── startup.py        # FastAPI app, HTTP routes, CORS, static files
+│   │   └── telemetry_protobuf.py  # Encode/decode Protocol Buffers
 │   ├── pipeline/
-│   │   ├── mqtt_telemetry_receiver.py  # Client paho MQTT, topic icarus2/telemetry/frame.pb
-│   │   ├── telemetry_store.py          # Deque en mémoire des frames (maxlen 5000)
-│   │   ├── telemetry_csv_logger.py     # Ajoute chaque frame MQTT à un CSV local par jour
-│   │   └── telemetry_sheets_sync.py    # Batch frames → Google Sheet (Apps Script Web App)
+│   │   ├── mqtt_telemetry_receiver.py  # paho MQTT client, topic icarus2/telemetry/frame.pb
+│   │   ├── telemetry_store.py          # In-memory frame deque (maxlen 5000)
+│   │   ├── telemetry_csv_logger.py     # Appends each MQTT frame to a per-day local CSV
+│   │   └── telemetry_sheets_sync.py    # Batches frames → Google Sheet (Apps Script Web App)
 │   └── common/
-│       ├── arguments.py      # Parsing CLI (host, port, log-level) + défauts
+│       ├── arguments.py      # CLI parsing (host, port, log-level) + defaults
 │       └── logger.py         # logging basicConfig (stdlib)
 │
-├── frontend/                 # Client React (Vite)
-│   ├── index.html            # Entrée HTML — favicon SAFARI.png
-│   ├── vite.config.js        # Build Vite + plugin Cesium + proxy backend
-│   ├── package.json          # Deps : React, MUI, Redux, Cesium, Recharts, three
-│   ├── public/               # Assets statiques
-│   │   ├── SAFARI.png        # Logo SAFARI (favicon)
-│   │   ├── CSA.png / ETS.jpg / Lassena.png / seds.png  # Logos partenaires (topbar)
-│   │   ├── cubesat.png       # Image du CubeSat
-│   │   └── cubesat.glb       # Modèle 3D du CubeSat (attitude live + carte)
+├── frontend/                 # React client (Vite)
+│   ├── index.html            # HTML entry - favicon SAFARI.png
+│   ├── vite.config.js        # Vite build + Cesium plugin + backend proxy
+│   ├── package.json          # Deps: React, MUI, Redux, Cesium, Recharts, three
+│   ├── public/               # Static assets
+│   │   ├── SAFARI.png        # SAFARI logo (favicon)
+│   │   ├── CSA.png / ETS.jpg / Lassena.png / seds.png  # Partner logos (topbar)
+│   │   ├── cubesat.png       # CubeSat image
+│   │   └── cubesat.glb       # CubeSat 3D model (live attitude + map)
 │   └── src/
-│       ├── main.jsx                  # Racine React — router + Redux Provider
+│       ├── main.jsx                  # React root - router + Redux Provider
 │       ├── App.jsx                   # ThemeProvider + CssBaseline
-│       ├── theme.js / theme-configs.js  # Thème sombre MUI + palette
-│       ├── store.jsx                 # Store Redux (slice telemetry)
-│       ├── layout.jsx                # Topbar + sidebar hover-expand + <Outlet>
-│       ├── topbar-widgets.jsx        # Widgets topbar : Heure, Météo + Vent, Décompte T
-│       ├── navigation.jsx            # Définition sidebar (5 routes)
-│       ├── page-actions-context.jsx  # Contexte des boutons d'action par page
-│       ├── error-page.jsx            # Page d'erreur
+│       ├── theme.js / theme-configs.js  # MUI dark theme + palette
+│       ├── store.jsx                 # Redux store (telemetry slice)
+│       ├── layout.jsx                # Topbar + hover-expand sidebar + <Outlet>
+│       ├── topbar-widgets.jsx        # Topbar widgets: Time, Weather + Wind, T Countdown
+│       ├── navigation.jsx            # Sidebar definition (5 routes)
+│       ├── page-actions-context.jsx  # Per-page action-button context
+│       ├── error-page.jsx            # Error page
 │       └── pages/
-│           ├── station/station-dashboard.jsx      # /station — vue opérateur MQTT
-│           ├── vueGlobe3d/telemetry-dashboard.jsx # /vueGlobe3d — globe Cesium
-│           ├── analyse/analyse-dashboard.jsx      # /analyse — grille de graphes
-│           ├── cubesat/                           # /cubesat — vue annotée + sous-systèmes
+│           ├── station/station-dashboard.jsx      # /station - MQTT operator view
+│           ├── vueGlobe3d/telemetry-dashboard.jsx # /vueGlobe3d - Cesium globe
+│           ├── analyse/analyse-dashboard.jsx      # /analyse - chart grid
+│           ├── cubesat/                           # /cubesat - annotated view + subsystems
 │           │   ├── cubesat-dashboard.jsx
 │           │   ├── cubesat-annotated-visual.jsx
 │           │   ├── cubesat-subsystem-panel.jsx
 │           │   ├── cubesat-config.js
 │           │   └── cubesat-utils.js
-│           ├── rapport/rapport-dashboard.jsx      # /rapport — export PDF
-│           └── shared/                            # Composants et utilitaires partagés
-│               ├── cesiumViewport.jsx         # Globe Cesium + panneau droit (zoom, position GS, modèle CubeSat)
-│               ├── attitudeCube.jsx           # Widget 3D d'attitude (three.js, quaternion IMU)
-│               ├── telemetryChart.jsx         # Graphe Recharts (décimé à 800 pts)
-│               ├── telemetryStatsBar.jsx      # Barre de stats (8 cartes)
-│               ├── telemetryTerminal.jsx      # Terminal flux brut (télémétrie/verbose/erreurs)
-│               ├── chartTitle.jsx             # Titre dynamique
+│           ├── rapport/rapport-dashboard.jsx      # /rapport - PDF export
+│           └── shared/                            # Shared components and utilities
+│               ├── cesiumViewport.jsx         # Cesium globe + right panel (zoom, GS position, CubeSat model)
+│               ├── attitudeCube.jsx           # 3D attitude widget (three.js, IMU quaternion)
+│               ├── telemetryChart.jsx         # Recharts chart (decimated to 800 pts)
+│               ├── telemetryStatsBar.jsx      # Stats bar (8 cards)
+│               ├── telemetryTerminal.jsx      # Raw-stream terminal (telemetry/verbose/errors)
+│               ├── chartTitle.jsx             # Dynamic title
 │               ├── telemetry-components.jsx   # StatisticCard, ChartCard, TelemetrySummary
-│               ├── telemetry-slice.jsx        # Slice Redux — données télémétrie (sourceMode: mqtt)
-│               ├── use-telemetry-stream.jsx   # Hook — load, playback, poll MQTT incrémental
-│               ├── telemetry-data-source.js   # Parsing CSV/Protobuf, limite d'affichage 5000
-│               ├── telemetry-protobuf.js      # Décodage protobuf
+│               ├── telemetry-slice.jsx        # Redux slice - telemetry data (sourceMode: mqtt)
+│               ├── use-telemetry-stream.jsx   # Hook - load, playback, incremental MQTT poll
+│               ├── telemetry-data-source.js   # CSV/Protobuf parsing, 5000 display limit
+│               ├── telemetry-protobuf.js      # Protobuf decoding
 │               ├── telemetry-utils.js         # distanceKm, getMqttSourceStat, helpers
-│               ├── cesium-utils.js            # geo record, imagery, position GS, hauteur follow
+│               ├── cesium-utils.js            # geo record, imagery, GS position, follow height
 │               ├── chart-fields.js            # AVAILABLE_FIELDS, TEMP_FIELD_KEYS
-│               ├── chart-logic.js             # FSPL, bilan de liaison, enrich()
-│               ├── telemetry-worker.js        # Web Worker — buildTelemetryChartData + enrich off-thread
-│               ├── useAnimatedDomain.js       # Animation lisse des axes
-│               └── ground-station-view.css    # Styles globaux (barre de stats, globe)
+│               ├── chart-logic.js             # FSPL, link budget, enrich()
+│               ├── telemetry-worker.js        # Web Worker - buildTelemetryChartData + enrich off-thread
+│               ├── useAnimatedDomain.js       # Smooth axis animation
+│               └── ground-station-view.css    # Global styles (stats bar, globe)
 │
 ├── tools/
 │   ├── dev/
-│   │   ├── gss              # CLI (wrapper de start-local.sh)
-│   │   ├── start-local.sh   # Démarrage local (MQTT, Simulator, Restart, BrokerHost…)
-│   │   └── local.env        # Secrets/overrides (git-ignoré)
+│   │   ├── gss              # CLI (wrapper of start-local.sh)
+│   │   ├── start-local.sh   # Local startup (MQTT, Simulator, Restart, BrokerHost…)
+│   │   └── local.env        # Secrets/overrides (git-ignored)
 │   └── simulators/
-│       ├── mqtt_cubesat_simulator.py  # Simulateur MQTT — rejoue le CSV en frames protobuf
-│       └── generate_fire_zones.py     # One-shot — bake les zones feu GeoJSON dans telemetry.csv
+│       ├── mqtt_cubesat_simulator.py  # MQTT simulator - replays the CSV as protobuf frames (+ --faults injection, §2.1)
+│       └── generate_fire_zones.py     # One-shot - bakes the GeoJSON fire zones into telemetry.csv
 │
-├── Dockerfile               # Build multi-étapes : Node → Python 3.12
+├── Dockerfile               # Multi-stage build: Node → Python 3.12
 ├── LICENSE
-├── Documentation.md         # Ce document
-├── README.md                # Manuel de démarrage rapide
-└── system-architecture.drawio  # Diagramme draw.io (RFD900x → Jetson → Ground Station)
+├── Documentation.md         # This document
+├── README.md                # Quick-start manual
+└── system-architecture.drawio  # draw.io diagram (RFD900x → Jetson → Ground Station)
 ```
 
-Le CSV de vol canonique ICARUS2 (7 681 lignes @ 1 s) n'est **pas** dans ce dépôt ;
-il est rejoué par le simulateur depuis
+The canonical ICARUS2 flight CSV (7,681 rows @ 1 s) is **not** in this repo; it is
+replayed by the simulator from
 `../Safari_GS_antenna/telemetrySender/src/telemetry.csv`.
 
-### 7.2 Flux de données
+### 7.2 Data flow
 
-#### Télémétrie (MQTT live — défaut pour toutes les routes)
+#### Telemetry (live MQTT - default for all routes)
 
 ```
 Pico (USB /dev/ttyACM0) → Raspberry Pi 4B
   └─► uart_mqtt_bridge.py
-        └─► Broker MQTT :1883
+        └─► MQTT broker :1883
               └─► mqtt_telemetry_receiver.py (daemon)
                     └─► telemetry_store (deque maxlen 5000)
                          └─► GET /api/telemetry/mqtt/frames ──►
                                                               ▼
                                          use-telemetry-stream.jsx (hook)
-                                           poll toutes les 1 s
-                                           détection de changement par empreinte de contenu
-                                           (détecte la fenêtre glissante quand le deque est plein)
-                                           stampe _epoch_ms sur chaque frame au démarrage de
-                                           session pour que l'axe X ne dérive pas quand la
-                                           fenêtre de 5000 frames glisse
-                                           load initial → setTelemetryData (toutes les frames)
-                                           incrémental → appendTelemetryPoints (batché,
-                                           un update Redux par poll au lieu d'un par frame)
+                                           poll every 1 s
+                                           change detection by content fingerprint
+                                           (detects the sliding window when the deque is full)
+                                           stamps _epoch_ms on every frame at session
+                                           start so the X axis doesn't drift when the
+                                           5000-frame window slides
+                                           initial load → setTelemetryData (all frames)
+                                           incremental → appendTelemetryPoints (batched,
+                                           one Redux update per poll instead of one per frame)
                                                               ▼
                                          buildTelemetryChartData()
-                                           _elapsed_s / _elapsed_min ← m-time (champ protobuf)
-                                           GPS, altitude, vitesse, températures
+                                           _elapsed_s / _elapsed_min ← m-time (protobuf field)
+                                           GPS, altitude, speed, temperatures
                                                               ▼
                                          enrich() (chart-logic.js)
                                            _fspl     ← Free Space Path Loss
-                                           _bilan    ← Bilan de liaison (dBm)
-                                           _distance ← distance verticale (m)
+                                           _bilan    ← Link budget (dBm)
+                                           _distance ← vertical distance (m)
                                                               ▼
-                                         TelemetryChart (≤800 pts décimés)
-                                         CesiumViewport (trajectoire incrémentale)
+                                         TelemetryChart (≤800 decimated pts)
+                                         CesiumViewport (incremental trajectory)
                                          TelemetryStatsBar
 ```
 
-#### Resume au changement de route (MQTT)
+#### Resume on route change (MQTT)
 
-Naviguer entre routes MQTT (ex. `/station` → `/analyse` → `/station`) démonte et
-remonte le composant de page, dont son hook `useTelemetryStream`. L'effet MQTT :
+Navigating between MQTT routes (e.g. `/station` → `/analyse` → `/station`)
+unmounts and remounts the page component, including its `useTelemetryStream` hook.
+The MQTT effect:
 
-- **Cleanup** n'efface que l'intervalle de poll, PAS les données télémétrie Redux
-  — l'état Redux est la source de vérité et survit au démontage.
-- **Mount** lit `telemetry.telemetryData` depuis Redux. S'il existe des données de
-  forme MQTT (frames avec `_epoch_ms`), il amorce le contexte de poll `live` avec
-  `shownCount = -1` (sentinelle) et `lastRowKey` dérivé de la dernière frame
-  RÉELLE (non-blackout). Le premier poll cherche cette clé dans le deque backend
-  pour trouver le point de reprise, dispatche seulement les lignes arrivées
-  depuis, et préserve les frames fantômes de coupure en place. Si la clé est
-  introuvable (deque roulé au-delà, ou backend redémarré), fallback propre :
-  `clearTelemetryData()` + load initial.
-- **`keepMonotonicSuffix`** est appliqué aux lignes backend au load initial. Le
-  firmware Pico boucle son CSV depuis la ligne 1 après chaque passe complète — le
-  deque de 5000 frames peut donc contenir des frames de deux cycles consécutifs
-  avec un saut de `mission_time` en arrière (~2 h) à la frontière. Sans découpe,
-  le graphe zigzaguerait après un refresh car `_epoch_ms` est ancré à la PREMIÈRE
-  (plus ancienne) frame du deque. Le helper remonte les frames réelles (fantômes
-  ignorées) et retourne la plus longue queue où `mission_time` est
-  non-décroissant ; l'epoch est re-dérivé de la première frame gardée.
-- Un flag `isMounted` par closure d'effet protège des dispatches tardifs si
-  l'utilisateur navigue pendant un `fetch` en vol.
+- **Cleanup** clears only the poll interval, NOT the Redux telemetry data - the
+  Redux state is the source of truth and survives unmount.
+- **Mount** reads `telemetry.telemetryData` from Redux. If MQTT-shaped data exists
+  (frames with `_epoch_ms`), it seeds the `live` poll context with `shownCount = -1`
+  (sentinel) and `lastRowKey` derived from the last REAL (non-blackout) frame. The
+  first poll looks up that key in the backend deque to find the resume point,
+  dispatches only the rows that arrived since, and preserves the outage ghost
+  frames in place. If the key is not found (deque rolled past, or backend
+  restarted), clean fallback: `clearTelemetryData()` + initial load.
+- **`keepMonotonicSuffix`** is applied to the backend rows on initial load. The
+  Pico firmware loops its CSV from line 1 after each full pass - so the 5000-frame
+  deque can contain frames from two consecutive cycles with a backward jump of
+  `mission_time` (~2 h) at the boundary. Without trimming, the chart would zigzag
+  after a refresh because `_epoch_ms` is anchored to the FIRST (oldest) frame of the
+  deque. The helper walks back through the real frames (ignoring ghosts) and returns
+  the longest tail where `mission_time` is non-decreasing; the epoch is re-derived
+  from the first kept frame.
+- An `isMounted` flag per effect closure guards against late dispatches if the user
+  navigates during an in-flight `fetch`.
 
-### 7.3 `/station` — barre de stats
+#### Session semantics: simulations reset, live sessions resume
 
-La ligne du haut de la colonne droite est un conteneur flex horizontal :
+The backend stamps every frames response with two headers: **`X-GS-Boot-Id`** (a
+uuid regenerated on every backend start) and **`X-GS-Session-Mode`**
+(`simulation` when launched with `-Simulator`, else `live` — via the
+`GS_SESSION_MODE` env var set by `start-local.sh`). The poll hook compares the
+boot id with the one this tab last saw (`gs_seen_boot_id` in sessionStorage):
 
-- **TelemetryStatsBar** (flex: 1) — 7 cartes à largeur fixe :
+- **New SIMULATION boot** → **automatic full reset**: Redux telemetry, the
+  sessionStorage snapshot and the poll counters are wiped, then the new replay
+  loads from scratch. Every `gss simulation …` therefore starts with clean
+  graphs — no mixing of two replays.
+- **New LIVE boot** (`gss start` / `startoffline`) → **resume**: the charts keep
+  the previous session's history; the hook re-enters the merge-by-`mission_time`
+  path so only genuinely newer frames are appended, with the red ghost line
+  covering the gap. A mid-flight backend restart never costs the operator their
+  mission history. (This also applies to a live backend whose deque comes back
+  empty: the frontend keeps its data and waits.)
+- **Manual reset** — the **Reset data** button on `/rapport` (with a
+  confirmation dialog) is the only way to clear a live session: it POSTs
+  `/api/telemetry/mqtt/clear`, removes the tab's snapshot (persistence is
+  suppressed during the unload so the `beforeunload` flush can't resurrect the
+  data) and reloads the page.
 
-  | Carte | Clé | Largeur | Couleur d'accent |
+### 7.3 `/station` - stats bar
+
+The top row of the right column is a horizontal flex container:
+
+- **TelemetryStatsBar** (flex: 1) - 7 fixed-width cards:
+
+  | Card | Key | Width | Accent colour |
   |---|---|---|---|
-  | ALTITUDE | `U_Alt` | 80 px | vert `#9ece6a` |
-  | DISTANCE | calculée | 80 px | bleu `#7aa2f7` |
-  | VITESSE | `Speed` | 80 px | corail `#f7768e` |
-  | GPS SAT | `#_Sat` | 60 px | lavande `#bb9af7` |
-  | PRESSION | `Pressure` | 80 px | ciel `#7dcfff` |
-  | LINK BDG | `_bilan` | 80 px | or `#e0af68` |
-  | SOURCE | état MQTT | 75 px | teal / or / ardoise (selon l'état) |
+  | ALTITUDE | `U_Alt` | 80 px | green `#9ece6a` |
+  | DISTANCE | computed | 80 px | blue `#7aa2f7` |
+  | SPEED | `Speed` | 80 px | coral `#f7768e` |
+  | GPS SAT | `#_Sat` | 60 px | lavender `#bb9af7` |
+  | PRESSURE | `Pressure` | 80 px | sky `#7dcfff` |
+  | LINK BDG | `_bilan` | 80 px | gold `#e0af68` |
+  | SOURCE | MQTT state | 75 px | teal / gold / slate (depending on state) |
 
-  **Style : tuiles à contour** — l'intérieur de la carte garde le **fond de page**
-  (`--mui-palette-background-default`, `#0d0f13`, comme la barre) ; la couleur
-  d'accent (`--gs-stat-accent`) ne colore que le **contour** (`border: 1px solid`)
-  et le **texte** (label muté, valeur pleine). Pas de remplissage, ni de dégradé,
-  ni de liseré latéral. La palette est **harmonisée** (une seule famille de tons,
-  pas un arc-en-ciel). Les cartes ont une largeur max fixe et ne grandissent jamais.
-  `valueFontSize()` réduit la taille du texte (12 → 10 → 9 → 8 px) quand la valeur
-  dépasse 8 caractères pour toujours tenir sans débordement. `pointer-events: none`
-  — pas d'effet au survol.
+  **Style: outlined tiles** - the card interior keeps the **page background**
+  (`--mui-palette-background-default`, `#0d0f13`, like the bar); the accent colour
+  (`--gs-stat-accent`) colours only the **border** (`border: 1px solid`) and the
+  **text** (muted label, full-strength value). No fill, no gradient, no side stripe.
+  The palette is **harmonized** (a single tone family, not a rainbow). The cards
+  have a fixed max width and never grow. `valueFontSize()` shrinks the text size
+  (12 → 10 → 9 → 8 px) when the value exceeds 8 characters so it always fits without
+  overflow. `pointer-events: none` - no hover effect.
 
-- **TelemetryTerminal variant="errors"** (largeur 25vw) — terminal d'erreurs
-  toujours visible à l'extrême droite, même largeur que la colonne gauche.
+- **TelemetryTerminal variant="errors"** (width 25vw) - errors terminal always
+  visible at the far right, same width as the left column.
 
-### 7.4 `/station` — système de panneaux de la colonne gauche
+### 7.4 `/station` - left-column panel system
 
-La colonne gauche (25 %) est entièrement configurable via le menu **Modifier** :
+The left column (25%) is fully configurable via the **Edit** menu:
 
-- **Panneaux graphes** — n'importe quel couple X/Y de `AVAILABLE_FIELDS` ;
-  déplaçables, supprimables, favorisables (synchronisés avec les favoris
-  `/analyse`). Un nouveau graphe prend une couleur **aléatoire** de `CHART_COLORS`.
-- **Panneau cube 3D** (`type: 'cube'`, composant `AttitudeCube`) — modèle 3D du
-  CubeSat (`public/cubesat.glb`, three.js + GLTFLoader) orienté en direct par le
-  quaternion IMU (`Quat_w/x/y/z`). Rendu **à la demande** (seulement quand le
-  modèle bouge), car Cesium rend déjà le globe en continu sur la même page.
-- **Panneaux terminaux** — trois variantes, au plus une de chaque. Chaque
-  variante limite ses lignes retenues (`slice(-maxLines)`) pour éviter le lag :
-  `telemetry` → 5 lignes, `verbose` → 1 ligne, `errors` → 500 lignes.
-  - `telemetry` — champs télémétrie clés, vert
-  - `verbose` — tous les champs non-internes, jaune
-  - `errors` — détection d'anomalie (GPS perdu, peu de satellites,
-    altitude/pression manquante) + transitions de coupure : **une** ligne
-    `[RPI_DISCONNECTED]` au début d'une vraie coupure Pi/broker, **une** ligne
-    `[BLACKOUT_SIM]` au début d'une simulation manuelle, **une** ligne
-    `[TELEMETRY_RESUMED]` en **vert** (`#59d98b`) au retour des frames réelles.
+- **Chart panels** - any X/Y pair from `AVAILABLE_FIELDS`; movable, deletable,
+  favoritable (synced with the `/analyse` favorites). A new chart takes a **random**
+  colour from `CHART_COLORS`.
+- **3D cube panel** (`type: 'cube'`, component `AttitudeCube`) - 3D CubeSat model
+  (`public/cubesat.glb`, three.js + GLTFLoader) oriented live by the IMU quaternion
+  (`Quat_w/x/y/z`). Rendered **on demand** (only when the model moves), because
+  Cesium already renders the globe continuously on the same page.
+- **Terminal panels** - three variants, at most one of each. Each variant caps its
+  retained lines (`slice(-maxLines)`) to avoid lag: `telemetry` → 5 lines, `verbose`
+  → 1 line, `errors` → 500 lines.
+  - `telemetry` - key telemetry fields, green
+  - `verbose` - all non-internal fields, yellow
+  - `errors` - anomaly detection (GPS lost, few satellites, missing
+    altitude/pressure) + outage transitions: **one** `[RPI_DISCONNECTED]` line at the
+    start of a real Pi/broker outage, **one** `[BLACKOUT_SIM]` line at the start of a
+    manual simulation, **one** `[TELEMETRY_RESUMED]` line in **green** (`#59d98b`) when
+    real frames return.
 
-#### Bloc « statut station » (état vide des terminaux)
+#### "Station status" block (terminals' empty state)
 
-Quand un terminal n'a **aucune ligne**, il rend un **bloc de statut station live**
-(`StationStatus` dans `telemetryTerminal.jsx`) pour que l'opérateur sache
-*pourquoi* rien n'arrive. Chaque terminal poll `GET /api/status` toutes les 2 s :
+When a terminal has **no lines**, it renders a **live station-status block**
+(`StationStatus` in `telemetryTerminal.jsx`) so the operator knows *why* nothing is
+arriving. Each terminal polls `GET /api/status` every 2 s:
 
-- **Broker** — ✓ connecté / ✗ NON connecté à `<host:port>` (depuis
-  `_broker_connected`, posé dans les callbacks MQTT `on_connect`/`on_disconnect`).
-- **Télémétrie** — ✓ active / ✗ aucune trame, avec nombre de frames et âge de la
-  dernière (`last_frame_age_sec`).
-- **RFD** — ✓ branché / ✗ non branché / ? inconnu. Dérivé côté serveur.
-- Une ligne **d'indice** adaptée à l'état (`gss start <ip>` si broker down,
-  « brancher le RFD » si déconnecté, « en attente de trames » si idle).
+- **Broker** - ✓ connected / ✗ NOT connected to `<host:port>` (from
+  `_broker_connected`, set in the MQTT `on_connect`/`on_disconnect` callbacks).
+- **Telemetry** - ✓ active / ✗ no frame, with frame count and age of the last one
+  (`last_frame_age_sec`).
+- **RFD** - ✓ plugged in / ✗ not plugged in / ? unknown. Derived server-side.
+- A **hint** line adapted to the state (`gss start <ip>` if broker down, "plug in the
+  RFD" if disconnected, "waiting for frames" if idle).
 
-Tout l'état des terminaux (`lines`, `cursor`, `inBlackout`) vit dans le slice
-Redux `telemetry.terminalState` par variante, et survit au démontage/remontage de
-route. Le curseur de traitement avance par batch dispatché pour que les terminaux
-remontés ne rejouent que les nouvelles frames.
+All terminal state (`lines`, `cursor`, `inBlackout`) lives in the Redux slice
+`telemetry.terminalState` per variant, and survives route unmount/remount. The
+processing cursor advances by dispatched batch so remounted terminals only replay
+new frames.
 
-**Défaut si vide** — `loadLeftColumnItems()` retombe sur `DEFAULT_LEFT_COL_ITEMS`
-(un terminal **telemetry** + un terminal **verbose**) quand il n'y a ni config
-sauvée ni favoris `/analyse`. Config persistée dans `localStorage`
-(`station_left_column_config`) ; favoris synchronisés avec `/analyse` via
+**Default when empty** - `loadLeftColumnItems()` falls back to
+`DEFAULT_LEFT_COL_ITEMS` (a **telemetry** terminal + a **verbose** terminal) when
+there is neither a saved config nor `/analyse` favorites. Config persisted in
+`localStorage` (`station_left_column_config`); favorites synced with `/analyse` via
 `analyse_charts_config`.
 
-#### Raccourci All Temp (`/station` et `/analyse`)
-Le bouton **All Temp** ajoute T1–T8 (les 8 champs de température) d'un coup, chacun
-avec une couleur distincte de `CHART_COLORS`. Désactivé une fois tous présents.
-`TEMP_FIELD_KEYS` est exporté depuis `chart-fields.js`.
+#### All Temp shortcut (`/station` and `/analyse`)
+The **All Temp** button adds T1-T8 (the 8 temperature fields) at once, each with a
+distinct colour from `CHART_COLORS`. Disabled once all are present.
+`TEMP_FIELD_KEYS` is exported from `chart-fields.js`.
 
-### 7.5 Détection de coupure réelle (toutes les routes)
+### 7.5 Real-outage detection (all routes)
 
-Une vraie coupure (Pi débranché, broker injoignable) est détectée depuis le
-frontend de deux façons complémentaires.
+A real outage (Pi unplugged, broker unreachable) is detected from the frontend in
+two complementary ways.
 
-**Détection live** — centralisée dans `useTelemetryStream` pour que chaque
-consommateur (`/station`, `/analyse`, `/vueGlobe3d`…) ait la ligne rouge fantôme
-sans réimplémenter le watchdog. Le hook suit `lastMqttFrameAt` (mis à jour à
-chaque frame réelle). Un watchdog 1 s passe `autoOutageActive = true` quand
-`Date.now() - lastMqttFrameAt > 3 s`. Tant qu'actif, un second effet injecte des
-frames fantômes (`_blackout: true`, `_realOutage: true`, valeurs Y gelées) toutes
-les 1 s. Le poll MQTT continue de tourner pendant la coupure, donc dès le retour
-des frames réelles `lastMqttFrameAt` se rafraîchit, `autoOutageActive` se
-désactive, l'injection s'arrête, et `blackoutOffsetSec` lisse l'axe X.
+**Live detection** - centralized in `useTelemetryStream` so every consumer
+(`/station`, `/analyse`, `/vueGlobe3d`…) gets the ghost red line without
+reimplementing the watchdog. The hook tracks `lastMqttFrameAt` (updated on every
+real frame). A 1 s watchdog sets `autoOutageActive = true` when
+`Date.now() - lastMqttFrameAt > 3 s`. While active, a second effect injects ghost
+frames (`_blackout: true`, `_realOutage: true`, frozen Y values) every 1 s. The MQTT
+poll keeps running during the outage, so as soon as real frames return
+`lastMqttFrameAt` refreshes, `autoOutageActive` clears, injection stops, and
+`blackoutOffsetSec` smooths the X axis.
 
-**Reconstruction au refresh** — les frames fantômes ne vivent qu'en Redux ; un
-refresh les efface. Deux mécanismes les préservent :
+**Reconstruction on refresh** - ghost frames only live in Redux; a refresh clears
+them. Two mechanisms preserve them:
 
-1. **`reconstructOutages`** (première passe de `buildTelemetryChartData`) — scanne
-   les frames réelles consécutives et, quand leur écart de `mission_time` dépasse
-   `OUTAGE_GAP_THRESHOLD_SEC` (2 s), insère des fantômes `_synthesized: true` (un
-   par seconde manquante). Surface les coupures antérieures à l'ouverture de la
-   page, tant que les frames encadrantes sont dans le deque backend.
-2. **Persistance `sessionStorage` de `telemetryData`** — un effet **throttlé** (2 s)
-   sérialise `telemetryData` sous `mqtt_telemetry_data_v1`. Throttle (pas
-   debounce !) est essentiel : sous 1 Hz continu un debounce ne se déclencherait
-   jamais. Un listener `beforeunload` flush le dernier snapshot. Au mount, si
-   Redux est vide (après F5), l'effet MQTT restaure depuis le storage puis le
-   chemin de resume (`shownCount = -1`) rattrape le backend. Storage en
-   `sessionStorage` (pas `localStorage`) → un nouvel onglet repart de zéro ;
-   `QuotaExceeded` avalé silencieusement, fallback sur `reconstructOutages`.
+1. **`reconstructOutages`** (first pass of `buildTelemetryChartData`) - scans the
+   consecutive real frames and, when their `mission_time` gap exceeds
+   `OUTAGE_GAP_THRESHOLD_SEC` (2 s), inserts ghosts `_synthesized: true` (one per
+   missing second). Surfaces outages prior to opening the page, as long as the
+   surrounding frames are in the backend deque.
+2. **`sessionStorage` persistence of `telemetryData`** - a **throttled** (2 s)
+   effect serializes `telemetryData` under `mqtt_telemetry_data_v1`. Throttle (not
+   debounce!) is essential: under continuous 1 Hz a debounce would never fire. A
+   `beforeunload` listener flushes the last snapshot. On mount, if Redux is empty
+   (after F5), the MQTT effect restores from storage then the resume path
+   (`shownCount = -1`) catches up with the backend. Storage in `sessionStorage` (not
+   `localStorage`) → a new tab starts fresh; `QuotaExceeded` swallowed silently,
+   fallback on `reconstructOutages`.
 
-**Watchdog backend** — la détection ci-dessus est frontend-only, donc n'atteint
-jamais le log backend. Un watchdog côté serveur dans `mqtt_telemetry_receiver.py`
-la reflète : `on_message` stampe `_last_frame_at`, et un thread 1 Hz logge un
-**WARNING** `[RPI_DISCONNECTED] télémétrie non reçue` après `MQTT_FRAME_TIMEOUT_SEC`
-(3 s) sans frame, plus un INFO `[TELEMETRY_RESUMED]` au retour. Comme c'est un
-WARNING, la déconnexion apparaît aussi dans `gss debug`. Ne se déclenche qu'après
-la première frame (un démarrage jamais-connecté n'est pas une coupure).
+**Backend watchdog** - the detection above is frontend-only, so it never reaches
+the backend log. A server-side watchdog in `mqtt_telemetry_receiver.py` mirrors it:
+`on_message` stamps `_last_frame_at`, and a 1 Hz thread logs a **WARNING**
+`[RPI_DISCONNECTED] telemetry not received` after `MQTT_FRAME_TIMEOUT_SEC` (3 s)
+without a frame, plus an INFO `[TELEMETRY_RESUMED]` on return. Since it's a WARNING,
+the disconnect also appears in `gss debug`. Only fires after the first frame (a
+never-connected startup is not an outage).
 
-### 7.6 Forwarding des logs du pont Pi (erreurs Pi → terminal erreurs)
+### 7.6 Operator alert feed (Pi bridge + backend errors → errors terminal)
 
-Le pont UART→MQTT côté Pi (`uart_mqtt_bridge_rfd.py` sur `gs-modem`) forwarde ses
-sorties **erreur/warning** vers la station pour que l'opérateur voie les problèmes
-Pi (port série perdu, erreurs de parse, reconnexions) sans SSH. Il réutilise le
-broker existant — pas de port supplémentaire.
+The UART→MQTT bridge on the Pi side (`uart_mqtt_bridge_rfd.py` on `gs-modem`)
+forwards its **error/warning** output to the station so the operator sees Pi
+problems (lost serial port, parse errors, reconnects) without SSH. It reuses the
+existing broker - no extra port.
+
+The same store (`bridge_log_store`) is also the **backend's own alert channel**
+(`bridge_log_store.alert()`): every subsystem pushes its failures **and
+recoveries** there, so nothing fails silently - the operator always gets a line
+in the errors terminal + `gss debug` saying what broke, that it is retrying, and
+when it is fixed:
+
+| Source | Alerts |
+|---|---|
+| `[backend]` | `[BROKER] lost connection … reconnecting` / `[BROKER] cannot reach <ip> … retrying every 3s` / `[BROKER] reconnected` (green) · `[BAD_FRAME] N undecodable frame(s) … frames skipped, station keeps running` (throttled 1 line / 10 s) |
+| `[sheets]` | `[SHEETS] sync FAILED: <reason> - N rows buffered, retrying` with a **classified reason** (Google rate limit HTTP 429 · Google-side 5xx · *Web App returned HTML instead of JSON - redeploy the Apps Script* · cannot reach Google - no internet? · timeout) · `[SHEETS] buffer full - N oldest rows dropped` · `[SHEETS] sync restored - N buffered rows flushed` (green) |
+| `[csv]` | `[CSV_LOG] local CSV archive FAILED (<error>) - frames buffered in memory, retrying every 30s` · `[CSV_LOG] local CSV archive restored - N buffered rows written` (green) |
+| `[station]` (frontend-local) | `backend unreachable - no telemetry/error feed` after 3 failed polls (~6 s), `backend reachable again` (green) on recovery |
+
+All alerts go through the store's **dedup** (one identical consecutive line per
+60 s window), so a persistent failure keeps reminding the operator without ever
+flooding the terminal or the log. **INFO**-level lines (recoveries) render
+**green**, WARN amber, ERROR red.
 
 ```
-Pont Pi  ──publish──►  topic MQTT icarus2/bridge/log   (JSON {ts, level, source, msg})
+Pi bridge  ──publish──►  MQTT topic icarus2/bridge/log   (JSON {ts, level, source, msg})
                               │
-mqtt_telemetry_receiver.py    │  on_message route le topic vers _handle_bridge_log
-  └─► bridge_log_store (deque maxlen 500, id monotone)
-        └─► logger.warning("[BRIDGE:gs-modem] …")   → apparaît aussi dans `gss debug`
+mqtt_telemetry_receiver.py    │  on_message routes the topic to _handle_bridge_log
+  └─► bridge_log_store (deque maxlen 500, monotonic id)
+        └─► logger.warning("[BRIDGE:gs-modem] …")   → also appears in `gss debug`
         └─► GET /api/bridge/logs?after=<id>  ──►
                                                  ▼
                           telemetryTerminal.jsx (variant="errors")
-                            poll toutes les 2 s avec le dernier id vu (persisté en
+                            polls every 2 s with the last seen id (persisted in
                             Redux terminalState.errors.bridgeLogId)
-                            → lignes rouges [gs-modem] (WARN = ambre, ERROR = rouge)
+                            → red [gs-modem] lines (WARN = amber, ERROR = red)
 ```
 
-- **Côté Pi** — un shadow de `print()` publie toute ligne contenant un indice
-  d'erreur/warning (`error`, `skipped`, `fail`, `exception`, `reconnect`…) sur
-  `icarus2/bridge/log`. Le publish est dans un `try/except` pour ne jamais
-  affecter le pont.
-- **Backend** — `_handle_bridge_log` parse le JSON (fallback texte brut), stocke
-  dans `bridge_log_store`, logge un WARNING. Deux raffinements :
-  - **Humanize** — `_humanize_bridge_message` réécrit l'échec brut d'ouverture
-    série (`Serial error: … could not open port /dev/ttyUSB0: No such file …`,
-    imprimé toutes les 3 s quand l'adaptateur USB du RFD est débranché) en
-    **`[RFD_DISCONNECTED] RFD non branché sur le Pi (/dev/ttyUSB0 introuvable)`**.
-  - **Dedup** — `bridge_log_store.add_log` supprime les lignes identiques
-    consécutives dans `_DEDUP_WINDOW_SEC` (60 s), donc la boucle de reconnexion
-    3 s se réduit à une ligne. Le miroir WARNING est aussi conditionné à un retour
-    non-`None`, donc `gss debug` n'est pas inondé.
-- **Frontend** — le terminal d'erreurs fusionne ces lignes dans le même buffer de
-  500 lignes que ses anomalies dérivées de la télémétrie.
+- **Pi side** - a shadow of `print()` publishes any line containing an error/warning
+  hint (`error`, `skipped`, `fail`, `exception`, `reconnect`…) to
+  `icarus2/bridge/log`. The publish is in a `try/except` so it never affects the
+  bridge.
+- **Backend** - `_handle_bridge_log` parses the JSON (raw-text fallback), stores it
+  in `bridge_log_store`, logs a WARNING. Two refinements:
+  - **Humanize** - `_humanize_bridge_message` rewrites the raw serial-open failure
+    (`Serial error: … could not open port /dev/ttyUSB0: No such file …`, printed every
+    3 s when the RFD's USB adapter is unplugged) into
+    **`[RFD_DISCONNECTED] RFD not plugged into the Pi (/dev/ttyUSB0 not found)`**.
+  - **Dedup** - `bridge_log_store.add_log` suppresses consecutive identical lines
+    within `_DEDUP_WINDOW_SEC` (60 s), so the 3 s reconnect loop collapses to one
+    line. The WARNING mirror is also conditioned on a non-`None` return, so `gss debug`
+    isn't flooded.
+- **Frontend** - the errors terminal merges these lines into the same 500-line
+  buffer as its telemetry-derived anomalies.
 
-### 7.7 Widgets topbar, position GS, suivi, légende /rapport
+### 7.7 Topbar widgets, GS position, follow, /rapport legend
 
-**Widgets topbar** (`topbar-widgets.jsx`) — cluster global route-indépendant dans
-l'`AppBar`, tous cadencés par un intervalle 1 Hz partagé (`useNow`) :
-- **Heure** — horloge locale (`fr-CA`, 24 h) + date.
-- **Météo** — température + icône/label mappé sur le code WMO.
-- **Vent** — vitesse (km/h) + direction 8 points (N, NE, E, SE, S, SO, O, NO).
-- **Décompte T** — sélecteur `datetime-local` persisté (`launch_datetime`), puis
-  compte à rebours `T- HH:MM:SS` qui bascule en `T+ …` après le lancement.
+**Topbar widgets** (`topbar-widgets.jsx`) - a route-independent global cluster in
+the `AppBar`, all driven by a shared 1 Hz interval (`useNow`):
+- **Time** - local clock (`en-GB`, 24 h) + date.
+- **Weather** - temperature + icon/label mapped from the WMO code.
+- **Wind** - speed (km/h) + 8-point direction (N, NE, E, SE, S, SW, W, NW).
+- **T Countdown** - persisted `datetime-local` picker (`launch_datetime`), then a
+  `T- HH:MM:SS` countdown that flips to `T+ …` after launch.
 
-Météo et Vent partagent un fetch dans `useWeather()` contre **Open-Meteo**
-(sans clé), avec la lat/lon GS de `loadGroundStationPosition()`, rafraîchi toutes
-les 10 min. Pour changer de fournisseur, remplacer `fetchWeather()` — il doit
-juste résoudre `{ tempC, windKmh, windDir, code }`.
+In the `AppBar`, the toolbar lays these out left→right as **page-action buttons**
+(`PageActionButtons`, the per-page Export/Import/Edit `node`) → **`TopbarWidgets`**
+→ **partner logos**, so the widget cluster always renders to the right of the
+Export/Import/Edit buttons on the pages that expose them (`/station`, `/analyse`).
 
-**Position GS** — configurable via **« Position GS ▼ »** dans le panneau droit
-Cesium (sur `/station` et `/vueGlobe3d`) :
-- Persistée dans `localStorage` sous `station_ground_station_position`.
-- Partagée entre routes via `loadGroundStationPosition()` /
+Weather and Wind share a fetch in `useWeather()` against **Open-Meteo** (no key),
+with the GS lat/lon from `loadGroundStationPosition()`, refreshed every 10 min. To
+change provider, replace `fetchWeather()` - it just has to resolve
+`{ tempC, windKmh, windDir, code }`.
+
+**GS position** - configurable via **"GS position ▼"** in the Cesium right panel (on
+`/station` and `/vueGlobe3d`):
+- Persisted in `localStorage` under `station_ground_station_position`.
+- Shared across routes via `loadGroundStationPosition()` /
   `saveGroundStationPosition()` (`cesium-utils.js`).
-- Défaut : `{ lat: 48.55, lon: -81.35 }` (site de lancement ICARUS2).
-- Entité Cesium : point vert + label « GS », toujours visible. Faisceau de liaison
-  (ligne verte) tracé de la GS vers la position CubeSat courante.
+- Default: `{ lat: 48.55, lon: -81.35 }` (ICARUS2 launch site).
+- Cesium entity: green point + "GS" label, always visible. Link beam (green line)
+  drawn from the GS to the current CubeSat position.
 
-**Mode « Suivre CubeSat »** — verrouille la caméra sur la position courante,
-mise à jour à 1 s. `MAP_FOLLOW_CAMERA_HEIGHT = 27000` m (27 km). La caméra
-utilise `Math.min(cameraHeightRef.current, MAP_FOLLOW_CAMERA_HEIGHT)`. Pitch et
-heading identiques à la caméra libre (`MAP_CAMERA_PITCH = −48°`,
-`MAP_CAMERA_HEADING = 32°`).
+**"Follow CubeSat" mode** - locks the camera onto the current position, updated
+every 1 s. `MAP_FOLLOW_CAMERA_HEIGHT = 27000` m (27 km). The camera uses
+`Math.min(cameraHeightRef.current, MAP_FOLLOW_CAMERA_HEIGHT)`. Pitch and heading
+identical to the free camera (`MAP_CAMERA_PITCH = −48°`, `MAP_CAMERA_HEADING = 32°`).
 
-**Dédup de légende /rapport** — quand un graphe contient des frames de coupure,
-chaque série Y est scindée en une ligne `_normal` et une `_ghost` (rouge). Les
-`<Line>` fantômes portent `legendType="none"` pour que seule la série normale
-apparaisse dans la légende Recharts.
+**/rapport legend dedup** - when a chart contains outage frames, each Y series is
+split into a `_normal` line and a `_ghost` (red) line. The ghost `<Line>`s carry
+`legendType="none"` so only the normal series appears in the Recharts legend.
 
-### 7.8 Zones de danger feu de forêt
+### 7.8 Forest-fire danger zones
 
-Les zones de danger feu de forêt sont des **données statiques bakées dans le CSV de
-vol** (pas de génération au runtime). Chaque zone est un **polygone GeoJSON
-irrégulier** (un blob réaliste, pas un cercle/triangle/carré parfait), déjà
-dimensionné pour tenir **dans la vision caméra** du CubeSat à cette frame. La station
-sol se contente de **parser et dessiner le GeoJSON qu'elle reçoit** — aucun clipping,
-aucune génération.
+The forest-fire danger zones are **static data baked into the flight CSV** (no
+runtime generation). Each zone is an **irregular GeoJSON polygon** (a realistic
+blob, not a perfect circle/triangle/square), already sized to fit **within the
+CubeSat's camera view** at that frame. The ground station simply **parses and draws
+the GeoJSON it receives** - no clipping, no generation.
 
 ```
-tools/simulators/generate_fire_zones.py   (script one-shot, exécuté UNE fois)
-  plante ~12 zones espacées le long du vol ; à chaque emplacement projette l'empreinte
-  caméra avec le QUATERNION IMU réel (Quat_w/x/y/z) — pas nadir : l'IMU tangue de
-  20-38°, donc l'empreinte (et la zone) tombe 2-12 km HORS de la trace, dispersée et
-  pas en ligne droite. Génère un blob irrégulier, le CLIPPE à l'empreinte → 2 colonnes
-  dans telemetry.csv :
-     "Fire Level" (1/2/3)  +  "Fire GeoJSON" (géométrie GeoJSON Polygon)
-  (backup pristine → telemetry.csv.bak ; idempotent)
+tools/simulators/generate_fire_zones.py   (one-shot script, run ONCE)
+  places ~12 zones spaced along the flight; at each location it projects the camera
+  footprint with the REAL IMU QUATERNION (Quat_w/x/y/z) - not nadir: the IMU pitches
+  20-38°, so the footprint (and the zone) lands 2-12 km OFF the ground track, scattered
+  and not in a straight line. Generates an irregular blob, CLIPS it to the footprint → 2
+  columns in telemetry.csv:
+     "Fire Level" (1/2/3)  +  "Fire GeoJSON" (GeoJSON Polygon geometry)
+  (pristine backup → telemetry.csv.bak; idempotent)
       │
-      ▼   (au runtime, plus aucune génération)
-  mqtt_cubesat_simulator.py rejoue le CSV : "Fire Level"/"Fire GeoJSON" passent par
+      ▼   (at runtime, no more generation)
+  mqtt_cubesat_simulator.py replays the CSV: "Fire Level"/"Fire GeoJSON" go through
     CSV_FIELD_ALIASES → fire_zone_level / fire_zone_geojson
-  → champs protobuf 25-26 : fire_zone_level (varint) + fire_zone_geojson (string)
-        (émis seulement si level>0 — les frames normales gardent leur taille)
-      └─► broker MQTT → mqtt_telemetry_receiver → store → /api/telemetry/mqtt/frames
-            └─► telemetry-protobuf.js décode → Fire_Level + Fire_GeoJSON sur chaque
-                record (préservés par ...item)
-                  └─► cesiumViewport.jsx : fireGeojsonPositions() parse le Polygon et
-                      ajoute UNE entité polygone colorée (dédup par contenu), gardée
-                      même après éviction de la frame du deque
+  → protobuf fields 25-26: fire_zone_level (varint) + fire_zone_geojson (string)
+        (emitted only if level>0 - normal frames keep their size)
+      └─► MQTT broker → mqtt_telemetry_receiver → store → /api/telemetry/mqtt/frames
+            └─► telemetry-protobuf.js decodes → Fire_Level + Fire_GeoJSON on each
+                record (preserved via ...item)
+                  └─► cesiumViewport.jsx: fireGeojsonPositions() parses the Polygon and
+                      adds ONE coloured polygon entity (dedup by content), kept even
+                      after the frame is evicted from the deque
 ```
 
-- **Niveau → couleur** : `1` jaune (**petit danger**), `2` orange (**danger**),
-  `3` rouge (**grand danger**) — la couleur vient de `Fire_Level`, la forme du
-  GeoJSON. Les polygones sont **irréguliers** (16 sommets bruités puis clippés à
-  l'empreinte, donc parfois partiels au bord de la vision).
-- **Aucun traitement au sol** : le frontend n'a plus de logique d'empreinte/clipping
-  pour les zones — il dessine le GeoJSON reçu tel quel (`JSON.parse` →
+- **Level → colour**: `1` yellow (**risk**), `2` orange (**high risk**), `3` red
+  (**extreme risk**) - the colour comes from `Fire_Level`, the shape from the
+  GeoJSON. The polygons are **irregular** (16 noised vertices then clipped to the
+  footprint, so sometimes partial at the edge of the view).
+- **No ground-side processing**: the frontend no longer has any footprint/clipping
+  logic for the zones - it draws the received GeoJSON as-is (`JSON.parse` →
   `Cartesian3.fromDegreesArray`).
-- **Régénérer** (rare) : `python3 tools/simulators/generate_fire_zones.py` réécrit
-  les colonnes dans `telemetry.csv` (idempotent, backup une fois). Ensuite les zones
-  sont **dans la télémétrie pour toujours**.
-- **Toggle** `mapOptions.fireZones` (bouton **« Zones feu »**) + légende couleurs
-  dans le panneau droit ; visible sur `/station` et `/vueGlobe3d`.
-- **Persistance** : `Fire_Level` + `Fire_GeoJSON` voyagent sur les frames (survivent
-  au refresh via sessionStorage) ; les polygones déjà dessinés restent affichés.
-- **Enregistrement** : deux colonnes `Fire Level` et `Fire GeoJSON` sont ajoutées
-  **en fin** du CSV local par jour et du Google Sheet (les 19 colonnes ICARUS2 de
-  tête restent identiques).
+- **Regenerate** (rare): `python3 tools/simulators/generate_fire_zones.py` rewrites
+  the columns in `telemetry.csv` (idempotent, backup once). Afterwards the zones are
+  **in the telemetry forever**.
+- **Toggle** `mapOptions.fireZones` (**"Fire zones"** button) + colour legend in the
+  right panel; visible on `/station` and `/vueGlobe3d`.
+- **Persistence**: `Fire_Level` + `Fire_GeoJSON` travel on the frames (survive a
+  refresh via sessionStorage); already-drawn polygons stay displayed.
+- **Recording**: two columns `Fire Level` and `Fire GeoJSON` are appended **at the
+  end** of the per-day local CSV and the Google Sheet (the 19 leading ICARUS2 columns
+  stay identical).
 
-### 7.9 État Redux
+### 7.9 Redux state
 
-| Slice | Contenu |
+| Slice | Content |
 |---|---|
-| `telemetry` | `telemetryData`, `sourceData`, `playbackIndex`, `streamIndex`, `mode`, `sourceMode` (défaut `'mqtt'`), `loading`, `error`, `terminalState` (par variante `{ lines, cursor, inBlackout }` pour survivre au démontage/remontage de route) |
+| `telemetry` | `telemetryData`, `sourceData`, `playbackIndex`, `streamIndex`, `mode`, `sourceMode` (default `'mqtt'`), `loading`, `error`, `terminalState` (per variant `{ lines, cursor, inBlackout }` to survive route unmount/remount) |
 
-### 7.10 API HTTP (backend FastAPI)
+### 7.10 HTTP API (FastAPI backend)
 
-| Méthode | Endpoint | Description |
+| Method | Endpoint | Description |
 |---|---|---|
-| `GET` | `/api/telemetry/mqtt/frames` | Frames du store MQTT en Protocol Buffers (live) |
-| `GET` | `/api/telemetry/mqtt/status` | État de connexion du broker MQTT |
-| `POST` | `/api/telemetry/mqtt/clear` | Vide le store MQTT |
-| `GET` | `/api/bridge/logs?after=<id>` | Lignes erreur/warning forwardées par le pont Pi (incrémental par id) |
-| `GET` | `/api/status` | Statut opérateur agrégé : broker connecté ?, télémétrie active ?, RFD connecté ? (alimente le bloc statut des terminaux) |
-| `GET` | `/*` | Fallback SPA → `dist/index.html` (fichiers statiques montés via `StaticFiles`) |
+| `GET` | `/api/telemetry/mqtt/frames` | Frames from the MQTT store in Protocol Buffers (live). Response headers `X-GS-Boot-Id` / `X-GS-Session-Mode` carry the session identity (see §7.2 session semantics) |
+| `GET` | `/api/telemetry/mqtt/status` | MQTT broker connection state |
+| `POST` | `/api/telemetry/mqtt/clear` | Clears the MQTT store |
+| `GET` | `/api/bridge/logs?after=<id>` | Error/warning lines forwarded by the Pi bridge (incremental by id) |
+| `GET` | `/api/status` | Aggregated operator status: broker connected?, telemetry active?, RFD connected?, plus `sheets_sync` / `csv_log` backup-sink health (feeds the terminals' status block) and `boot_id` / `session_mode` |
+| `GET` | `/*` | SPA fallback → `dist/index.html` (static files mounted via `StaticFiles`) |
 
-### 7.11 Calculs physiques (`chart-logic.js`)
+### 7.11 Physics computations (`chart-logic.js`)
 
-| Champ | Formule | Unité / Step |
+| Field | Formula | Unit / Step |
 |---|---|---|
-| `_fspl` | `20·log₁₀(4π·d·f / c)` avec f=437 MHz | dB |
+| `_fspl` | `20·log₁₀(4π·d·f / c)` with f=437 MHz | dB |
 | `_bilan` | `TX(30 dBm) + TX_gain(8) − FSPL + RX_gain(10)` | dBm |
-| `_elapsed_s` | `(timestamp − epoch) / 1000` — `epoch = data[0]._epoch_ms` (stable). Frames de coupure : `lastRealElapsed + N` | s · step 100 |
+| `_elapsed_s` | `(timestamp − epoch) / 1000` - `epoch = data[0]._epoch_ms` (stable). Outage frames: `lastRealElapsed + N` | s · step 100 |
 | `_elapsed_min` | `_elapsed_s / 60` | min · step 10 |
 
-### 7.12 Notes de performance
+### 7.12 Performance notes
 
-| Composant | Technique |
+| Component | Technique |
 |---|---|
-| Poll MQTT | Détection par empreinte de contenu — détecte les nouvelles frames même quand le deque est plein (fenêtre glissante) ; ne dispatche que le nouveau via `appendTelemetryPoints` (batché) |
-| Epoch stable | La mission-time de la première frame est stockée dans `live.epochMs` et stampée `_epoch_ms` sur chaque frame ; l'origine de l'axe X ne dérive pas quand les vieilles frames sont évincées |
-| Trajectoire Cesium | Incrémentale : ne convertit que les nouveaux points GPS en `Cartesian3` ; O(1) par poll. Cachée dans `trajectoryPositionsRef` |
-| TelemetryChart | Décime à ≤800 points pour le rendu SVG ; dataset complet gardé pour domaine/axes/scroll |
-| Pipeline off-thread | `buildTelemetryChartData` + `reconstructOutages` + `enrich` (FSPL / bilan / distance) tournent dans un **Web Worker** (`telemetry-worker.js`, instancié par mount de `useTelemetryStream` via l'import `?worker` de Vite). Un `requestId` monotone jette les résultats périmés. Premier rendu (et environnements sans Worker) : fallback synchrone main-thread. Avec `useDeferredValue` sur les données du graphe, Cesium et Recharts restent fluides même avec des rebuilds de 5000 frames |
+| MQTT poll | Content-fingerprint detection - detects new frames even when the deque is full (sliding window); dispatches only the new part via `appendTelemetryPoints` (batched) |
+| Stable epoch | The first frame's mission-time is stored in `live.epochMs` and stamped `_epoch_ms` on every frame; the X-axis origin doesn't drift when old frames are evicted |
+| Cesium trajectory | Incremental: only converts new GPS points to `Cartesian3`; O(1) per poll. Cached in `trajectoryPositionsRef` |
+| TelemetryChart | Decimates to ≤800 points for SVG rendering; full dataset kept for domain/axes/scroll |
+| Off-thread pipeline | `buildTelemetryChartData` + `reconstructOutages` + `enrich` (FSPL / budget / distance) run in a **Web Worker** (`telemetry-worker.js`, instantiated per `useTelemetryStream` mount via Vite's `?worker` import). A monotonic `requestId` discards stale results. First render (and environments without Worker): synchronous main-thread fallback. With `useDeferredValue` on the chart data, Cesium and Recharts stay smooth even with 5000-frame rebuilds |
 
 ---
 
-## 8. Sauvegarde de la télémétrie
+## 8. Telemetry backup
 
-### 8.1 CSV local par jour (automatique)
+### 8.1 Per-day local CSV (automatic)
 
-Chaque frame reçue en MQTT est ajoutée à un CSV local par
-`pipeline/telemetry_csv_logger.py` (appelé depuis `on_message`, juste après
-`telemetry_store.add_frame`). C'est **indépendant** du deque de 5000 frames — le
-deque est la fenêtre d'affichage live, le CSV est une capture durable par jour.
+Every MQTT frame received is appended to a local CSV by
+`pipeline/telemetry_csv_logger.py` (called from `on_message`, right after
+`telemetry_store.add_frame`). This is **independent** of the 5000-frame deque - the
+deque is the live display window, the CSV is a durable per-day capture.
 
-- **Fichiers par jour** — un fichier par jour calendaire local, nommé par la date
-  (`<YYYY-MM-DD>.csv`). Rotation à minuit ; header écrit une fois par nouveau
-  fichier.
-- **Format** — 19 colonnes de tête identiques à l'enregistrement canonique ICARUS2
+- **Per-day files** - one file per local calendar day, named by the date
+  (`<YYYY-MM-DD>.csv`). Rotation at midnight; header written once per new file.
+- **Format** - 19 leading columns identical to the canonical ICARUS2 recording
   (`m-time, Flight ID, Ublox UTC, U Lat, U Long, U Alt, Speed, Vert speed, #Sat,
-  Pressure, MIU, T1…T8`), donc interchangeable avec la donnée de vol, suivies de
-  2 colonnes de zone feu (`Fire Level`, `Fire GeoJSON` = le polygone GeoJSON de la
-  zone), non nulles seulement sur les frames de détection.
-- **Emplacement** — `TELEMETRY_CSV_DIR`, défaut `~/Desktop/telemetry/` (hors du
-  dépôt). Désactivable avec `TELEMETRY_CSV_LOG_ENABLED=0`.
-- **Durabilité** — chaque ligne est `flush()`ée immédiatement. Un seul échec
-  d'ouverture désactive le logging (pas de spam) ; le reste du pipeline n'est pas
-  affecté.
+  Pressure, MIU, T1…T8`), so interchangeable with the flight data, followed by 2 fire-
+  zone columns (`Fire Level`, `Fire GeoJSON` = the zone's GeoJSON polygon), non-null
+  only on detection frames.
+- **Location** - `TELEMETRY_CSV_DIR`, default `~/Desktop/telemetry/` (outside the
+  repo). Disableable with `TELEMETRY_CSV_LOG_ENABLED=0`.
+- **Durability** - each line is `flush()`ed immediately. On a write/open failure
+  (disk full, folder deleted, permissions…) the logger **does not give up**: it
+  alerts the operator (`[CSV_LOG] … FAILED`, errors terminal + `gss debug`),
+  **buffers incoming frames in memory** (capped at 5000 rows) and **retries every
+  30 s**; once the problem is fixed the buffered rows are written and a green
+  `restored` line confirms it. The rest of the pipeline is unaffected throughout.
 
-### 8.2 Miroir vers Google Drive (rclone)
+### 8.2 Mirror to Google Drive (rclone)
 
-Google n'a pas de client Drive natif Linux, donc le CSV est poussé avec
-[`rclone`](https://rclone.org). Setup unique :
+Google has no native Linux Drive client, so the CSV is pushed with
+[`rclone`](https://rclone.org). One-time setup:
 
 ```bash
 sudo apt install rclone
-rclone config            # nouveau remote → "drive" → autoriser dans le navigateur → nommer "gdrive"
+rclone config            # new remote → "drive" → authorize in the browser → name it "gdrive"
 ```
 
-Puis mirroir périodique (push-only, 30 s ici) ; `rclone copy` du dossier
-ré-uploade seulement les fichiers modifiés :
+Then periodic mirror (push-only, 30 s here); `rclone copy` of the folder re-uploads
+only the changed files:
 
 ```bash
 while true; do
@@ -737,32 +820,41 @@ while true; do
 done
 ```
 
-Pour un setup non-attendu, préférer un **timer systemd** ou cron, ou
-`rclone bisync` pour une sync bidirectionnelle.
+For an unattended setup, prefer a **systemd timer** or cron, or `rclone bisync` for
+a two-way sync.
 
-### 8.3 Sync Google Sheet en direct (Apps Script Web App)
+### 8.3 Live Google Sheet sync (Apps Script Web App)
 
-Alternative au miroir CSV, `pipeline/telemetry_sheets_sync.py` pousse les frames
-**directement dans un Google Sheet**. Câblé dans `on_message` à côté du logger
-CSV, tourne indépendamment.
+As an alternative to the CSV mirror, `pipeline/telemetry_sheets_sync.py` pushes
+frames **directly into a Google Sheet**. Wired into `on_message` alongside the CSV
+logger, it runs independently.
 
-- **Batching** — les frames sont bufferisées et flushées en un POST HTTP toutes
-  les `SHEETS_SYNC_INTERVAL_SEC` (défaut 5 s), pas une requête par frame, pour
-  rester sous les quotas Apps Script. Buffer plafonné à 5000 lignes (plus
-  anciennes droppées sous backpressure). Un flush échoué re-queue ses lignes et
-  retente au tick suivant.
-- **Onglets par jour** — chaque batch porte un champ `tab` = date locale
-  (`YYYY-MM-DD`). Le Web App écrit dans cet onglet, le créant (avec header) au
-  premier usage. Le **CSV local reste l'archive complète et non-bornée.**
-- **Aucun credential backend** — le Web App tourne comme propriétaire du sheet,
-  donc le backend n'a besoin que de l'URL de déploiement ; il POST
-  `{ header, values }` en JSON avec la stdlib (`urllib`).
-- **Config** — `SHEETS_SYNC_ENABLED=1` + `SHEETS_WEBAPP_URL=<…/exec>`. Les deux
-  sont passés par `start-local.sh`.
+- **Batching** - frames are buffered and flushed in a single HTTP POST every
+  `SHEETS_SYNC_INTERVAL_SEC` (default 5 s), not one request per frame, to stay under
+  Apps Script quotas. Buffer capped at 5000 rows (oldest dropped under backpressure,
+  **with an operator alert** counting the lost rows). A failed flush re-queues its
+  rows and retries on the next tick.
+- **Failure handling** - every failed flush raises a **classified operator alert**
+  (see §7.6): quota (HTTP 429), Google-side 5xx, *Web App returned HTML - redeploy
+  the Apps Script*, no internet, timeout (the POST is capped at 30 s so a hung
+  request can never block the loop for long). The response body is **validated**
+  (`{ok: true}` JSON expected), so the classic silent misdeployment is caught even
+  though it answers HTTP 200. On recovery a green `[SHEETS] sync restored` line
+  confirms the backlog was flushed. **Known limitation**: if a flush times out
+  *after* Apps Script actually wrote the rows, the retry can duplicate them in the
+  Sheet - the local CSV (source of truth) is never affected.
+- **Per-day tabs** - each batch carries a `tab` field = local date (`YYYY-MM-DD`).
+  The Web App writes into that tab, creating it (with header) on first use. The
+  **local CSV remains the full, unbounded archive.**
+- **No backend credential** - the Web App runs as the sheet owner, so the backend
+  only needs the deployment URL; it POSTs `{ header, values }` as JSON with the
+  stdlib (`urllib`).
+- **Config** - `SHEETS_SYNC_ENABLED=1` + `SHEETS_WEBAPP_URL=<…/exec>`. Both are
+  passed by `start-local.sh`.
 
-**Côté Apps Script** (coller dans le sheet → Extensions → Apps Script, puis
-Déployer → Nouveau déploiement → *Application Web* → Exécuter en tant que *Moi* →
-Accès *Tout le monde* → copier l'URL `/exec`) :
+**Apps Script side** (paste into the sheet → Extensions → Apps Script, then Deploy →
+New deployment → *Web app* → Execute as *Me* → Access *Anyone* → copy the `/exec`
+URL):
 
 ```javascript
 function doPost(e) {
@@ -789,82 +881,82 @@ function doPost(e) {
 
 ### 8.4 Logs
 
-Backend et frontend écrivent dans `~/Desktop/ground-station-logs/*.txt`
-(`gss verbose` pour les suivre). Emplacement via `GS_LOG_DIR`.
+Backend and frontend write to `~/Desktop/ground-station-logs/*.txt`
+(`gss verbose` to follow them). Location via `GS_LOG_DIR`.
 
 ---
 
-## 9. Variables d'environnement
+## 9. Environment variables
 
 ### Backend
 
-| Variable | Défaut | Rôle |
+| Variable | Default | Role |
 |---|---|---|
-| `MQTT_TELEMETRY_ENABLED` | `0` | Active la réception MQTT (`1`) |
-| `MQTT_BROKER_HOST` | `localhost` | Host du broker |
-| `MQTT_BROKER_PORT` | `1883` | Port du broker |
-| `MQTT_TELEMETRY_TOPIC` | `icarus2/telemetry/frame.pb` | Topic des frames protobuf |
-| `MQTT_TELEMETRY_QOS` | `1` | QoS MQTT |
-| `MQTT_BRIDGE_LOG_TOPIC` | `icarus2/bridge/log` | Topic des lignes erreur/warning du pont Pi |
-| `MQTT_BRIDGE_LOG_MAXLEN` | `500` | Max de lignes de log du pont dans le ring buffer backend |
-| `MQTT_TELEMETRY_STORE_MAXLEN` | `5000` | Frames gardées en mémoire (deque) |
-| `MQTT_FRAME_TIMEOUT_SEC` | `3` | Watchdog : `[RPI_DISCONNECTED]` après N s sans frame |
-| `TELEMETRY_CSV_LOG_ENABLED` | `1` | Écrire le CSV local par jour (`0` pour désactiver) |
-| `TELEMETRY_CSV_DIR` | `~/Desktop/telemetry` | Dossier des CSV `<date>.csv` |
-| `SHEETS_SYNC_ENABLED` | `0` | Pousser vers Google Sheet (`1` + URL) |
-| `SHEETS_WEBAPP_URL` | (vide) | URL `/exec` du Web App Apps Script |
-| `SHEETS_SYNC_INTERVAL_SEC` | `5` | Intervalle des lots vers le Sheet |
-| `GS_LOG_DIR` | `~/Desktop/ground-station-logs` | Dossier des logs `.txt` |
+| `MQTT_TELEMETRY_ENABLED` | `0` | Enables MQTT reception (`1`) |
+| `MQTT_BROKER_HOST` | `localhost` | Broker host |
+| `MQTT_BROKER_PORT` | `1883` | Broker port |
+| `MQTT_TELEMETRY_TOPIC` | `icarus2/telemetry/frame.pb` | Protobuf frames topic |
+| `MQTT_TELEMETRY_QOS` | `1` | MQTT QoS |
+| `MQTT_BRIDGE_LOG_TOPIC` | `icarus2/bridge/log` | Topic for the Pi bridge's error/warning lines |
+| `MQTT_BRIDGE_LOG_MAXLEN` | `500` | Max bridge log lines in the backend ring buffer |
+| `MQTT_TELEMETRY_STORE_MAXLEN` | `5000` | Frames kept in memory (deque) |
+| `MQTT_FRAME_TIMEOUT_SEC` | `3` | Watchdog: `[RPI_DISCONNECTED]` after N s without a frame |
+| `GS_SESSION_MODE` | `live` | `simulation` = each new backend session auto-resets the frontend graphs; `live` = new sessions resume. Set automatically by `start-local.sh` (`simulation` when `-Simulator`) |
+| `TELEMETRY_CSV_LOG_ENABLED` | `1` | Write the per-day local CSV (`0` to disable) |
+| `TELEMETRY_CSV_DIR` | `~/Desktop/telemetry` | Folder for the `<date>.csv` files |
+| `SHEETS_SYNC_ENABLED` | `0` | Push to Google Sheet (`1` + URL) |
+| `SHEETS_WEBAPP_URL` | (empty) | `/exec` URL of the Apps Script Web App |
+| `SHEETS_SYNC_INTERVAL_SEC` | `5` | Interval of the batches to the Sheet |
+| `GS_LOG_DIR` | `~/Desktop/ground-station-logs` | Folder for the `.txt` logs |
 
 ### Frontend
 
-| Variable | Rôle |
+| Variable | Role |
 |---|---|
-| `VITE_CESIUM_ION_TOKEN` | Token Cesium Ion (carte de base) — dans `frontend/.env.local` |
-| `GS_BACKEND_HOST` / `GS_BACKEND_PORT` | Cible du proxy Vite |
+| `VITE_CESIUM_ION_TOKEN` | Cesium Ion token (base map) - in `frontend/.env.local` |
+| `GS_BACKEND_HOST` / `GS_BACKEND_PORT` | Vite proxy target |
 
 ---
 
 ## 10. Docker
 
-Build multi-étapes (Node → Python 3.12) qui embarque le frontend compilé + le
-backend :
+Multi-stage build (Node → Python 3.12) that bundles the compiled frontend + the
+backend:
 ```bash
 docker build -t ground-station .
-# avec le token Cesium au build :
-docker build --build-arg VITE_CESIUM_ION_TOKEN="votre_token" -t ground-station .
+# with the Cesium token at build time:
+docker build --build-arg VITE_CESIUM_ION_TOKEN="your_token" -t ground-station .
 ```
-L'image expose le port **7000**.
+The image exposes port **7000**.
 
 ---
 
-## 11. Dépannage rapide
+## 11. Quick troubleshooting
 
-- **Aucune télémétrie / « CSV fallback »** : le broker n'est pas joignable.
-  Vérifier l'IP du Raspberry Pi (DHCP → elle change) avec `gss debug`, et que
-  `mosquitto` écoute (`listener 1883`, `allow_anonymous true`).
-- **Carte Cesium noire** : vérifier `VITE_CESIUM_ION_TOKEN`
-  (`frontend/.env.local`).
-- **Arrêter la station** : après `gss start` / `startoffline` / `simulation`, le
-  terminal est attaché au log → **`Ctrl+C` arrête tout**. Sinon (autre terminal,
-  ou `GS_FOLLOW=0`), utiliser `gss kill`.
-- **Le Google Sheet ne se remplit pas** : avoir bien **redéployé** le Web App
-  Apps Script après modification du script, et `SHEETS_WEBAPP_URL` à jour.
-- **`gss simulation` refuse de partir** : `mosquitto` manquant
-  (`sudo apt install -y mosquitto`) ou CSV introuvable au chemin par défaut.
+- **No telemetry / "CSV fallback"**: the broker is unreachable. Check the Raspberry
+  Pi's IP (DHCP → it changes) with `gss debug`, and that `mosquitto` is listening
+  (`listener 1883`, `allow_anonymous true`).
+- **Black Cesium map**: check `VITE_CESIUM_ION_TOKEN` (`frontend/.env.local`).
+- **Stop the station**: after `gss start` / `startoffline` / `simulation`, the
+  terminal is attached to the log → **`Ctrl+C` stops everything**. Otherwise (another
+  terminal, or `GS_FOLLOW=0`), use `gss kill`.
+- **The Google Sheet doesn't fill up**: make sure you **redeployed** the Apps Script
+  Web App after changing the script, and that `SHEETS_WEBAPP_URL` is up to date.
+- **`gss simulation` won't start**: `mosquitto` missing
+  (`sudo apt install -y mosquitto`) or CSV not found at the default path.
 
 ---
 
-## 12. Stack technique
+## 12. Tech stack
 
-| Catégorie | Techno |
+| Category | Technology |
 |---|---|
 | Backend | FastAPI + Uvicorn + paho-mqtt |
-| Sérialisation | Protocol Buffers (encodés à la main, pas de `.proto`) |
+| Serialization | Protocol Buffers (hand-encoded, no `.proto`) |
 | Frontend | React 19 + Vite + React Router v7 |
-| État | Redux Toolkit |
+| State | Redux Toolkit |
 | UI | Material-UI v7 |
-| Globe 3D | Cesium |
-| 3D (attitude CubeSat) | three.js |
-| Graphes | Recharts |
-| Conteneurisation | Docker |
+| 3D globe | Cesium |
+| 3D (CubeSat attitude) | three.js |
+| Charts | Recharts |
+| Containerization | Docker |

@@ -12,6 +12,9 @@ MQTT_HOST="127.0.0.1"
 SIM_CSV="telemetry.csv"
 # Seconds between simulated frames (-SimDelay). 0.2 = real-time-ish; smaller = faster.
 SIM_DELAY="0.2"
+# Fault types injected by the simulator (-SimFaults), e.g. "all" or "drop,truncate".
+# Empty = no fault injection (normal replay). See mqtt_cubesat_simulator.py --faults.
+SIM_FAULTS=""
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -21,6 +24,7 @@ while [[ $# -gt 0 ]]; do
         -Offline|-offline|--offline) OFFLINE=true ;;
         -SimCsv|-simcsv|--sim-csv) SIM_CSV="$2"; shift ;;
         -SimDelay|-simdelay|--sim-delay) SIM_DELAY="$2"; shift ;;
+        -SimFaults|-simfaults|--sim-faults) SIM_FAULTS="$2"; shift ;;
         -BackendPort|-backend-port|--backend-port) BACKEND_PORT="$2"; shift ;;
         -FrontendPort|-frontend-port|--frontend-port) FRONTEND_PORT="$2"; shift ;;
         -BrokerHost|-broker-host|--broker-host) MQTT_HOST="$2"; shift ;;
@@ -151,11 +155,17 @@ fi
 MQTT_ENABLED="0"
 $MQTT && $MQTT_READY && MQTT_ENABLED="1"
 
+# Session mode: tells the frontend whether this run is a simulation replay or a
+# live/hardware session. New SIMULATION sessions auto-reset the graphs; live
+# restarts RESUME the previous charts (see Documentation.md §7.2).
+SESSION_MODE="live"
+$SIMULATOR && SESSION_MODE="simulation"
+
 if test_port_open 127.0.0.1 "$BACKEND_PORT"; then
     echo "Warning: Backend port $BACKEND_PORT already in use. Use -Restart to stop it first." >&2
 else
     launch_in_terminal "Ground Station Backend" \
-        "cd '$BACKEND_DIR' && MQTT_TELEMETRY_ENABLED=$MQTT_ENABLED MQTT_BROKER_HOST=$MQTT_HOST MQTT_BROKER_PORT=1883 TELEMETRY_CSV_LOG_ENABLED=${TELEMETRY_CSV_LOG_ENABLED:-1} SHEETS_SYNC_ENABLED=${SHEETS_SYNC_ENABLED:-0} SHEETS_WEBAPP_URL='${SHEETS_WEBAPP_URL:-}' '$PYTHON_EXE' app.py --host 0.0.0.0 --port $BACKEND_PORT"
+        "cd '$BACKEND_DIR' && MQTT_TELEMETRY_ENABLED=$MQTT_ENABLED MQTT_BROKER_HOST=$MQTT_HOST MQTT_BROKER_PORT=1883 GS_SESSION_MODE=$SESSION_MODE TELEMETRY_CSV_LOG_ENABLED=${TELEMETRY_CSV_LOG_ENABLED:-1} SHEETS_SYNC_ENABLED=${SHEETS_SYNC_ENABLED:-0} SHEETS_WEBAPP_URL='${SHEETS_WEBAPP_URL:-}' '$PYTHON_EXE' app.py --host 0.0.0.0 --port $BACKEND_PORT"
 fi
 
 if test_port_open 127.0.0.1 "$FRONTEND_PORT"; then
@@ -169,8 +179,10 @@ if $MQTT && $SIMULATOR; then
     if $MQTT_READY; then
         # Also guard here so `-Simulator` without `-Restart` can't stack duplicates.
         stop_simulator
+        SIM_FAULT_ARG=""
+        [[ -n "$SIM_FAULTS" ]] && SIM_FAULT_ARG="--faults '$SIM_FAULTS'"
         launch_in_terminal "CubeSat Simulator" \
-            "cd '$REPO_ROOT' && '$PYTHON_EXE' tools/simulators/mqtt_cubesat_simulator.py --csv '$SIM_CSV' --broker 127.0.0.1 --delay '$SIM_DELAY'"
+            "cd '$REPO_ROOT' && '$PYTHON_EXE' tools/simulators/mqtt_cubesat_simulator.py --csv '$SIM_CSV' --broker 127.0.0.1 --delay '$SIM_DELAY' $SIM_FAULT_ARG"
     else
         echo "Warning: Simulator was requested but not started because MQTT is unavailable." >&2
     fi

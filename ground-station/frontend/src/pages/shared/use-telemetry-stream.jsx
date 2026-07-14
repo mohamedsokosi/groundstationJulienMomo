@@ -12,6 +12,7 @@ import {
     buildTelemetryChartData,
     keepMonotonicSuffix,
     parseTelemetryProtobuf,
+    parseMissionTimestamp,
     parseRowTimestamp,
     TELEMETRY_MQTT_DISPLAY_POINTS,
     TELEMETRY_MQTT_FRAMES_URL,
@@ -19,8 +20,22 @@ import {
 import { enrich } from './chart-logic.js';
 import TelemetryWorker from './telemetry-worker.js?worker';
 
-const MQTT_TELEMETRY_STORAGE_KEY = 'mqtt_telemetry_data_v1';
+export const MQTT_TELEMETRY_STORAGE_KEY = 'mqtt_telemetry_data_v1';
 const MQTT_TELEMETRY_PERSIST_THROTTLE_MS = 2000;
+// Backend boot id last seen by this TAB (sessionStorage — same scope as the data
+// snapshot). A different id on the frames response = a NEW backend session; if
+// that session is a SIMULATION the graphs auto-reset, if it is live they resume.
+const GS_BOOT_ID_STORAGE_KEY = 'gs_seen_boot_id';
+
+// Set by the /rapport Reset button right before window.location.reload(): stops
+// the throttled persist + beforeunload flush from re-writing the telemetry
+// snapshot into sessionStorage during the unload, which would resurrect the
+// data the user just asked to erase.
+let persistenceSuppressed = false;
+export function suppressTelemetryPersistenceForReset() {
+    persistenceSuppressed = true;
+    try { sessionStorage.removeItem(MQTT_TELEMETRY_STORAGE_KEY); } catch (_) { /* ignore */ }
+}
 
 const defaultTelemetryState = {
     telemetryData: [],
@@ -105,21 +120,51 @@ export function useTelemetryStream() {
 
         let isMounted = true;
 
+        // Boot id this tab has already synced with (survives F5 / route changes).
+        let seenBootId = null;
+        try { seenBootId = sessionStorage.getItem(GS_BOOT_ID_STORAGE_KEY); } catch (_) { /* ignore */ }
+        // Session mode reported by the backend on the last poll ('live' default).
+        let sessionMode = 'live';
+
+        const resetForNewSession = () => {
+            live.shownCount = 0;
+            live.lastRowKey = '';
+            live.globalStreamIdx = 0;
+            live.epochMs = null;
+            existingData = [];
+            dispatch(clearTelemetryData());
+            setLastMqttFrameAt(null);
+            try { sessionStorage.removeItem(MQTT_TELEMETRY_STORAGE_KEY); } catch (_) { /* ignore */ }
+        };
+
         const poll = async () => {
             if (mqttPausedRef.current) return;
             try {
                 const response = await fetch(TELEMETRY_MQTT_FRAMES_URL, { cache: 'no-store' });
                 if (!isMounted || !response.ok) return;
+
+                // Session identity: a NEW backend boot in SIMULATION mode resets
+                // the graphs (each `gss simulation` starts from a blank slate); a
+                // new LIVE boot keeps them (a `gss start` resumes the mission —
+                // only the /rapport Reset button clears a live session).
+                sessionMode = response.headers.get('X-GS-Session-Mode') || 'live';
+                const bootId = response.headers.get('X-GS-Boot-Id');
+                if (bootId && bootId !== seenBootId) {
+                    seenBootId = bootId;
+                    try { sessionStorage.setItem(GS_BOOT_ID_STORAGE_KEY, bootId); } catch (_) { /* ignore */ }
+                    if (sessionMode === 'simulation') resetForNewSession();
+                }
+
                 const rows = parseTelemetryProtobuf(await response.arrayBuffer());
                 if (!isMounted) return;
 
                 if (rows.length === 0) {
-                    if (live.shownCount > 0) {
-                        live.shownCount = 0;
-                        live.lastRowKey = '';
-                        live.globalStreamIdx = 0;
-                        dispatch(clearTelemetryData());
-                        setLastMqttFrameAt(null);
+                    // Empty deque with data on screen: in SIMULATION that means a
+                    // cleared/new session → wipe. In LIVE keep the charts — a
+                    // restarted backend starts empty and the mission history must
+                    // survive it (the outage ghost line covers the gap).
+                    if (live.shownCount > 0 && sessionMode === 'simulation') {
+                        resetForNewSession();
                     }
                     return;
                 }
@@ -133,12 +178,16 @@ export function useTelemetryStream() {
                         ? rows.findIndex((r) => rowKeyOf(r) === live.lastRowKey)
                         : -1;
                     if (idx === -1) {
-                        // Backend deque has rolled past our anchor — merge by mission_time
-                        // to preserve existing phantom frames.
+                        // Backend deque has rolled past our anchor (or a live
+                        // backend restart re-entered this path mid-session) —
+                        // merge by mission_time to preserve the existing history.
+                        // Use the LIVE Redux data, not the mount-time snapshot:
+                        // frames may have been appended since this effect mounted.
+                        const knownData = dataRef.current?.length ? dataRef.current : existingData;
                         let maxRestoredT = null;
-                        for (let i = existingData.length - 1; i >= 0; i--) {
-                            if (existingData[i]._blackout) continue;
-                            const t = parseRowTimestamp(existingData[i]);
+                        for (let i = knownData.length - 1; i >= 0; i--) {
+                            if (knownData[i]._blackout) continue;
+                            const t = parseRowTimestamp(knownData[i]);
                             if (t !== null) { maxRestoredT = t; break; }
                         }
                         const receivedAt = Date.now();
@@ -202,12 +251,26 @@ export function useTelemetryStream() {
                     return;
                 }
 
-                // Backend store was cleared/restarted.
+                // Backend store was cleared/restarted mid-session.
                 if (rows.length < live.shownCount) {
-                    live.shownCount = 0;
-                    live.lastRowKey = '';
-                    live.globalStreamIdx = 0;
-                    dispatch(clearTelemetryData());
+                    if (sessionMode === 'simulation') {
+                        // New simulation replay → blank slate (usually already
+                        // handled by the boot-id check; kept as belt-and-braces).
+                        resetForNewSession();
+                    } else {
+                        // LIVE: the mission history must survive a backend
+                        // restart. Re-enter the merge-resume path: keep the
+                        // charts, anchor on our last real frame, and let the
+                        // next poll append only genuinely newer rows.
+                        const knownData = dataRef.current?.length ? dataRef.current : existingData;
+                        let lastKnownReal = null;
+                        for (let i = knownData.length - 1; i >= 0; i--) {
+                            if (!knownData[i]._blackout) { lastKnownReal = knownData[i]; break; }
+                        }
+                        live.shownCount = -1;
+                        live.lastRowKey = rowKeyOf(lastKnownReal);
+                        return;
+                    }
                 }
 
                 // No change: same count AND same last-row fingerprint.
@@ -219,7 +282,16 @@ export function useTelemetryStream() {
                     // Initial load: drop any tail from a previous Pico loop cycle
                     // (mission_time goes backward when the firmware restarts its CSV).
                     const sliced = keepMonotonicSuffix(rows);
-                    live.epochMs = parseRowTimestamp(sliced[0]) ?? receivedAt;
+                    // Anchor the epoch on the first frame carrying a MISSION
+                    // timestamp — anchoring on a corrupt first frame (wall-clock
+                    // fallback) once put every real frame months negative on the
+                    // X axis (-479681 min).
+                    let missionEpoch = null;
+                    for (const row of sliced) {
+                        missionEpoch = parseMissionTimestamp(row);
+                        if (missionEpoch !== null) break;
+                    }
+                    live.epochMs = missionEpoch ?? receivedAt;
                     const stamped = sliced.map((r, i) => ({
                         ...r, _received_at: receivedAt, _epoch_ms: live.epochMs,
                         streamIndex: live.globalStreamIdx + i,
@@ -280,6 +352,7 @@ export function useTelemetryStream() {
         if (typeof sessionStorage === 'undefined') return;
 
         const persistNow = () => {
+            if (persistenceSuppressed) return; // reset in progress — don't resurrect
             lastPersistAtRef.current = Date.now();
             try {
                 const d = dataRef.current;
@@ -307,6 +380,7 @@ export function useTelemetryStream() {
     useEffect(() => {
         if (typeof window === 'undefined') return;
         const flush = () => {
+            if (persistenceSuppressed) return; // reset in progress — don't resurrect
             try {
                 const d = dataRef.current;
                 if (d?.length) sessionStorage.setItem(MQTT_TELEMETRY_STORAGE_KEY, JSON.stringify(d));

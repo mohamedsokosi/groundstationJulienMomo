@@ -35,9 +35,12 @@ export function setupTheme(themeName = 'dark') {
     }
 
     return createTheme({
+        // Emit --mui-palette-* CSS variables so the gs-* CSS classes
+        // (which reference var(--mui-palette-...)) are driven by this one palette.
+        cssVariables: true,
         palette,
         shape: {
-            //borderRadius: 4,
+            borderRadius: 0,
         },
         typography: {
             //htmlFontSize: 16,
@@ -104,8 +107,8 @@ export function setupTheme(themeName = 'dark') {
             MuiDrawer: {
                 styleOverrides: {
                     paper: {
-                        backgroundColor: isDark ? "#1e1e1e" : "#f5f5f5",
-                        borderRight: isDark ? "1px solid #4b4b4b" : "1px solid #e0e0e0",
+                        backgroundColor: isDark ? "#1c1f26" : "#f5f5f5",
+                        borderRight: isDark ? "1px solid #33383f" : "1px solid #e0e0e0",
                     },
                 },
             },
@@ -136,7 +139,7 @@ export function setupTheme(themeName = 'dark') {
             MuiSelect: {
                 styleOverrides: {
                     root: {
-                        backgroundColor: isDark ? "#121212" : "#ffffff",
+                        backgroundColor: isDark ? "#15181d" : "#ffffff",
                         //fontFamily: "Monospace, monospace",
                         //fontSize: "0.8rem",
                         //fontSpacing: "0.05rem",
@@ -155,28 +158,28 @@ export function setupTheme(themeName = 'dark') {
             MuiAutocomplete: {
                 styleOverrides: {
                     root: {
-                        backgroundColor: isDark ? "#121212" : "#ffffff",
+                        backgroundColor: isDark ? "#15181d" : "#ffffff",
                     }
                 },
             },
             MuiListSubheader: {
                 styleOverrides: {
                     root: {
-                        backgroundColor: isDark ? "#1e1e1e" : "#f5f5f5",
+                        backgroundColor: isDark ? "#1c1f26" : "#f5f5f5",
                     }
                 },
             },
             MuiFilledInput: {
                 styleOverrides: {
                     root: {
-                        backgroundColor: isDark ? "#121212" : "#f5f5f5",
+                        backgroundColor: isDark ? "#15181d" : "#f5f5f5",
                     }
                 },
             },
             MuiTextField: {
                 styleOverrides: {
                     root: {
-                        backgroundColor: isDark ? "#121212" : "#ffffff",
+                        backgroundColor: isDark ? "#15181d" : "#ffffff",
                     }
                 },
             },
@@ -192,10 +195,17 @@ export function setupTheme(themeName = 'dark') {
                         },
                     }
                 },
-            }
+            },
+            MuiChip: {
+                styleOverrides: {
+                    root: {
+                        borderRadius: 0,
+                    },
+                },
+            },
             // MuiAppBar: {
             //     styleOverrides: {
-            //         backgroundColor: "#1e1e1e",
+            //         backgroundColor: "#1c1f26",
             //     }
             // },
             // MuiButton: {

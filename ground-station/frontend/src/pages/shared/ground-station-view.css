@@ -7,8 +7,8 @@
     height: calc(100vh - 52px);
     min-height: 0;
     overflow: hidden;
-    color: var(--mui-palette-text-primary, #ffffff);
-    background: var(--mui-palette-background-default, #0d0f13);
+    color: var(--mui-palette-text-primary, #e7eaed);
+    background: var(--mui-palette-background-default, #15181d);
     font-family: Roboto, Arial, sans-serif;
 }
 
@@ -23,8 +23,8 @@
     flex: 0 0 42px;
     min-height: 42px;
     padding: 0 8px 0 20px;
-    border-bottom: 1px solid var(--mui-palette-border-main, #293241);
-    background: var(--mui-palette-background-paper, #151a21);
+    border-bottom: 1px solid var(--mui-palette-border-main, #33383f);
+    background: var(--mui-palette-background-paper, #1c1f26);
     box-shadow: none;
 }
 
@@ -44,7 +44,7 @@
     padding: 0 20px;
     border: 0;
     border-radius: 0;
-    color: var(--mui-palette-text-secondary, #a8b3c4);
+    color: var(--mui-palette-text-secondary, #9aa1ab);
     background: transparent;
     font: 700 10px/1 Roboto, Arial, sans-serif;
     letter-spacing: 0;
@@ -64,18 +64,18 @@
 }
 
 .gs-nav-tab.is-active {
-    color: var(--mui-palette-primary-main, #5cc8ff);
+    color: var(--mui-palette-primary-main, #26a9a0);
     text-shadow: none;
 }
 
 .gs-nav-tab.is-active::after {
-    background: var(--mui-palette-primary-main, #5cc8ff);
+    background: var(--mui-palette-primary-main, #26a9a0);
     box-shadow: none;
 }
 
 .gs-nav-clock {
     flex: 0 0 auto;
-    color: var(--mui-palette-text-secondary, #a8b3c4);
+    color: var(--mui-palette-text-secondary, #9aa1ab);
     font-size: 11px;
     letter-spacing: 0;
     white-space: nowrap;
@@ -90,14 +90,14 @@
     gap: 8px;
     padding: 8px 8px 6px;
     overflow-x: auto;
-    background: var(--mui-palette-background-default, #0d0f13);
+    background: var(--mui-palette-background-default, #15181d);
     scrollbar-width: thin;
 }
 
 .gs-stat-card {
     /* Outlined tiles: the box interior stays the page background; the accent
        colours only the border and the text — no fill, no gradient, no stripe. */
-    --gs-stat-accent: #7aa2f7;
+    --gs-stat-accent: #3fc9bd;
     position: relative;
     display: flex;
     flex-direction: column;
@@ -110,8 +110,8 @@
     padding: 6px 10px;
     overflow: hidden;
     border: 1px solid var(--gs-stat-accent);
-    border-radius: 4px;
-    background: var(--mui-palette-background-default, #0d0f13);
+    border-radius: 0;
+    background: var(--mui-palette-background-default, #15181d);
     box-shadow: none;
     transition: none;
     pointer-events: none;
@@ -134,46 +134,46 @@
     min-width: 96px;
 }
 
-/* Curated, harmonized fill palette (single tone family, not a rainbow).
-   All are light-enough saturated hues so the dark ink stays readable. */
+/* Stat tones drawn from the mission-control theme accents (teal, sky, green,
+   orange, violet, amber). Outlined tiles: the accent colours border + text only. */
 .gs-stat-tone-altitude {
-    --gs-stat-accent: #9ece6a;   /* green  */
+    --gs-stat-accent: #6bbf59;   /* green */
 }
 
 .gs-stat-tone-distance {
-    --gs-stat-accent: #7aa2f7;   /* periwinkle */
+    --gs-stat-accent: #5cb0e0;   /* sky */
 }
 
 .gs-stat-tone-speed {
-    --gs-stat-accent: #f7768e;   /* coral */
+    --gs-stat-accent: #e08a45;   /* orange */
 }
 
 .gs-stat-tone-satellites {
-    --gs-stat-accent: #bb9af7;   /* lavender */
+    --gs-stat-accent: #b394f0;   /* violet */
 }
 
 .gs-stat-tone-pressure {
-    --gs-stat-accent: #7dcfff;   /* sky */
+    --gs-stat-accent: #3fc9bd;   /* teal */
 }
 
 .gs-stat-tone-link {
-    --gs-stat-accent: #e0af68;   /* gold */
+    --gs-stat-accent: #e0a94a;   /* amber */
 }
 
 .gs-stat-tone-success,
 .gs-stat-source.is-live {
-    --gs-stat-accent: #73daca;   /* teal */
+    --gs-stat-accent: #4caf50;   /* green (connected) */
 }
 
 .gs-stat-tone-warning,
 .gs-stat-source.is-waiting {
-    --gs-stat-accent: #e0af68;   /* gold */
+    --gs-stat-accent: #f5a623;   /* amber */
 }
 
 .gs-stat-tone-neutral,
 .gs-stat-source.is-fallback,
 .gs-stat-source.is-unknown {
-    --gs-stat-accent: #9aa5ce;   /* slate */
+    --gs-stat-accent: #9aa1ab;   /* slate */
 }
 
 .gs-stat-label {
@@ -227,16 +227,16 @@
     min-height: 0;
     margin: 0 8px;
     overflow: hidden;
-    border: 1px solid var(--mui-palette-border-main, #293241);
-    border-radius: 4px;
-    background: var(--mui-palette-background-paper, #151a21);
+    border: 1px solid var(--mui-palette-border-main, #33383f);
+    border-radius: 0;
+    background: var(--mui-palette-background-paper, #1c1f26);
     box-shadow: none;
 }
 
 .gs-map-frame .leaflet-container {
     width: 100%;
     height: 100%;
-    background: var(--mui-palette-background-paper, #151a21);
+    background: var(--mui-palette-background-paper, #1c1f26);
     font-family: Roboto, Arial, sans-serif;
 }
 
@@ -246,27 +246,27 @@
 
 .gs-map-frame .leaflet-control-attribution {
     padding: 2px 5px;
-    border: 1px solid var(--mui-palette-border-main, #293241);
-    color: var(--mui-palette-text-secondary, #a8b3c4);
-    background: var(--mui-palette-background-paper, #151a21);
+    border: 1px solid var(--mui-palette-border-main, #33383f);
+    color: var(--mui-palette-text-secondary, #9aa1ab);
+    background: var(--mui-palette-background-paper, #1c1f26);
     font-size: 10px;
 }
 
 .gs-map-frame .leaflet-control-attribution a {
-    color: var(--mui-palette-primary-main, #5cc8ff);
+    color: var(--mui-palette-primary-main, #26a9a0);
 }
 
 .gs-map-frame .leaflet-tooltip {
-    border: 1px solid var(--mui-palette-border-main, #293241);
-    border-radius: 4px;
-    color: var(--mui-palette-text-primary, #ffffff);
-    background: var(--mui-palette-background-paper, #151a21);
+    border: 1px solid var(--mui-palette-border-main, #33383f);
+    border-radius: 0;
+    color: var(--mui-palette-text-primary, #e7eaed);
+    background: var(--mui-palette-background-paper, #1c1f26);
     box-shadow: none;
     font: 700 10px/1.3 Consolas, "Courier New", monospace;
 }
 
 .gs-cesium-frame {
-    background: var(--mui-palette-background-default, #0d0f13);
+    background: var(--mui-palette-background-default, #15181d);
 }
 
 .gs-cesium-viewer,
@@ -285,8 +285,8 @@
 }
 
 .gs-cesium-viewer .cesium-widget-credits {
-    color: var(--mui-palette-text-secondary, #a8b3c4);
-    background: var(--mui-palette-background-paper, #151a21);
+    color: var(--mui-palette-text-secondary, #9aa1ab);
+    background: var(--mui-palette-background-paper, #1c1f26);
     font: 10px Consolas, "Courier New", monospace;
 }
 
@@ -314,8 +314,8 @@
     pointer-events: none;
     opacity: 0.18;
     background:
-        linear-gradient(to right, transparent calc(50% - 1px), var(--mui-palette-primary-main, #5cc8ff) 50%, transparent calc(50% + 1px)),
-        linear-gradient(to bottom, transparent calc(50% - 1px), var(--mui-palette-primary-main, #5cc8ff) 50%, transparent calc(50% + 1px));
+        linear-gradient(to right, transparent calc(50% - 1px), var(--mui-palette-primary-main, #26a9a0) 50%, transparent calc(50% + 1px)),
+        linear-gradient(to bottom, transparent calc(50% - 1px), var(--mui-palette-primary-main, #26a9a0) 50%, transparent calc(50% + 1px));
 }
 
 .gs-right-panel {
@@ -324,7 +324,7 @@
     right: 10px;
     z-index: 620;
     width: 232px;
-    color: var(--mui-palette-text-primary, #ffffff);
+    color: var(--mui-palette-text-primary, #e7eaed);
 }
 
 .gs-right-panel.compact {
@@ -346,19 +346,19 @@
 }
 
 .gs-zoom-button {
-    --gs-control-accent: var(--mui-palette-primary-main, #5cc8ff);
+    --gs-control-accent: var(--mui-palette-primary-main, #26a9a0);
     display: flex;
     align-items: center;
     justify-content: center;
     width: 100%;
     height: 28px;
-    border: 1px solid color-mix(in srgb, var(--gs-control-accent) 24%, var(--mui-palette-border-main, #293241));
+    border: 1px solid color-mix(in srgb, var(--gs-control-accent) 24%, var(--mui-palette-border-main, #33383f));
     border-left: 4px solid var(--gs-control-accent);
-    border-radius: 6px;
+    border-radius: 0;
     color: var(--gs-control-accent);
     background:
         linear-gradient(135deg, color-mix(in srgb, var(--gs-control-accent) 12%, transparent), transparent 70%),
-        var(--mui-palette-background-paper, #151a21);
+        var(--mui-palette-background-paper, #1c1f26);
     box-shadow: none;
     font: 900 18px/1 Consolas, "Courier New", monospace;
     letter-spacing: 0;
@@ -367,25 +367,25 @@
 }
 
 .gs-zoom-button:hover {
-    border-color: color-mix(in srgb, var(--gs-control-accent) 48%, var(--mui-palette-border-main, #293241));
+    border-color: color-mix(in srgb, var(--gs-control-accent) 48%, var(--mui-palette-border-main, #33383f));
     box-shadow: none;
     transform: translateY(-1px);
 }
 
 .gs-cyan-button {
-    --gs-control-accent: var(--mui-palette-primary-main, #5cc8ff);
+    --gs-control-accent: var(--mui-palette-primary-main, #26a9a0);
     display: flex;
     align-items: center;
     justify-content: center;
     width: 232px;
     height: 26px;
-    border: 1px solid color-mix(in srgb, var(--gs-control-accent) 24%, var(--mui-palette-border-main, #293241));
+    border: 1px solid color-mix(in srgb, var(--gs-control-accent) 24%, var(--mui-palette-border-main, #33383f));
     border-left: 4px solid var(--gs-control-accent);
-    border-radius: 6px;
+    border-radius: 0;
     color: var(--gs-control-accent);
     background:
         linear-gradient(135deg, color-mix(in srgb, var(--gs-control-accent) 12%, transparent), transparent 70%),
-        var(--mui-palette-background-paper, #151a21);
+        var(--mui-palette-background-paper, #1c1f26);
     box-shadow: none;
     font: 800 10px/1 Roboto, Arial, sans-serif;
     letter-spacing: 0;
@@ -398,17 +398,17 @@
 }
 
 .gs-cyan-button.is-on {
-    --gs-control-accent: var(--mui-palette-primary-main, #5cc8ff);
-    color: var(--mui-palette-primary-main, #5cc8ff);
+    --gs-control-accent: var(--mui-palette-primary-main, #26a9a0);
+    color: var(--mui-palette-primary-main, #26a9a0);
 }
 
 .gs-cyan-button:not(.is-on) {
-    --gs-control-accent: var(--mui-palette-text-secondary, #a8b3c4);
-    color: var(--mui-palette-text-secondary, #a8b3c4);
+    --gs-control-accent: var(--mui-palette-text-secondary, #9aa1ab);
+    color: var(--mui-palette-text-secondary, #9aa1ab);
 }
 
 .gs-cyan-button:hover {
-    border-color: color-mix(in srgb, var(--gs-control-accent) 48%, var(--mui-palette-border-main, #293241));
+    border-color: color-mix(in srgb, var(--gs-control-accent) 48%, var(--mui-palette-border-main, #33383f));
     box-shadow: none;
     transform: translateY(-1px);
 }
@@ -417,9 +417,9 @@
     width: 232px;
     margin-bottom: 14px;
     padding: 9px 10px;
-    border: 1px solid var(--mui-palette-border-main, #293241);
-    border-radius: 4px;
-    background: var(--mui-palette-background-paper, #151a21);
+    border: 1px solid var(--mui-palette-border-main, #33383f);
+    border-radius: 0;
+    background: var(--mui-palette-background-paper, #1c1f26);
     box-shadow: none;
 }
 
@@ -433,7 +433,7 @@
     align-items: center;
     gap: 7px;
     height: 16px;
-    color: var(--mui-palette-text-secondary, #a8b3c4);
+    color: var(--mui-palette-text-secondary, #9aa1ab);
     font-size: 9px;
     line-height: 1;
 }
@@ -445,9 +445,47 @@
     box-shadow: none;
 }
 
+/* Fire danger legend — pinned to the bottom-right of the Cesium map frame. */
+.gs-fire-legend {
+    position: absolute;
+    right: 10px;
+    bottom: 10px;
+    z-index: 620;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    padding: 8px 11px;
+    border: 1px solid var(--mui-palette-border-main, #33383f);
+    background: var(--mui-palette-background-paper, #1c1f26);
+    box-shadow: none;
+    pointer-events: none;
+}
+
+.gs-fire-legend-title {
+    margin-bottom: 1px;
+    color: var(--mui-palette-primary-main, #26a9a0);
+    font: 800 9px/1 Roboto, Arial, sans-serif;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+}
+
+.gs-fire-legend-row {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    color: var(--mui-palette-text-secondary, #9aa1ab);
+    font: 9px/1 Consolas, "Courier New", monospace;
+}
+
+.gs-fire-legend-dot {
+    width: 10px;
+    height: 10px;
+    flex: 0 0 auto;
+}
+
 .gs-panel-box h2 {
     margin: 0 0 8px;
-    color: var(--mui-palette-primary-main, #5cc8ff);
+    color: var(--mui-palette-primary-main, #26a9a0);
     font-size: 9px;
     line-height: 1;
     letter-spacing: 0;
@@ -455,16 +493,16 @@
 
 .gs-rssi-gradient {
     height: 7px;
-    border-radius: 1px;
+    border-radius: 0;
     border: 1px solid rgba(255, 255, 255, 0.1);
-    background: linear-gradient(90deg, var(--mui-palette-info-main, #7c90ff) 0%, var(--mui-palette-primary-main, #5cc8ff) 32%, var(--mui-palette-success-main, #59d98b) 58%, var(--mui-palette-warning-main, #ffcc66) 78%, var(--mui-palette-error-main, #ff5d6c) 100%);
+    background: linear-gradient(90deg, var(--mui-palette-info-main, #b08cf0) 0%, var(--mui-palette-primary-main, #26a9a0) 32%, var(--mui-palette-success-main, #4caf50) 58%, var(--mui-palette-warning-main, #f5a623) 78%, var(--mui-palette-error-main, #e5433b) 100%);
 }
 
 .gs-rssi-labels {
     display: flex;
     justify-content: space-between;
     margin-top: 6px;
-    color: var(--mui-palette-text-secondary, #a8b3c4);
+    color: var(--mui-palette-text-secondary, #9aa1ab);
     font-size: 8px;
 }
 
@@ -474,13 +512,13 @@
 
 .gs-antenna-box p {
     margin: 0 0 5px;
-    color: var(--mui-palette-text-secondary, #a8b3c4);
+    color: var(--mui-palette-text-secondary, #9aa1ab);
     font-size: 8px;
     line-height: 1.35;
 }
 
 .gs-antenna-box strong {
-    color: var(--mui-palette-text-primary, #ffffff);
+    color: var(--mui-palette-text-primary, #e7eaed);
     font-weight: 800;
 }
 
@@ -491,10 +529,10 @@
     z-index: 630;
     transform: translate(-50%, -50%);
     padding: 10px 16px;
-    border: 1px solid var(--mui-palette-border-main, #293241);
-    border-radius: 4px;
-    color: var(--mui-palette-primary-main, #5cc8ff);
-    background: var(--mui-palette-background-paper, #151a21);
+    border: 1px solid var(--mui-palette-border-main, #33383f);
+    border-radius: 0;
+    color: var(--mui-palette-primary-main, #26a9a0);
+    background: var(--mui-palette-background-paper, #1c1f26);
     box-shadow: none;
     font-size: 11px;
     font-weight: 800;
@@ -508,9 +546,9 @@
     gap: 10px;
     margin: 12px 8px 8px;
     padding: 8px 14px;
-    border: 1px solid var(--mui-palette-border-main, #293241);
-    border-radius: 4px;
-    background: var(--mui-palette-background-paper, #151a21);
+    border: 1px solid var(--mui-palette-border-main, #33383f);
+    border-radius: 0;
+    background: var(--mui-palette-background-paper, #1c1f26);
     box-shadow: none;
 }
 
@@ -529,16 +567,16 @@
     min-height: 0;
     height: 100%;
     padding: 10px;
-    border: 1px solid var(--mui-palette-border-main, #293241);
-    border-radius: 4px;
-    background: var(--mui-palette-background-paper, #151a21);
+    border: 1px solid var(--mui-palette-border-main, #33383f);
+    border-radius: 0;
+    background: var(--mui-palette-background-paper, #1c1f26);
     box-shadow: none;
 }
 
 .gs-chart-card h2 {
     height: 24px;
     margin: 0;
-    color: var(--mui-palette-text-primary, #ffffff);
+    color: var(--mui-palette-text-primary, #e7eaed);
     font-size: 12px;
     line-height: 1;
 }
@@ -550,15 +588,15 @@
 .gs-play-button,
 .gs-reset-button,
 .gs-speed-select {
-    --gs-control-accent: var(--mui-palette-primary-main, #5cc8ff);
+    --gs-control-accent: var(--mui-palette-primary-main, #26a9a0);
     height: 28px;
-    border: 1px solid color-mix(in srgb, var(--gs-control-accent) 24%, var(--mui-palette-border-main, #293241));
+    border: 1px solid color-mix(in srgb, var(--gs-control-accent) 24%, var(--mui-palette-border-main, #33383f));
     border-left: 4px solid var(--gs-control-accent);
-    border-radius: 6px;
+    border-radius: 0;
     color: var(--gs-control-accent);
     background:
         linear-gradient(135deg, color-mix(in srgb, var(--gs-control-accent) 12%, transparent), transparent 70%),
-        var(--mui-palette-background-paper, #151a21);
+        var(--mui-palette-background-paper, #1c1f26);
     box-shadow: none;
     font: 800 11px/1 Roboto, Arial, sans-serif;
     letter-spacing: 0;
@@ -571,21 +609,21 @@
 }
 
 .gs-reset-button {
-    --gs-control-accent: var(--mui-palette-info-main, #5cc8ff);
+    --gs-control-accent: var(--mui-palette-info-main, #26a9a0);
     width: 64px;
 }
 
 .gs-play-button:hover,
 .gs-reset-button:hover,
 .gs-speed-select:hover {
-    border-color: color-mix(in srgb, var(--gs-control-accent) 48%, var(--mui-palette-border-main, #293241));
+    border-color: color-mix(in srgb, var(--gs-control-accent) 48%, var(--mui-palette-border-main, #33383f));
     box-shadow: none;
     transform: translateY(-1px);
 }
 
 .gs-timecode {
     flex: 0 0 auto;
-    color: var(--mui-palette-text-secondary, #a8b3c4);
+    color: var(--mui-palette-text-secondary, #9aa1ab);
     font-size: 11px;
     white-space: nowrap;
     font-family: Consolas, "Courier New", monospace;
@@ -594,22 +632,22 @@
 .gs-range {
     flex: 1 1 auto;
     min-width: 120px;
-    accent-color: var(--mui-palette-primary-main, #5cc8ff);
+    accent-color: var(--mui-palette-primary-main, #26a9a0);
 }
 
 .gs-range::-webkit-slider-runnable-track {
     height: 5px;
     border-radius: 999px;
-    background: var(--mui-palette-border-light, #344154);
+    background: var(--mui-palette-border-light, #3e444c);
 }
 
 .gs-range::-webkit-slider-thumb {
     width: 18px;
     height: 18px;
     margin-top: -7px;
-    border: 2px solid var(--mui-palette-background-paper, #151a21);
+    border: 2px solid var(--mui-palette-background-paper, #1c1f26);
     border-radius: 999px;
-    background: var(--mui-palette-primary-main, #5cc8ff);
+    background: var(--mui-palette-primary-main, #26a9a0);
     box-shadow: none;
     appearance: none;
 }
@@ -617,23 +655,23 @@
 .gs-range::-moz-range-track {
     height: 5px;
     border-radius: 999px;
-    background: var(--mui-palette-border-light, #344154);
+    background: var(--mui-palette-border-light, #3e444c);
 }
 
 .gs-range::-moz-range-thumb {
     width: 18px;
     height: 18px;
-    border: 2px solid var(--mui-palette-background-paper, #151a21);
+    border: 2px solid var(--mui-palette-background-paper, #1c1f26);
     border-radius: 999px;
-    background: var(--mui-palette-primary-main, #5cc8ff);
+    background: var(--mui-palette-primary-main, #26a9a0);
     box-shadow: none;
 }
 
 .gs-speed-select {
-    --gs-control-accent: var(--mui-palette-primary-main, #5cc8ff);
+    --gs-control-accent: var(--mui-palette-primary-main, #26a9a0);
     width: 78px;
     padding: 0 8px;
-    background-color: var(--mui-palette-background-elevated, #1d2430);
+    background-color: var(--mui-palette-background-elevated, #23272f);
 }
 
 @media (max-width: 900px) {

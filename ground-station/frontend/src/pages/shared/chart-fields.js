@@ -24,7 +24,12 @@ export const AVAILABLE_FIELDS = [
 
 export const TEMP_FIELD_KEYS = ['T1', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'T8'];
 
-export const CHART_COLORS = ['#4cbc74', '#ee8a22', '#4fb7d6', '#d2b04c', '#8797ab', '#2e9f69'];
+// Categorical series palette — teal (brand) first, then a warm/cool interleave so
+// adjacent series stay CVD-separable on the dark chart surface. Validated with the
+// dataviz palette checker (adjacent-pairs, --mode dark --surface #1c1f26).
+// NB: no red — red is reserved for the outage / ghost line, so a generated series
+// colour must never look like an outage. Keep this palette red-free.
+export const CHART_COLORS = ['#17a294', '#d9b53a', '#9166d6', '#c56a2a', '#3d8fc4', '#bf8018', '#cf5a95', '#5aa03e'];
 
 export function fieldLabel(key) {
     return AVAILABLE_FIELDS.find((f) => f.key === key)?.label || key;

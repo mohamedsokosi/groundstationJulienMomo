@@ -19,10 +19,10 @@ export function TelemetryStatsBar({ currentRecord, distance, mqttStatus }) {
     const stats = [
         { label: 'ALTITUDE',  value: `${altitude.toFixed(0)} m`,               tone: 'altitude'   },
         { label: 'DISTANCE',  value: `${distance.toFixed(4)} km`,               tone: 'distance'   },
-        { label: 'VITESSE',   value: `${speed.toFixed(2)} m/s`,                 tone: 'speed'      },
+        { label: 'SPEED',     value: `${speed.toFixed(2)} m/s`,                 tone: 'speed'      },
         { label: 'GPS SAT',   value: satellites.toFixed(0),                      tone: 'satellites', narrow: true },
-        { label: 'PRESSION',  value: `${pressure.toFixed(1)} hPa`,              tone: 'pressure'   },
-        { label: 'LINK BDG',  value: bilan !== null ? `${bilan.toFixed(1)} dBm` : '— dBm', tone: 'link' },
+        { label: 'PRESSURE',  value: `${pressure.toFixed(1)} hPa`,              tone: 'pressure'   },
+        { label: 'LINK BDG',  value: bilan !== null ? `${bilan.toFixed(1)} dBm` : 'dBm', tone: 'link' },
         { ...getMqttSourceStat(mqttStatus), medium: true },
     ];
     return (

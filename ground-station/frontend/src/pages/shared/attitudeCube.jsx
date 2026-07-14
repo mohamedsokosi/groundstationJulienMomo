@@ -29,9 +29,9 @@ const MODEL_EULER = [0, -Math.PI / 2, 0];
 const CAM_HEADING_DEG = 32;
 const CAM_PITCH_DEG = -48;
 const CAM_RANGE = 4.3;
-const HEADER = '#5cc8ff';
-const BORDER = '#1d2430';
-const BG = '#050a0f';
+const HEADER = '#26a9a0';
+const BORDER = '#23272f';
+const BG = '#15181d';
 const mono = { fontFamily: 'Consolas, "Courier New", monospace' };
 
 function lastQuat(state) {
@@ -186,14 +186,14 @@ export function AttitudeCube() {
                 px: 1, py: 0.25, borderBottom: `1px solid ${BORDER}`,
             }}>
                 <Typography sx={{ ...mono, fontSize: 10, fontWeight: 700, color: HEADER, lineHeight: 1 }}>
-                    ATTITUDE — IMU
+                    ATTITUDE IMU
                 </Typography>
                 <Box sx={{ flex: 1 }} />
                 <Box sx={{
                     width: 6,
                     height: 6,
                     borderRadius: '50%',
-                    bgcolor: hasData ? '#59d98b' : '#ffcc66',
+                    bgcolor: hasData ? '#4caf50' : '#f5a623',
                     transition: 'background-color 0.2s',
                     flexShrink: 0,
                 }} />
@@ -202,7 +202,7 @@ export function AttitudeCube() {
             <Box ref={mountRef} sx={{ flex: 1, minHeight: 0, position: 'relative' }} />
 
             <Box sx={{ flexShrink: 0, px: 1, py: 0.25, borderTop: `1px solid ${BORDER}` }}>
-                <Typography sx={{ ...mono, fontSize: 9, color: '#8a97a8', lineHeight: 1.4 }}>
+                <Typography sx={{ ...mono, fontSize: 9, color: '#9aa1ab', lineHeight: 1.4 }}>
                     q = [{qw.toFixed(3)}, {qx.toFixed(3)}, {qy.toFixed(3)}, {qz.toFixed(3)}]
                 </Typography>
             </Box>

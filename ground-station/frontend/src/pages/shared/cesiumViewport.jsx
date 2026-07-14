@@ -28,10 +28,8 @@ import 'cesium/Build/Cesium/Widgets/widgets.css';
 import {
     createBaseImageryProvider,
     DEFAULT_CENTER,
-    getCesiumGroundPosition,
-    getCesiumRecordPosition,
+    getCameraViewFromPositions,
     getTelemetryRecordGeo,
-    getTrajectoryCameraView,
     MAP_CAMERA_HEADING,
     MAP_CAMERA_HEIGHT,
     MAP_CAMERA_PITCH,
@@ -39,6 +37,7 @@ import {
     MAP_MAX_CAMERA_HEIGHT,
     MAP_MIN_CAMERA_HEIGHT,
 } from './cesium-utils.js';
+import { createGeoPlausibilityGate, distanceKm } from './telemetry-utils.js';
 
 // --- Camera footprint projection -------------------------------------------------
 // Projects stripes.png onto the ground where the CubeSat's camera looks, using the
@@ -66,9 +65,16 @@ const FOOTPRINT_UVS = new PolygonHierarchy([
     new Cartesian2(0, 0),
 ]);
 
+// A footprint corner can't land further than this from the point directly below
+// the CubeSat: from ≤55 km altitude the mission attitude (IMU pitches ≤ ~40°)
+// keeps the footprint within a few tens of km. Beyond this the quaternion is
+// corrupt (near-horizon grazing ray → an absurd giant rectangle on the map).
+const MAX_FOOTPRINT_REACH_M = 120_000;
+
 // Ray-casts the 4 camera-frustum corners onto the WGS84 ellipsoid and returns the
 // 4 ground Cartesian3 corners, or null if the camera doesn't fully see the ground
-// (looking at/above the horizon) or the quaternion is missing/degenerate.
+// (looking at/above the horizon), the quaternion is missing/degenerate, or the
+// footprint is implausibly far (corrupt attitude).
 function computeCameraFootprint(satPosition, q) {
     if (!satPosition || !q) return null;
     const quat = new Quaternion(q.x, q.y, q.z, q.w);
@@ -78,6 +84,7 @@ function computeCameraFootprint(satPosition, q) {
     const enuRot = Matrix4.getMatrix3(Transforms.eastNorthUpToFixedFrame(satPosition), new Matrix3());
     const tanH = Math.tan(PROJ_H_HALF_FOV);
     const tanV = Math.tan(PROJ_V_HALF_FOV);
+    const subSatPoint = Ellipsoid.WGS84.scaleToGeodeticSurface(satPosition, new Cartesian3());
 
     const corners = [];
     for (const [sx, sy] of FOOTPRINT_CORNER_SIGNS) {
@@ -89,7 +96,9 @@ function computeCameraFootprint(satPosition, q) {
         const ray = new Ray(satPosition, dirEcef);
         const interval = IntersectionTests.rayEllipsoid(ray, Ellipsoid.WGS84);
         if (!interval) return null;
-        corners.push(Ray.getPoint(ray, interval.start, new Cartesian3()));
+        const corner = Ray.getPoint(ray, interval.start, new Cartesian3());
+        if (subSatPoint && Cartesian3.distance(subSatPoint, corner) > MAX_FOOTPRINT_REACH_M) return null;
+        corners.push(corner);
     }
     return corners;
 }
@@ -100,15 +109,35 @@ function computeCameraFootprint(satPosition, q) {
 // Fire_GeoJSON (a GeoJSON Polygon string) + Fire_Level (colour). The ground station
 // just parses and draws each polygon it receives, once, and keeps it — no clipping,
 // no generation.
-// Level → colour: red = grand danger, orange = danger, yellow = petit danger.
+// Level → colour: red = extreme risk, orange = high risk, yellow = risk.
 const FIRE_ZONE_LEVELS = {
-    1: { color: '#ffd60a', label: 'PETIT DANGER' },
-    2: { color: '#ff8c00', label: 'DANGER' },
-    3: { color: '#ff2d2d', label: 'GRAND DANGER' },
+    1: { color: '#ffd60a', label: 'RISK' },
+    2: { color: '#ff8c00', label: 'HIGH RISK' },
+    3: { color: '#ff2d2d', label: 'EXTREME RISK' },
 };
 
-// Parse a GeoJSON Polygon string → outer-ring Cesium ground positions (height 0),
-// or null if malformed. Accepts a Polygon geometry or a Feature wrapping one.
+// Bottom-right map legend for the fire danger zones (most → least severe).
+const FIRE_LEGEND = [
+    ['#ff2d2d', 'Extreme risk'],
+    ['#ff8c00', 'High risk'],
+    ['#ffd60a', 'Risk'],
+];
+
+// A zone is CLIPPED to the CubeSat camera's footprint at generation — the real
+// mission zones span 0.01-0.03° (a few km). 0.08° (~9 km) keeps ~3x headroom
+// for legitimate zones; anything bigger means corrupted coordinates (one
+// flipped ASCII digit shifts a vertex by whole degrees), not a bigger fire —
+// never draw it.
+const MAX_FIRE_ZONE_SPAN_DEG = 0.08;
+// A zone must lie near the CubeSat that imaged it (footprint lands 2-12 km off
+// the ground track); anything further is corrupt.
+const MAX_FIRE_ZONE_DISTANCE_KM = 50;
+
+// Parse a GeoJSON Polygon string → { positions, centroid: [lat, lon] } for the
+// outer ring (ground positions, height 0), or null if malformed / physically
+// implausible. Every coordinate is validated BEFORE touching Cesium —
+// Cartesian3.fromDegreesArray throws on out-of-range values and would take the
+// whole render effect down with it.
 function fireGeojsonPositions(geojson) {
     let parsed;
     try {
@@ -119,11 +148,25 @@ function fireGeojsonPositions(geojson) {
     const geom = parsed?.type === 'Feature' ? parsed.geometry : parsed;
     if (!geom || geom.type !== 'Polygon' || !Array.isArray(geom.coordinates?.[0])) return null;
     const coords = [];
+    let minLat = Infinity; let maxLat = -Infinity;
+    let minLon = Infinity; let maxLon = -Infinity;
     for (const pt of geom.coordinates[0]) {
-        if (Array.isArray(pt) && pt.length >= 2) coords.push(pt[0], pt[1]); // [lon, lat]
+        if (!Array.isArray(pt) || pt.length < 2) continue;
+        const lon = Number(pt[0]);
+        const lat = Number(pt[1]);
+        if (!Number.isFinite(lon) || !Number.isFinite(lat)
+            || Math.abs(lat) > 90 || Math.abs(lon) > 180) return null;
+        minLat = Math.min(minLat, lat); maxLat = Math.max(maxLat, lat);
+        minLon = Math.min(minLon, lon); maxLon = Math.max(maxLon, lon);
+        coords.push(lon, lat);
     }
     if (coords.length < 6) return null;
-    return Cartesian3.fromDegreesArray(coords);
+    if (maxLat - minLat > MAX_FIRE_ZONE_SPAN_DEG
+        || maxLon - minLon > MAX_FIRE_ZONE_SPAN_DEG) return null;
+    return {
+        positions: Cartesian3.fromDegreesArray(coords),
+        centroid: [(minLat + maxLat) / 2, (minLon + maxLon) / 2],
+    };
 }
 
 // --- CubeSat 3D model marker -----------------------------------------------------
@@ -150,8 +193,8 @@ function computeModelOrientation(position, q) {
 
 const GS_INPUT_STYLE = {
     width: '100%', height: 24, padding: '0 6px',
-    border: '1px solid #293241', borderLeft: '3px solid #59d98b',
-    borderRadius: 4, color: '#59d98b', background: '#0d141e',
+    border: '1px solid #33383f', borderLeft: '3px solid #4caf50',
+    borderRadius: 0, color: '#4caf50', background: '#15181d',
     fontSize: 11, fontFamily: 'Consolas, monospace',
     outline: 'none', boxSizing: 'border-box',
 };
@@ -179,19 +222,14 @@ export const RightControlPanel = ({ groundStationPos, onGroundStationChange, opt
     };
 
     const controls = [
-        { key: 'follow',     label: 'Suivre CubeSat' },
-        { key: 'trajectory', label: 'Trajectoire'    },
-        { key: 'linkBeam',   label: 'Liaison sol'    },
+        { key: 'follow',     label: 'Follow CubeSat' },
+        { key: 'trajectory', label: 'Trajectory'     },
+        { key: 'linkBeam',   label: 'Ground link'    },
         { key: 'projection', label: 'Projection'     },
-        { key: 'fireZones',  label: 'Zones feu'      },
-    ];
-    const fireLegend = [
-        ['#ff2d2d', 'Grand danger'],
-        ['#ff8c00', 'Danger'],
-        ['#ffd60a', 'Petit danger'],
+        { key: 'fireZones',  label: 'Fire zones'     },
     ];
     return (
-        <aside className="gs-right-panel compact" aria-label="Controles carte">
+        <aside className="gs-right-panel compact" aria-label="Map controls">
             <div className="gs-control-stack">
                 {controls.map((control) => (
                     <button
@@ -203,27 +241,17 @@ export const RightControlPanel = ({ groundStationPos, onGroundStationChange, opt
                         {control.label} {options[control.key] ? 'ON' : 'OFF'}
                     </button>
                 ))}
-                {options.fireZones && (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 3, padding: '1px 0 2px' }}>
-                        {fireLegend.map(([color, text]) => (
-                            <div key={text} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                <span style={{ width: 10, height: 10, background: color, borderRadius: 2, flex: '0 0 auto' }} />
-                                <span style={{ fontSize: 9, color: '#a8b3c4', fontFamily: 'Consolas' }}>{text}</span>
-                            </div>
-                        ))}
-                    </div>
-                )}
                 <button
                     className={`gs-cyan-button${showGsForm ? ' is-on' : ''}`}
                     onClick={() => setShowGsForm((v) => !v)}
                     type="button"
                 >
-                    Position GS {showGsForm ? '▲' : '▼'}
+                    GS position {showGsForm ? '▲' : '▼'}
                 </button>
                 {showGsForm && (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 4, paddingTop: 2 }}>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                            <span style={{ fontSize: 9, color: '#a8b3c4', fontFamily: 'Consolas', letterSpacing: 0 }}>LAT</span>
+                            <span style={{ fontSize: 9, color: '#9aa1ab', fontFamily: 'Consolas', letterSpacing: 0 }}>LAT</span>
                             <input
                                 type="number" step="0.0001" min="-90" max="90"
                                 value={draftLat}
@@ -232,7 +260,7 @@ export const RightControlPanel = ({ groundStationPos, onGroundStationChange, opt
                             />
                         </div>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                            <span style={{ fontSize: 9, color: '#a8b3c4', fontFamily: 'Consolas', letterSpacing: 0 }}>LON</span>
+                            <span style={{ fontSize: 9, color: '#9aa1ab', fontFamily: 'Consolas', letterSpacing: 0 }}>LON</span>
                             <input
                                 type="number" step="0.0001" min="-180" max="180"
                                 value={draftLon}
@@ -246,7 +274,7 @@ export const RightControlPanel = ({ groundStationPos, onGroundStationChange, opt
                             type="button"
                             style={{ marginTop: 2 }}
                         >
-                            Appliquer
+                            Apply
                         </button>
                     </div>
                 )}
@@ -269,6 +297,10 @@ export const CesiumViewport = ({ currentRecord, groundStationPos, onGroundStatio
     // Map keyed by GeoJSON content → the Cesium entity drawn for one received fire
     // zone, so each transmitted polygon is drawn once and persists.
     const fireZonesRef = useRef(new Map());
+    // Rejects physically impossible positions (teleports, space altitudes) so
+    // corrupt telemetry can't wreck the 3D view. Stateful across polls.
+    const geoGateRef = useRef(null);
+    if (!geoGateRef.current) geoGateRef.current = createGeoPlausibilityGate(getTelemetryRecordGeo);
     const prevFireVisibleRef = useRef(true);
     const satelliteOrientationRef = useRef(undefined);
     const trajectoryPositionsRef = useRef([]);
@@ -325,12 +357,12 @@ export const CesiumViewport = ({ currentRecord, groundStationPos, onGroundStatio
 
             viewer.scene.globe.enableLighting = false;
             viewer.scene.globe.depthTestAgainstTerrain = false;
-            viewer.scene.globe.baseColor = Color.fromCssColorString('#0a141e');
+            viewer.scene.globe.baseColor = Color.fromCssColorString('#15181d');
             viewer.scene.skyAtmosphere.show = false;
             viewer.scene.skyBox.show = false;
             viewer.scene.sun.show = false;
             viewer.scene.moon.show = false;
-            viewer.scene.backgroundColor = Color.fromCssColorString('#050a0f');
+            viewer.scene.backgroundColor = Color.fromCssColorString('#0d0f12');
             viewer.scene.requestRenderMode = false;
             setThreeDCameraView(viewer, DEFAULT_CENTER[1], DEFAULT_CENTER[0], MAP_CAMERA_HEIGHT);
             const controls = viewer.scene.screenSpaceCameraController;
@@ -394,6 +426,7 @@ export const CesiumViewport = ({ currentRecord, groundStationPos, onGroundStatio
             initializedRef.current = false;
             prevTrajLengthRef.current = 0;
             lastTrajGeoKeyRef.current = null;
+            geoGateRef.current.reset();
         };
     }, []);
 
@@ -412,28 +445,43 @@ export const CesiumViewport = ({ currentRecord, groundStationPos, onGroundStatio
             trajectoryPositionsRef.current = [];
             prevTrajLengthRef.current = 0;
             lastTrajGeoKeyRef.current = null;
+            geoGateRef.current.reset();
             for (const ent of fireZonesRef.current.values()) viewer.entities.remove(ent);
             fireZonesRef.current.clear();
         }
+        // Physically impossible positions (single-frame teleport, altitude "in
+        // space") are rejected by the plausibility gate: the trajectory and the
+        // model simply hold the last good position instead of drawing them.
+        const acceptPosition = (record) => {
+            const geo = geoGateRef.current.accept(record);
+            return geo ? Cartesian3.fromDegrees(geo.lon, geo.lat, geo.alt) : null;
+        };
         if (newGeoKey !== lastTrajGeoKeyRef.current) {
             if (trajectoryRecords.length > prevTrajLengthRef.current) {
                 // Growing: append only positions that haven't been converted yet
                 const newPos = trajectoryRecords
                     .slice(prevTrajLengthRef.current)
-                    .map(getCesiumRecordPosition)
+                    .map(acceptPosition)
                     .filter(Boolean);
                 trajectoryPositionsRef.current = [...trajectoryPositionsRef.current, ...newPos];
             } else if (lastTraj) {
                 // Sliding window (deque full): 1 new frame at end, 1 old evicted at front
-                const p = getCesiumRecordPosition(lastTraj);
+                const p = acceptPosition(lastTraj);
                 if (p) trajectoryPositionsRef.current = [...trajectoryPositionsRef.current, p];
             }
             prevTrajLengthRef.current = trajectoryRecords.length;
             lastTrajGeoKeyRef.current = newGeoKey;
         }
 
-        const currentPosition = getCesiumRecordPosition(currentRecord);
-        const groundPosition = getCesiumGroundPosition(currentRecord);
+        // peek(): same plausibility check against the gate's anchor, without
+        // re-advancing it (currentRecord is usually the last trajectory record).
+        const currentGeo = geoGateRef.current.peek(currentRecord);
+        const currentPosition = currentGeo
+            ? Cartesian3.fromDegrees(currentGeo.lon, currentGeo.lat, currentGeo.alt)
+            : null;
+        const groundPosition = currentGeo
+            ? Cartesian3.fromDegrees(currentGeo.lon, currentGeo.lat, 0)
+            : null;
         const gsCartesian = Cartesian3.fromDegrees(groundStationPos.lon, groundStationPos.lat, 0);
         const linkPositions = currentPosition ? [gsCartesian, currentPosition] : [];
         const verticalPositions = groundPosition && currentPosition ? [groundPosition, currentPosition] : [];
@@ -445,12 +493,12 @@ export const CesiumViewport = ({ currentRecord, groundStationPos, onGroundStatio
         // --- Trajectory polyline ---
         if (!trajectoryEntityRef.current) {
             trajectoryEntityRef.current = viewer.entities.add({
-                name: 'Trajectoire CubeSat',
+                name: 'CubeSat trajectory',
                 polyline: {
                     positions: new CallbackProperty(() => trajectoryPositionsRef.current, false),
                     width: 4,
                     arcType: ArcType.NONE,
-                    material: new PolylineGlowMaterialProperty({ glowPower: 0.16, color: Color.CYAN.withAlpha(0.96) }),
+                    material: new PolylineGlowMaterialProperty({ glowPower: 0.16, color: Color.fromCssColorString('#2fd4c6').withAlpha(0.96) }),
                 },
             });
         }
@@ -459,7 +507,7 @@ export const CesiumViewport = ({ currentRecord, groundStationPos, onGroundStatio
         // --- Ground station (green dot + "GS" label) — fixed configurable position ---
         if (!startEntityRef.current) {
             startEntityRef.current = viewer.entities.add({
-                name: 'Station Sol',
+                name: 'Ground station',
                 position: gsCartesian,
                 point: { pixelSize: 11, color: Color.LIME, outlineColor: Color.WHITE, outlineWidth: 1 },
                 label: {
@@ -479,10 +527,21 @@ export const CesiumViewport = ({ currentRecord, groundStationPos, onGroundStatio
         startEntityRef.current.show = true;
 
         // --- CubeSat current position (3D model oriented by the IMU quaternion) ---
+        // Where to draw the model: the gated current fix if we have one, else the
+        // last good trajectory position. The fallback is what keeps the CubeSat on
+        // the map through GPS-lost / bad / ghost frames AND across a route remount
+        // (which rebuilds this entity from scratch — without the fallback it would
+        // be created hidden and never reappear until the next clean fix).
+        const lastGoodTrajPos = trajectoryPositionsRef.current.length
+            ? trajectoryPositionsRef.current[trajectoryPositionsRef.current.length - 1]
+            : null;
+        const modelPosition = currentPosition ?? lastGoodTrajPos;
+
         if (!satelliteEntityRef.current) {
             satelliteEntityRef.current = viewer.entities.add({
-                name: 'CubeSat temps reel',
-                position: currentPosition ?? Cartesian3.fromDegrees(0, 0, 0),
+                name: 'CubeSat (live)',
+                show: Boolean(modelPosition),
+                position: modelPosition ?? Cartesian3.fromDegrees(0, 0, 0),
                 // Read via CallbackProperty so the attitude always updates live.
                 orientation: new CallbackProperty(() => satelliteOrientationRef.current, false),
                 model: {
@@ -494,7 +553,7 @@ export const CesiumViewport = ({ currentRecord, groundStationPos, onGroundStatio
                 label: {
                     text: 'CubeSat',
                     font: '12px Consolas',
-                    fillColor: Color.CYAN,
+                    fillColor: Color.fromCssColorString('#2fd4c6'),
                     outlineColor: Color.BLACK,
                     outlineWidth: 3,
                     style: LabelStyle.FILL_AND_OUTLINE,
@@ -503,22 +562,30 @@ export const CesiumViewport = ({ currentRecord, groundStationPos, onGroundStatio
                 },
             });
         }
-        if (currentPosition) {
-            satelliteEntityRef.current.position = currentPosition;
-            const q = {
-                w: Number(currentRecord?.Quat_w ?? 1),
-                x: Number(currentRecord?.Quat_x ?? 0),
-                y: Number(currentRecord?.Quat_y ?? 0),
-                z: Number(currentRecord?.Quat_z ?? 0),
-            };
-            satelliteOrientationRef.current = computeModelOrientation(currentPosition, q);
+        if (modelPosition) {
+            satelliteEntityRef.current.position = modelPosition;
+            // Update the attitude only from a genuine current fix (the quaternion
+            // belongs to the current frame). On a fallback frame keep the last
+            // orientation, or seed an upright default if we have none yet (e.g.
+            // remount lands on a bad frame) so the model still renders.
+            if (currentPosition) {
+                const q = {
+                    w: Number(currentRecord?.Quat_w ?? 1),
+                    x: Number(currentRecord?.Quat_x ?? 0),
+                    y: Number(currentRecord?.Quat_y ?? 0),
+                    z: Number(currentRecord?.Quat_z ?? 0),
+                };
+                satelliteOrientationRef.current = computeModelOrientation(currentPosition, q);
+            } else if (!satelliteOrientationRef.current) {
+                satelliteOrientationRef.current = computeModelOrientation(modelPosition, { w: 1, x: 0, y: 0, z: 0 });
+            }
+            satelliteEntityRef.current.show = true;
         }
-        satelliteEntityRef.current.show = Boolean(currentPosition);
 
         // --- Link line: depart → CubeSat (green) ---
         if (!linkEntityRef.current) {
             linkEntityRef.current = viewer.entities.add({
-                name: 'Liaison sol',
+                name: 'Ground link',
                 polyline: {
                     positions: new CallbackProperty(() => linkPositionsRef.current, false),
                     width: 2,
@@ -546,7 +613,7 @@ export const CesiumViewport = ({ currentRecord, groundStationPos, onGroundStatio
         // --- Ground projection dot (yellow) ---
         if (!groundProjectionEntityRef.current) {
             groundProjectionEntityRef.current = viewer.entities.add({
-                name: 'Projection sol CubeSat',
+                name: 'CubeSat ground projection',
                 position: groundPosition ?? Cartesian3.fromDegrees(0, 0, 0),
                 point: { pixelSize: 9, color: Color.YELLOW.withAlpha(0.85), outlineColor: Color.BLACK, outlineWidth: 1 },
             });
@@ -567,7 +634,7 @@ export const CesiumViewport = ({ currentRecord, groundStationPos, onGroundStatio
 
         if (!cameraFootprintEntityRef.current) {
             cameraFootprintEntityRef.current = viewer.entities.add({
-                name: 'Projection caméra (stripes)',
+                name: 'Camera projection (stripes)',
                 polygon: {
                     hierarchy: new CallbackProperty(
                         () => new PolygonHierarchy(footprintCornersRef.current ?? []),
@@ -593,14 +660,21 @@ export const CesiumViewport = ({ currentRecord, groundStationPos, onGroundStatio
             if (!level || !geojson) continue;
             const key = `${level}:${geojson}`;
             if (fireZonesRef.current.has(key)) continue;
-            const positions = fireGeojsonPositions(geojson);
-            if (!positions) continue;
+            // A detection is only drawn if the frame that carried it has a
+            // physically plausible position — a corrupt frame "in space" or
+            // teleported across the globe must not paint a danger zone.
+            const carrierGeo = geoGateRef.current.peek(rec);
+            if (!carrierGeo) continue;
+            const zone = fireGeojsonPositions(geojson);
+            if (!zone) continue;
+            // The zone must be near the CubeSat that imaged it.
+            if (distanceKm(zone.centroid, [carrierGeo.lat, carrierGeo.lon]) > MAX_FIRE_ZONE_DISTANCE_KM) continue;
             const meta = FIRE_ZONE_LEVELS[level] ?? FIRE_ZONE_LEVELS[3];
             const color = Color.fromCssColorString(meta.color);
             fireZonesRef.current.set(key, viewer.entities.add({
-                name: 'Zone feu',
+                name: 'Fire zone',
                 polygon: {
-                    hierarchy: new PolygonHierarchy(positions),
+                    hierarchy: new PolygonHierarchy(zone.positions),
                     material: new ColorMaterialProperty(color.withAlpha(0.45)),
                     outline: true,
                     outlineColor: color,
@@ -617,16 +691,20 @@ export const CesiumViewport = ({ currentRecord, groundStationPos, onGroundStatio
         }
 
         // --- Initial camera fit (runs once after first trajectory data arrives) ---
+        // Fit to the GATED positions actually drawn (trajectoryPositionsRef), not
+        // the raw records: a teleported fix looks like a valid lat/lon, so fitting
+        // to raw records would zoom fully out to include it on every remount.
         if (!initializedRef.current && trajectoryPositionsRef.current.length > 1) {
             initializedRef.current = true;
-            const cameraView = getTrajectoryCameraView(trajectoryRecords);
+            const cameraView = getCameraViewFromPositions(trajectoryPositionsRef.current);
             setThreeDCameraView(viewer, cameraView.lon, cameraView.lat, cameraView.height);
         }
 
         viewer.trackedEntity = undefined;
 
         if (mapOptions.follow && currentRecord) {
-            const currentGeo = getTelemetryRecordGeo(currentRecord);
+            // Gate-checked: the follow camera must not fly to a teleported fix.
+            const currentGeo = geoGateRef.current.peek(currentRecord);
             if (currentGeo) {
                 // Aim at the CubeSat's real altitude, not the ground point below it
                 // (the yellow projection dot) — otherwise the camera centres on the
@@ -656,7 +734,7 @@ export const CesiumViewport = ({ currentRecord, groundStationPos, onGroundStatio
     return (
         <section
             className="gs-map-frame gs-cesium-frame"
-            aria-label="Globe Cesium de suivi CubeSat"
+            aria-label="CubeSat tracking Cesium globe"
             style={{ flex: '1 1 auto', minHeight: 0 }}
         >
             <div ref={containerRef} className="gs-cesium-viewer" />
@@ -666,9 +744,20 @@ export const CesiumViewport = ({ currentRecord, groundStationPos, onGroundStatio
                 onToggle={onToggleMapOption}
                 options={mapOptions}
             />
+            {mapOptions.fireZones && (
+                <div className="gs-fire-legend" aria-label="Legende risque feu">
+                    <span className="gs-fire-legend-title">Fire risk</span>
+                    {FIRE_LEGEND.map(([color, text]) => (
+                        <div key={text} className="gs-fire-legend-row">
+                            <span className="gs-fire-legend-dot" style={{ background: color }} />
+                            <span>{text}</span>
+                        </div>
+                    ))}
+                </div>
+            )}
             {(loading || !hasData) && (
                 <div className="gs-map-status">
-                    {loading ? 'CHARGEMENT...' : 'AUCUNE TELEMETRIE'}
+                    {loading ? 'LOADING...' : 'NO TELEMETRY'}
                 </div>
             )}
         </section>

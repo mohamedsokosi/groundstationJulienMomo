@@ -179,10 +179,10 @@ function TelemetryChartImpl({ data, xKey, lines, tracking, onTrackingChange }) {
                 sx={{
                     flex: 1, minWidth: 0, height: '100%', overflowX: 'scroll', overflowY: 'hidden',
                     scrollbarWidth: 'auto',
-                    scrollbarColor: '#4a6080 transparent',
+                    scrollbarColor: '#3e444c transparent',
                     '&::-webkit-scrollbar': { height: 14 },
                     '&::-webkit-scrollbar-track': { background: 'transparent' },
-                    '&::-webkit-scrollbar-thumb': { background: '#4a6080', borderRadius: 4 },
+                    '&::-webkit-scrollbar-thumb': { background: '#3e444c', borderRadius: 0 },
                 }}
             >
                 <Box sx={{ width: `${pagesX * 100}%`, height: '100%' }}>
@@ -204,7 +204,7 @@ function TelemetryChartImpl({ data, xKey, lines, tracking, onTrackingChange }) {
                                 contentStyle={{
                                     backgroundColor: theme.palette.background.paper,
                                     border: `1px solid ${theme.palette.divider}`,
-                                    borderRadius: 8,
+                                    borderRadius: 0,
                                     fontSize: 11,
                                 }}
                                 formatter={(v, name) => {
@@ -219,7 +219,7 @@ function TelemetryChartImpl({ data, xKey, lines, tracking, onTrackingChange }) {
                                         stroke={color} dot={false} strokeWidth={2}
                                         isAnimationActive={false} connectNulls={false} />,
                                     <Line key={`${key}_ghost`} type="monotone" dataKey={`${key}_ghost`}
-                                        stroke="#ff3030" dot={false} strokeWidth={2}
+                                        stroke="#e5433b" dot={false} strokeWidth={2}
                                         isAnimationActive={false} connectNulls={false} />,
                                 ])
                                 : lines.map(({ key, color }) => (
@@ -245,7 +245,7 @@ function TelemetryChartImpl({ data, xKey, lines, tracking, onTrackingChange }) {
                     <Box sx={{ display: 'flex', gap: 0.75, flexWrap: 'wrap', alignItems: 'baseline' }}>
                         {lines.map(({ key, color }) => {
                             const unit = fieldUnit(key);
-                            const val = typeof latestPoint[key] === 'number' ? latestPoint[key].toFixed(2) : (latestPoint[key] ?? '—');
+                            const val = typeof latestPoint[key] === 'number' ? latestPoint[key].toFixed(2) : (latestPoint[key] ?? '');
                             return (
                                 <Typography key={key} variant="caption" sx={{ fontWeight: 700, color, fontSize: 13, lineHeight: 1.2 }}>
                                     {val}{unit && <span style={{ fontWeight: 400, fontSize: 10, opacity: 0.85 }}> {unit}</span>}
@@ -254,7 +254,7 @@ function TelemetryChartImpl({ data, xKey, lines, tracking, onTrackingChange }) {
                         })}
                     </Box>
                     <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: 11, lineHeight: 1.3 }}>
-                        {typeof latestPoint[xKey] === 'number' ? latestPoint[xKey].toFixed(1) : (latestPoint[xKey] ?? '—')}
+                        {typeof latestPoint[xKey] === 'number' ? latestPoint[xKey].toFixed(1) : (latestPoint[xKey] ?? '')}
                         {fieldUnit(xKey) && <span style={{ fontSize: 10, opacity: 0.75 }}> {fieldUnit(xKey)}</span>}
                     </Typography>
                 </Box>

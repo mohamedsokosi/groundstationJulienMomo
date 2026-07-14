@@ -1,36 +1,41 @@
 const darkTheme = {
     mode: 'dark',
-    primary: { main: '#5cc8ff' },
-    secondary: { main: '#ff8f5a' },
-    success: { main: '#59d98b' },
-    warning: { main: '#ffcc66' },
-    error: { main: '#ff5d6c' },
-    info: { main: '#7c90ff' },
+    primary: { main: '#26a9a0' },   // teal — primary accent
+    secondary: { main: '#c8763c' }, // orange
+    success: { main: '#4caf50' },   // green
+    warning: { main: '#f5a623' },   // amber
+    error: { main: '#e5433b' },     // red
+    info: { main: '#b08cf0' },      // violet
+    text: {
+        primary: '#e7eaed',
+        secondary: '#9aa1ab',
+        disabled: '#5d646e',
+    },
     background: {
-        default: '#0d0f13',
-        paper: '#151a21',
-        elevated: '#1d2430',
-        titleBar: '#11161c',
+        default: '#15181d',
+        paper: '#1c1f26',
+        elevated: '#23272f',
+        titleBar: '#1c1f26',
     },
     border: {
-        main: '#293241',
-        light: '#344154',
-        dark: '#1d2430',
+        main: '#33383f',
+        light: '#3e444c',
+        dark: '#23272f',
     },
     overlay: {
-        light: 'rgba(92, 200, 255, 0.08)',
-        medium: 'rgba(92, 200, 255, 0.15)',
+        light: 'rgba(38, 169, 160, 0.08)',
+        medium: 'rgba(38, 169, 160, 0.15)',
         dark: 'rgba(0, 0, 0, 0.6)',
     },
     status: {
-        connected: '#59d98b',
-        connecting: '#ffcc66',
-        disconnected: '#ff5d6c',
-        polling: '#ff8f5a',
+        connected: '#4caf50',
+        connecting: '#f5a623',
+        disconnected: '#e5433b',
+        polling: '#c8763c',
     },
     action: {
-        play: '#59d98b',
-        stop: '#ff5d6c',
+        play: '#4caf50',
+        stop: '#e5433b',
     },
 };
 

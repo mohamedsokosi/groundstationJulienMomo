@@ -1,65 +1,65 @@
-# Ground Station — ICARUS2
+# Ground Station - ICARUS2
 
-Station sol **temps réel** pour le suivi du CubeSat ICARUS2 : télémétrie **MQTT**
-→ globe 3D **Cesium** + graphes, archivée en **CSV local** et dans le **cloud**.
+**Real-time** ground station for tracking the ICARUS2 CubeSat: **MQTT** telemetry
+→ **Cesium** 3D globe + charts, archived to **local CSV** and the **cloud**.
 
-> Manuel de démarrage rapide. Pour la documentation complète (architecture,
-> API, variables d'environnement, sauvegarde, Docker…) voir
-> **[Documentation.md](Documentation.md)**.
+> Quick-start manual. For the full documentation (architecture, API, environment
+> variables, backup, Docker…) see **[Documentation.md](Documentation.md)**.
 
 ---
 
-## Installer (une seule fois)
+## Install (once)
 
 ```bash
-cd backend && poetry install && cd ..        # crée backend/.venv
+cd backend && poetry install && cd ..        # creates backend/.venv
 cd frontend && npm install && cd ..
-ln -sf "$PWD/tools/dev/gss" ~/.local/bin/gss  # ~/.local/bin doit être dans le PATH
+ln -sf "$PWD/tools/dev/gss" ~/.local/bin/gss  # ~/.local/bin must be on the PATH
 ```
 
 ---
 
-## Démarrer
+## Start
 
 ```bash
-gss start            # matériel : broker du Pi (défaut 10.180.97.23)
-gss start <ip>       # broker sur une autre IP
-gss simulation       # SANS matériel : rejoue le CSV de vol ICARUS2 (nécessite mosquitto)
-gss startoffline     # local, sans upload cloud
-gss kill             # tout arrêter (depuis un autre terminal)
+gss start            # hardware: the Pi's broker (default 10.180.97.23)
+gss start <ip>       # broker on another IP
+gss simulation       # WITHOUT hardware: replays the ICARUS2 flight CSV (needs mosquitto)
+gss simulation corrupt  # same + injects faults (corrupted/missing/out-of-range frames) to rehearse failures
+gss startoffline     # local, no cloud upload
+gss kill             # stop everything (from another terminal)
 ```
 
-Puis ouvrir **http://localhost:5173**
+Then open **http://localhost:5173**
 
-Après `start` / `startoffline` / `simulation`, le terminal **reste attaché au log
-backend** : **`Ctrl+C` arrête tout** (backend + frontend + simulateur). Pour rendre
-la main tout de suite en laissant la station tourner : `GS_FOLLOW=0 gss start`.
+After `start` / `startoffline` / `simulation`, the terminal **stays attached to the
+backend log**: **`Ctrl+C` stops everything** (backend + frontend + simulator). To
+return to the prompt immediately while leaving the station running: `GS_FOLLOW=0 gss start`.
 
 ---
 
-## Voir ce qui se passe
+## See what's happening
 
 ```bash
-gss verbose          # log backend en direct (verbose all = + frontend)
-gss debug            # erreurs / warnings récents
+gss verbose          # live backend log (verbose all = + frontend)
+gss debug            # recent errors / warnings
 ```
 
 ---
 
-## Dépannage express
+## Quick troubleshooting
 
-- **Pas de télémétrie** → broker injoignable ; vérifier l'IP du Pi (elle change
-  en DHCP) avec `gss debug`, et que `mosquitto` écoute sur `1883`.
-- **Carte Cesium noire** → renseigner `VITE_CESIUM_ION_TOKEN` dans
-  `frontend/.env.local`.
-- **Arrêter la station** → après `gss start` / `startoffline` / `simulation`, le
-  terminal reste attaché au log : **`Ctrl+C` arrête tout**. Depuis un autre
-  terminal (ou si lancé avec `GS_FOLLOW=0`), utiliser `gss kill`.
+- **No telemetry** → broker unreachable; check the Pi's IP (it changes over DHCP)
+  with `gss debug`, and that `mosquitto` is listening on `1883`.
+- **Black Cesium map** → set `VITE_CESIUM_ION_TOKEN` in `frontend/.env.local`.
+- **Stop the station** → after `gss start` / `startoffline` / `simulation`, the
+  terminal stays attached to the log: **`Ctrl+C` stops everything**. From another
+  terminal (or if launched with `GS_FOLLOW=0`), use `gss kill`.
 
 ---
 
-→ **Documentation complète : [Documentation.md](Documentation.md)**
+→ **Full documentation: [Documentation.md](Documentation.md)**
 
 
 
-donc on s<entend bien que dans le code source presentement rien ne GENERE des zones fictives, toutes les "zones" dont simplement dans la telemetry csv que la groundstation recoit aussi
+So to be clear: in the source code right now nothing GENERATES fictional zones; all
+the "zones" are simply in the telemetry CSV that the ground station also receives.

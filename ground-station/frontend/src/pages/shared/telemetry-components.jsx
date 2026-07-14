@@ -35,13 +35,13 @@ export function StatisticCard({ label, value, color, icon: Icon = null }) {
             sx={{
                 p: 2.5,
                 textAlign: 'center',
-                backgroundColor: isDark ? 'rgba(33, 150, 243, 0.05)' : 'rgba(33, 150, 243, 0.1)',
+                backgroundColor: isDark ? 'rgba(38, 169, 160, 0.05)' : 'rgba(38, 169, 160, 0.1)',
                 borderLeft: `5px solid ${color}`,
                 borderRadius: 1,
                 transition: 'all 0.3s ease',
                 '&:hover': {
                     boxShadow: theme.shadows[4],
-                    backgroundColor: isDark ? 'rgba(33, 150, 243, 0.1)' : 'rgba(33, 150, 243, 0.15)',
+                    backgroundColor: isDark ? 'rgba(38, 169, 160, 0.1)' : 'rgba(38, 169, 160, 0.15)',
                 },
             }}
         >
@@ -79,7 +79,7 @@ export function ChartCard({ title, children, subtitle = null }) {
         <Card
             sx={{
                 height: '100%',
-                backgroundColor: isDark ? 'rgb(33, 33, 33)' : 'rgb(245, 245, 245)',
+                backgroundColor: isDark ? '#23272f' : 'rgb(245, 245, 245)',
                 boxShadow: theme.shadows[2],
                 '&:hover': {
                     boxShadow: theme.shadows[4],
@@ -139,37 +139,37 @@ export function TelemetrySummary({ data = [] }) {
         <Grid container spacing={2}>
             <Grid item xs={12} sm={6} md={2.4}>
                 <StatisticCard 
-                    label="Altitude Max"
+                    label="Max Altitude"
                     value={`${stats.maxAltitude.toFixed(0)} m`}
-                    color="#4CAF50"
+                    color="#4caf50"
                 />
             </Grid>
             <Grid item xs={12} sm={6} md={2.4}>
                 <StatisticCard 
                     label="Max Speed"
                     value={`${stats.maxSpeed.toFixed(2)} m/s`}
-                    color="#FF9800"
+                    color="#e08a45"
                 />
             </Grid>
             <Grid item xs={12} sm={6} md={2.4}>
                 <StatisticCard 
                     label="Min Pressure"
                     value={`${stats.minPressure.toFixed(1)} hPa`}
-                    color="#2196F3"
+                    color="#3d8fc4"
                 />
             </Grid>
             <Grid item xs={12} sm={6} md={2.4}>
                 <StatisticCard 
                     label="Avg Satellites"
                     value={`${stats.avgSatellites.toFixed(1)}`}
-                    color="#9C27B0"
+                    color="#b08cf0"
                 />
             </Grid>
             <Grid item xs={12} sm={6} md={2.4}>
                 <StatisticCard 
                     label="Data Points"
                     value={`${stats.dataPoints}`}
-                    color="#F44336"
+                    color="#e5433b"
                 />
             </Grid>
         </Grid>

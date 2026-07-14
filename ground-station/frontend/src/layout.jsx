@@ -197,20 +197,17 @@ function HeaderPartnerLogos() {
 function AppTitle({ onLogoClick }) {
     return (
         <Box display="flex" alignItems="center" gap={1} onClick={onLogoClick} sx={{ userSelect: 'none' }}>
-            <img src={SAFARI_HEADER_LOGO} alt="SAFARI" style={{ height: 30, width: 54, objectFit: 'cover', borderRadius: 4 }} />
+            <img src={SAFARI_HEADER_LOGO} alt="SAFARI" style={{ height: 30, width: 54, objectFit: 'cover', borderRadius: 0 }} />
             <Typography variant="h6">Ground Station</Typography>
         </Box>
     );
 }
 
-function ToolbarActions() {
+// Per-page action buttons (Export / Import / Edit). Rendered to the LEFT of the
+// topbar widgets so those (time, weather, wind, countdown) sit to their right.
+function PageActionButtons() {
     const { node } = usePageActions();
-    return (
-        <Stack direction="row" alignItems="center">
-            {node}
-            <HeaderPartnerLogos />
-        </Stack>
-    );
+    return node;
 }
 
 function DrawerContent({ isExpanded, navigation, onNavigate, isActive }) {
@@ -296,8 +293,9 @@ export default function Layout() {
                     <Toolbar>
                         <AppTitle onLogoClick={handleLogoClick} />
                         <Box sx={{ flexGrow: 1 }} />
+                        <PageActionButtons />
                         <TopbarWidgets />
-                        <ToolbarActions />
+                        <HeaderPartnerLogos />
                     </Toolbar>
                 </AppBar>
 

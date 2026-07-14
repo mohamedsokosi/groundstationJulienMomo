@@ -39,86 +39,110 @@ follow_and_wait() {
         sleep 0.2
     done
     if [[ ! -f "$BACKEND_LOG" ]]; then
-        echo "Log backend introuvable — la station n'a peut-être pas démarré (voir 'gss debug')." >&2
+        echo "Backend log not found - the station may not have started (see 'gss debug')." >&2
         return 1
     fi
     # Ctrl+C interrupts the foreground `tail`; bash then runs this INT trap, which
     # stops every service and exits cleanly (0) so the shell doesn't report 130.
     trap 'echo; cmd_kill; exit 0' INT
     echo
-    echo "LOG BACKEND EN DIRECT — CTRL+C POUR TOUT ARRÊTER (backend + frontend + simulateur)"
+    echo "LIVE BACKEND LOG - CTRL+C TO STOP EVERYTHING (backend + frontend + simulator)"
     tail -n 40 -f "$BACKEND_LOG"
 }
 
 cmd_start() {
     local ip; ip="$(resolve_ip "${1:-}")"
-    echo "DÉMARRAGE, CLOUD ON, BROKER $ip"
+    echo "STARTING, CLOUD ON, BROKER $ip"
     bash "$START" -Restart -BrokerHost "$ip" || return $?
     follow_and_wait
 }
 
 cmd_startoffline() {
     local ip; ip="$(resolve_ip "${1:-}")"
-    echo "DÉMARRAGE HORS-LIGNE, PAS D'UPLOAD CLOUD, BROKER $ip"
+    echo "STARTING OFFLINE, NO CLOUD UPLOAD, BROKER $ip"
     bash "$START" -Restart -Offline -BrokerHost "$ip" || return $?
     follow_and_wait
 }
 
 cmd_simulation() {
-    # Rejoue le CSV de vol canonique ICARUS2 comme si c'était de la télémétrie
-    # live : broker MQTT local + simulateur -> même pipeline que le vrai matériel,
-    # sans matériel. Offline (pas d'upload cloud) et sans capture CSV locale, pour
-    # ne pas polluer l'archive Google Sheet / ~/Desktop/telemetry avec du simulé.
+    # Replays the canonical ICARUS2 flight CSV as if it were live telemetry:
+    # local MQTT broker + simulator -> same pipeline as the real hardware,
+    # without hardware. Offline (no cloud upload) and without local CSV capture,
+    # so the Google Sheet archive / ~/Desktop/telemetry is not polluted with sim data.
     #
-    # Vitesse de rejeu : le défaut 0.2s/frame = temps réel (~1 Hz). Le mot-clé
-    # `fast` active le mode rapide ; un nombre optionnel après `fast` fixe le
-    # multiplicateur de vitesse -> délai = 0.2 / N (N dans ]0, 50]) :
-    #   `gss simulation fast`     -> 20x plus rapide (0.01s/frame)  [défaut]
-    #   `gss simulation fast 5`   -> 5x plus rapide  (0.04s/frame)
-    #   `gss simulation fast 10`  -> 10x plus rapide (0.02s/frame)
-    #   `gss simulation fast 20`  -> 20x plus rapide (0.01s/frame)
-    # `fast`, le multiplicateur et le chemin CSV peuvent être donnés dans
-    # n'importe quel ordre.
-    local default_csv csv="" fast=false mult="" delay="0.2" arg
+    # Replay speed: the default 0.2s/frame = real time (~1 Hz). The `fast`
+    # keyword enables fast mode; an optional number after `fast` sets the speed
+    # multiplier -> delay = 0.2 / N (N in ]0, 50]):
+    #   `gss simulation fast`     -> 20x faster (0.01s/frame)  [default]
+    #   `gss simulation fast 5`   -> 5x faster  (0.04s/frame)
+    #   `gss simulation fast 10`  -> 10x faster (0.02s/frame)
+    #   `gss simulation fast 20`  -> 20x faster (0.01s/frame)
+    # `fast`, the multiplier and the CSV path can be given in any order.
+    #
+    # Fault injection: `gss simulation corrupt` replays the SAME CSV but the
+    # simulator deliberately mangles the stream (corrupted / truncated / missing /
+    # duplicated / out-of-range frames...) so the station's failure handling can be
+    # rehearsed before a real launch. `corrupt` alone = all fault types; a fault
+    # list narrows it (e.g. `gss simulation corrupt drop,truncate`). Composes with
+    # `fast N`. Each injection prints a banner (what was sent + expected reaction)
+    # in the simulator log.
+    local default_csv csv="" fast=false mult="" delay="0.2" arg corrupt=false faults=""
+    local fault_names='corrupt|truncate|garbage|empty|drop|duplicate|outoforder|outofrange|badgeojson|all'
+    local fault_re="^($fault_names)(,($fault_names))*$"
     default_csv="$(cd "$SCRIPT_DIR/../../.." && pwd)/Safari_GS_antenna/telemetrySender/src/telemetry.csv"
     for arg in "$@"; do
         case "$arg" in
             fast|Fast|FAST) fast=true ;;
+            corrupt|Corrupt|CORRUPT) corrupt=true ;;   # all faults unless a list follows
             "") ;;
-            *[!0-9.]*) csv="$arg" ;;          # contient une lettre/slash -> chemin CSV
-            *) mult="$arg"; fast=true ;;      # purement numérique -> multiplicateur (implique fast)
+            *)
+                if [[ "$arg" =~ $fault_re ]]; then
+                    faults="$arg"; corrupt=true       # fault list -> implies corrupt mode
+                elif [[ "$arg" == *[!0-9.]* ]]; then
+                    csv="$arg"                        # contains a letter/slash -> CSV path
+                else
+                    mult="$arg"; fast=true            # purely numeric -> multiplier (implies fast)
+                fi ;;
         esac
     done
     if $fast; then
-        [[ -z "$mult" ]] && mult="20"         # `fast` seul = 20x par défaut
+        [[ -z "$mult" ]] && mult="20"         # `fast` alone = 20x by default
         if ! awk -v m="$mult" 'BEGIN { exit !(m+0 > 0 && m+0 <= 50) }'; then
-            echo "Multiplicateur de vitesse invalide : '$mult' (attendu un nombre dans ]0, 50])." >&2
-            echo "Usage: gss simulation fast [N] [csv]   # N = multiplicateur, ex: 5, 10, 20" >&2
+            echo "Invalid speed multiplier: '$mult' (expected a number in ]0, 50])." >&2
+            echo "Usage: gss simulation fast [N] [csv]   # N = multiplier, e.g. 5, 10, 20" >&2
             return 1
         fi
         delay="$(awk -v m="$mult" 'BEGIN { printf "%.5g", 0.2 / m }')"
     fi
     [[ -z "$csv" ]] && csv="$default_csv"
     if [[ ! -f "$csv" ]]; then
-        echo "CSV de simulation introuvable: $csv" >&2
-        echo "Usage: gss simulation [fast] [chemin/vers/telemetry.csv]" >&2
+        echo "Simulation CSV not found: $csv" >&2
+        echo "Usage: gss simulation [fast] [path/to/telemetry.csv]" >&2
         return 1
     fi
     if ! command -v mosquitto >/dev/null 2>&1; then
-        echo "mosquitto (broker MQTT local) manquant — requis pour la simulation." >&2
-        echo "Installe-le puis relance :  sudo apt install -y mosquitto" >&2
+        echo "mosquitto (local MQTT broker) missing - required for simulation." >&2
+        echo "Install it then rerun:  sudo apt install -y mosquitto" >&2
         return 1
     fi
-    echo "SIMULATION — BROKER LOCAL + REJEU CSV (offline, sans capture CSV locale)"
+    echo "SIMULATION - LOCAL BROKER + CSV REPLAY (offline, no local CSV capture)"
     echo "CSV: $csv"
-    $fast && echo "MODE RAPIDE — ${mult}x plus rapide (delai ${delay}s/frame)"
-    TELEMETRY_CSV_LOG_ENABLED=0 bash "$START" -Restart -Mqtt -Simulator -Offline -SimCsv "$csv" -SimDelay "$delay" || return $?
+    $fast && echo "FAST MODE - ${mult}x faster (delay ${delay}s/frame)"
+    local sim_fault_args=()
+    if $corrupt; then
+        [[ -z "$faults" ]] && faults="all"
+        sim_fault_args=(-SimFaults "$faults")
+        echo "FAULT INJECTION - faults: $faults"
+        echo "Fault banners (what was injected + expected station reaction):"
+        echo "  tail -f $LOG_DIR/cubesat-simulator.txt"
+    fi
+    TELEMETRY_CSV_LOG_ENABLED=0 bash "$START" -Restart -Mqtt -Simulator -Offline -SimCsv "$csv" -SimDelay "$delay" "${sim_fault_args[@]}" || return $?
     follow_and_wait
 }
 
 cmd_kill() {
     local found=0 port pid pids
-    echo "ARRÊT DE LA GROUND STATION"
+    echo "STOPPING THE GROUND STATION"
     for port in "$BACKEND_PORT" "$FRONTEND_PORT"; do
         pids="$(lsof -ti "tcp:$port" -sTCP:LISTEN 2>/dev/null || true)"
         for pid in $pids; do
@@ -130,14 +154,14 @@ cmd_kill() {
     # The CubeSat simulator is an MQTT publisher with no listening port, so the
     # port loop above misses it. Kill it by name too, or it keeps publishing.
     if pgrep -f "mqtt_cubesat_simulator.py" >/dev/null 2>&1; then
-        echo "kill simulateur CubeSat"
+        echo "kill CubeSat simulator"
         pkill -f "mqtt_cubesat_simulator.py" 2>/dev/null || true
         found=1
     fi
     if [[ $found -eq 0 ]]; then
-        echo "Rien à arrêter (aucun process sur $BACKEND_PORT / $FRONTEND_PORT)."
+        echo "Nothing to stop (no process on $BACKEND_PORT / $FRONTEND_PORT)."
     else
-        echo "Ground station arrêtée."
+        echo "Ground station stopped."
     fi
 }
 
@@ -147,19 +171,19 @@ cmd_verbose() {
     case "${1:-back}" in
         all|both)
             if ! ls "$LOG_DIR"/*.txt >/dev/null 2>&1; then
-                echo "Pas encore de logs ($LOG_DIR). Lance 'gss start' d'abord."; return 1
+                echo "No logs yet ($LOG_DIR). Run 'gss start' first."; return 1
             fi
-            echo "LOGS BACKEND + FRONTEND, CTRL+C POUR QUITTER"
+            echo "BACKEND + FRONTEND LOGS, CTRL+C TO QUIT"
             tail -n 40 -f "$LOG_DIR"/*.txt
             ;;
         front|frontend)
-            [[ -f "$FRONTEND_LOG" ]] || { echo "Log frontend absent. Lance 'gss start' d'abord."; return 1; }
-            echo "LOG FRONTEND EN DIRECT, CTRL+C POUR QUITTER"
+            [[ -f "$FRONTEND_LOG" ]] || { echo "Frontend log missing. Run 'gss start' first."; return 1; }
+            echo "LIVE FRONTEND LOG, CTRL+C TO QUIT"
             tail -n 40 -f "$FRONTEND_LOG"
             ;;
         *)
-            [[ -f "$BACKEND_LOG" ]] || { echo "Log backend absent. Lance 'gss start' d'abord."; return 1; }
-            echo "LOG BACKEND EN DIRECT, CTRL+C POUR QUITTER"
+            [[ -f "$BACKEND_LOG" ]] || { echo "Backend log missing. Run 'gss start' first."; return 1; }
+            echo "LIVE BACKEND LOG, CTRL+C TO QUIT"
             tail -n 40 -f "$BACKEND_LOG"
             ;;
     esac
@@ -167,40 +191,47 @@ cmd_verbose() {
 
 cmd_debug() {
     if [[ ! -f "$BACKEND_LOG" ]]; then
-        echo "Pas de log backend ($BACKEND_LOG). Lance 'gss start' d'abord."
+        echo "No backend log ($BACKEND_LOG). Run 'gss start' first."
         return 1
     fi
-    echo "ERREURS / WARNINGS RÉCENTS (BACKEND) :"
+    echo "RECENT ERRORS / WARNINGS (BACKEND):"
     grep -iE "error|warn|exception|traceback|failed|critical" "$BACKEND_LOG" | tail -n 60 \
-        || echo "(aucune erreur trouvée, tout va bien)"
+        || echo "(no errors found, all good)"
 }
 
 cmd_help() {
     cat <<'EOF'
 gss, Ground Station CLI
 
-  gss start [ip]          Démarre la station (upload cloud activé).  Défaut: 10.180.97.23
-  gss start defaut        Démarre avec l'IP par défaut (10.180.97.23)
-  gss startoffline [ip]   Démarre SANS upload cloud (Google Sheet désactivé)
-  gss simulation [csv]    Rejoue un CSV comme télémétrie live (broker local, offline)
-  gss simulation fast     Idem, mais 20x plus rapide (0.01s par frame)
-  gss simulation fast <N> Idem, Nx plus rapide (N dans ]0, 50] ; ex: fast 5, fast 10)
-  gss kill                Arrête la station (backend + frontend)
-  gss verbose [all|front] Suit le log backend en direct (all = +frontend)
-  gss debug               Affiche les erreurs / warnings récents
-  gss help                Affiche cette aide
+  gss start [ip]          Start the station (cloud upload enabled).  Default: 10.180.97.23
+  gss start default       Start with the default IP (10.180.97.23)
+  gss startoffline [ip]   Start WITHOUT cloud upload (Google Sheet disabled)
+  gss simulation [csv]    Replay a CSV as live telemetry (local broker, offline)
+  gss simulation fast     Same, but 20x faster (0.01s per frame)
+  gss simulation fast <N> Same, Nx faster (N in ]0, 50]; e.g. fast 5, fast 10)
+  gss simulation corrupt  Same, but injects faults every 50 frames to rehearse
+                          failures: corrupt, truncate, garbage, empty, drop,
+                          duplicate, outoforder, outofrange, badgeojson
+  gss simulation corrupt <list>  Only those faults (e.g. corrupt drop,truncate)
+  gss kill                Stop the station (backend + frontend)
+  gss verbose [all|front] Follow the backend log live (all = +frontend)
+  gss debug               Show recent errors / warnings
+  gss help                Show this help
 
-Après start / startoffline / simulation, le terminal reste attaché au log backend :
-  → CTRL+C arrête TOUT (backend + frontend + simulateur).
-  → GS_FOLLOW=0 gss start   garde l'ancien comportement (rend la main, station détachée).
+After start / startoffline / simulation, the terminal stays attached to the backend log:
+  -> CTRL+C stops EVERYTHING (backend + frontend + simulator).
+  -> GS_FOLLOW=0 gss start   keeps the old behaviour (returns to the prompt, station detached).
 
-Exemples:
-  gss start 10.180.97.45      # broker sur cette IP
-  gss start defaut            # IP par défaut
-  gss startoffline            # local seulement, pas de cloud
-  gss simulation              # rejoue le CSV de vol ICARUS2 (sans matériel)
-  gss simulation fast         # idem, 20x plus rapide
-  gss simulation fast 10      # idem, 10x plus rapide
+Examples:
+  gss start 10.180.97.45      # broker on this IP
+  gss start default           # default IP
+  gss startoffline            # local only, no cloud
+  gss simulation              # replay the ICARUS2 flight CSV (no hardware)
+  gss simulation fast         # same, 20x faster
+  gss simulation fast 10      # same, 10x faster
+  gss simulation corrupt      # same + ALL fault types (launch-day rehearsal)
+  gss simulation corrupt drop # only the missing-frames fault
+  gss simulation corrupt fast 5   # faults + 5x replay speed
 EOF
 }
 
@@ -214,5 +245,5 @@ case "$sub" in
     verbose|logs)       cmd_verbose "${1:-}";;
     debug|errors)       cmd_debug;;
     help|-h|--help|"")  cmd_help;;
-    *) echo "Commande inconnue: '$sub'"; echo; cmd_help; exit 1;;
+    *) echo "Unknown command: '$sub'"; echo; cmd_help; exit 1;;
 esac

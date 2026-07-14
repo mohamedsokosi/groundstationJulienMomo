@@ -122,7 +122,7 @@ export default function CubeSatAnnotatedVisual({
                 borderRadius: 2,
                 overflow: 'hidden',
                 background: theme.palette.mode === 'dark'
-                    ? 'radial-gradient(circle at 44% 12%, rgba(79, 183, 214, 0.18), transparent 24%), radial-gradient(circle at 73% 52%, rgba(76, 188, 116, 0.1), transparent 32%), linear-gradient(160deg, rgba(4, 12, 20, 0.99), rgba(9, 22, 34, 0.97) 48%, rgba(3, 8, 14, 0.99))'
+                    ? 'radial-gradient(circle at 44% 12%, rgba(38, 169, 160, 0.18), transparent 24%), radial-gradient(circle at 73% 52%, rgba(90, 160, 62, 0.1), transparent 32%), linear-gradient(160deg, rgba(21, 24, 29, 0.99), rgba(28, 31, 38, 0.97) 48%, rgba(15, 17, 20, 0.99))'
                     : 'radial-gradient(circle at 44% 12%, rgba(25, 118, 210, 0.18), transparent 25%), radial-gradient(circle at 72% 52%, rgba(76, 175, 80, 0.1), transparent 34%), linear-gradient(160deg, rgba(249, 252, 255, 0.98), rgba(238, 245, 250, 0.96))',
                 border: `1px solid ${alpha(theme.palette.divider, 0.7)}`,
                 boxShadow: theme.palette.mode === 'dark'
@@ -163,7 +163,7 @@ export default function CubeSatAnnotatedVisual({
                     pointerEvents: 'none',
                     zIndex: 1,
                     filter: theme.palette.mode === 'dark'
-                        ? 'drop-shadow(0 26px 32px rgba(0, 0, 0, 0.48)) drop-shadow(0 0 18px rgba(79, 183, 214, 0.08))'
+                        ? 'drop-shadow(0 26px 32px rgba(0, 0, 0, 0.48)) drop-shadow(0 0 18px rgba(38, 169, 160, 0.08))'
                         : 'drop-shadow(0 18px 24px rgba(22, 34, 56, 0.16))',
                 }}
             />

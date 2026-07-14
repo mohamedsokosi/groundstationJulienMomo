@@ -105,17 +105,31 @@ const telemetrySlice = createSlice({
             }
         },
         appendTerminalLines: (state, action) => {
-            const { variant, lines, cursor, inBlackout, bridgeLogId } = action.payload || {};
+            const {
+                variant, lines, cursor, inBlackout, bridgeLogId, fromCursor, backendDown,
+            } = action.payload || {};
             const v = state.terminalState[variant];
             if (!v) return;
+            // Telemetry-derived batches declare the cursor they were computed
+            // from. Two mounted errors terminals (left column + stats bar) — or a
+            // StrictMode effect re-run — process the same new frames and dispatch
+            // the SAME batch twice; only the first still matches v.cursor, the
+            // echo is dropped whole. This is what keeps every anomaly line from
+            // appearing twice.
+            if (fromCursor !== undefined && fromCursor !== v.cursor) return;
+            // Backend down/up transition lines: idempotent via a persisted flag,
+            // so concurrent terminal instances can't both announce the same event.
+            if (backendDown !== undefined) {
+                if (Boolean(v.backendDown) === backendDown) return;
+                v.backendDown = backendDown;
+            }
             if (cursor !== undefined) v.cursor = cursor;
             if (inBlackout !== undefined) v.inBlackout = inBlackout;
             if (bridgeLogId !== undefined) v.bridgeLogId = bridgeLogId;
             if (lines?.length) {
                 // Dedup by stable id: bridge-log lines carry `bridge-<id>` and a
-                // re-poll can re-deliver the same entry; telemetry lines use unique
-                // random ids so they're never filtered. Keeps the terminal clean
-                // regardless of double-polling (StrictMode, two errors terminals…).
+                // re-poll can re-deliver the same entry (telemetry batches are
+                // already handled by the fromCursor guard above).
                 const seen = new Set(v.lines.map((l) => l.id));
                 const fresh = lines.filter((l) => !seen.has(l.id));
                 if (fresh.length) {

@@ -76,10 +76,10 @@ const loadSavedCharts = () => {
 };
 
 const DEFAULT_CHARTS = [
-    { id: 'default-0', xKey: '_elapsed_min', lines: [{ key: '_bilan',   color: '#4cbc74' }], cols: 3, ratio: '1/1', track: true, favorite: false },
-    { id: 'default-1', xKey: '_elapsed_min', lines: [{ key: '_fspl',    color: '#ee8a22' }], cols: 3, ratio: '1/1', track: true, favorite: false },
-    { id: 'default-2', xKey: '_elapsed_min', lines: [{ key: 'Pressure', color: '#4fb7d6' }], cols: 3, ratio: '1/1', track: true, favorite: false },
-    { id: 'default-3', xKey: '_elapsed_min', lines: [{ key: 'Speed',    color: '#d2b04c' }], cols: 3, ratio: '1/1', track: true, favorite: false },
+    { id: 'default-0', xKey: '_elapsed_min', lines: [{ key: '_bilan',   color: '#17a294' }], cols: 3, ratio: '1/1', track: true, favorite: false },
+    { id: 'default-1', xKey: '_elapsed_min', lines: [{ key: '_fspl',    color: '#c56a2a' }], cols: 3, ratio: '1/1', track: true, favorite: false },
+    { id: 'default-2', xKey: '_elapsed_min', lines: [{ key: 'Pressure', color: '#3d8fc4' }], cols: 3, ratio: '1/1', track: true, favorite: false },
+    { id: 'default-3', xKey: '_elapsed_min', lines: [{ key: 'Speed',    color: '#bf8018' }], cols: 3, ratio: '1/1', track: true, favorite: false },
 ];
 
 export default function AnalyseDashboard() {
@@ -172,7 +172,7 @@ export default function AnalyseDashboard() {
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = 'analyse-graphiques.json';
+        a.download = 'analyse-charts.json';
         a.click();
         URL.revokeObjectURL(url);
     }, []);
@@ -201,11 +201,11 @@ export default function AnalyseDashboard() {
             <Stack direction="row" spacing={1} sx={{ mr: 1 }}>
                 <Button variant="outlined" size="small" startIcon={<FileDownloadIcon />} onClick={exportConfig}
                     sx={{ color: 'white', borderColor: 'rgba(255,255,255,0.5)', '&:hover': { borderColor: 'white' } }}>
-                    Exporter
+                    Export
                 </Button>
                 <Button variant="outlined" size="small" component="label" startIcon={<FileUploadIcon />}
                     sx={{ color: 'white', borderColor: 'rgba(255,255,255,0.5)', '&:hover': { borderColor: 'white' } }}>
-                    Importer
+                    Import
                     <input type="file" accept=".json" hidden onChange={importConfig} />
                 </Button>
                 <Button
@@ -216,7 +216,7 @@ export default function AnalyseDashboard() {
                     color={editMode ? 'success' : 'inherit'}
                     sx={editMode ? {} : { color: 'white', borderColor: 'rgba(255,255,255,0.5)', '&:hover': { borderColor: 'white' } }}
                 >
-                    {editMode ? 'Terminer' : 'Modifier'}
+                    {editMode ? 'Done' : 'Edit'}
                 </Button>
             </Stack>
         );
@@ -259,8 +259,8 @@ export default function AnalyseDashboard() {
                     <Stack spacing={1}>
                         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ sm: 'flex-end' }}>
                             <FormControl size="small" sx={{ minWidth: 180 }}>
-                                <InputLabel>Axe X</InputLabel>
-                                <Select value={newX} onChange={(e) => setNewX(e.target.value)} label="Axe X">
+                                <InputLabel>X Axis</InputLabel>
+                                <Select value={newX} onChange={(e) => setNewX(e.target.value)} label="X Axis">
                                     {AVAILABLE_FIELDS.map((f) => (
                                         <MenuItem key={f.key} value={f.key}>{f.label}</MenuItem>
                                     ))}
@@ -389,7 +389,7 @@ export default function AnalyseDashboard() {
                                             <IconButton
                                                 size="small"
                                                 onClick={() => toggleChartFavorite(chart)}
-                                                sx={{ p: 0.25, color: chart.favorite ? '#fbbf24' : alpha(theme.palette.text.secondary, 0.3) }}
+                                                sx={{ p: 0.25, color: chart.favorite ? '#f5a623' : alpha(theme.palette.text.secondary, 0.3) }}
                                             >
                                                 {chart.favorite
                                                     ? <StarIcon sx={{ fontSize: 14 }} />

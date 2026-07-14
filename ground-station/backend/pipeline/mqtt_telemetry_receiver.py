@@ -29,6 +29,31 @@ _outage_active = False
 # the /api/status endpoint so the operator can tell a broker/Pi problem apart from
 # a merely-idle link.
 _broker_connected = False
+# True once a broker connection has been lost/failed, so the next successful
+# connect can announce the recovery to the operator (a first connect is silent).
+_broker_was_down = False
+
+# Undecodable frames (corruption on the RF link, foreign publisher on the topic…)
+# can arrive in storms — alert the operator at most once per window, with a count,
+# instead of one line per bad frame.
+_BAD_FRAME_ALERT_WINDOW_SEC = 10.0
+_bad_frames = {"count": 0, "last_alert": 0.0}
+
+
+def _alert_bad_frame(payload_size: int, exc: Exception) -> None:
+    _bad_frames["count"] += 1
+    now = time.time()
+    if now - _bad_frames["last_alert"] < _BAD_FRAME_ALERT_WINDOW_SEC:
+        return
+    count, _bad_frames["count"] = _bad_frames["count"], 0
+    _bad_frames["last_alert"] = now
+    plural = "s" if count > 1 else ""
+    bridge_log_store.alert(
+        "ERROR", "backend",
+        f"[BAD_FRAME] {count} undecodable telemetry frame{plural} received "
+        f"(last: {payload_size} bytes, {exc}) - corrupted link? Frames are skipped, "
+        "the station keeps running",
+    )
 
 
 def get_broker_connected() -> bool:
@@ -80,13 +105,13 @@ def _humanize_bridge_message(message: str) -> str:
 
     When the RFD's USB-serial adapter is unplugged, the bridge prints
     `Serial error: … could not open port /dev/ttyUSB0: No such file …` every 3 s.
-    Surface that as a plain "RFD non branché" line instead (the device path is
+    Surface that as a plain "RFD not plugged in" line instead (the device path is
     kept for context). Other messages pass through unchanged."""
     low = message.lower()
     if "could not open port" in low or "no such file" in low:
         match = _RFD_PORT_RE.search(message)
-        port = match.group(0) if match else "port série"
-        return f"[RFD_DISCONNECTED] RFD non branché sur le Pi ({port} introuvable)"
+        port = match.group(0) if match else "serial port"
+        return f"[RFD_DISCONNECTED] RFD not plugged into the Pi ({port} not found)"
     return message
 
 
@@ -126,7 +151,7 @@ def _run_receiver(config: dict) -> None:
     bridge_log_store.configure_maxlen(config["bridge_log_maxlen"])
 
     def on_connect(client, userdata, flags, reason_code, properties):
-        global _broker_connected
+        global _broker_connected, _broker_was_down
         is_success = reason_code == 0 or getattr(reason_code, "value", None) == 0
         if is_success or str(reason_code).lower() == "success":
             _broker_connected = True
@@ -137,17 +162,37 @@ def _run_receiver(config: dict) -> None:
                 config["topic"],
                 config["bridge_log_topic"],
             )
+            # Announce a RECOVERY (not the first connect) in the errors terminal,
+            # so a broker/Pi restart shows a clear "fixed" line to the operator.
+            if _broker_was_down:
+                _broker_was_down = False
+                bridge_log_store.alert(
+                    "INFO", "backend",
+                    f"[BROKER] reconnected to {config['broker_host']}:{config['broker_port']} - "
+                    "subscriptions restored",
+                )
             client.subscribe(config["topic"], qos=config["qos"])
             client.subscribe(config["bridge_log_topic"], qos=config["qos"])
             return
 
         _broker_connected = False
-        logger.error("MQTT telemetry receiver connection failed: %s", reason_code)
+        _broker_was_down = True
+        bridge_log_store.alert(
+            "ERROR", "backend",
+            f"[BROKER] connection to {config['broker_host']}:{config['broker_port']} "
+            f"refused ({reason_code}) - retrying automatically",
+        )
 
     def on_disconnect(client, userdata, disconnect_flags, reason_code, properties):
-        global _broker_connected
+        global _broker_connected, _broker_was_down
         _broker_connected = False
-        logger.warning("MQTT telemetry receiver disconnected from broker: %s", reason_code)
+        _broker_was_down = True
+        # paho's loop_forever reconnects on its own - tell the operator both facts.
+        bridge_log_store.alert(
+            "WARN", "backend",
+            f"[BROKER] lost connection to {config['broker_host']}:{config['broker_port']} "
+            f"({reason_code}) - Pi rebooting or network drop? Reconnecting automatically",
+        )
 
     def on_message(client, userdata, message):
         global _last_frame_at, _outage_active
@@ -162,7 +207,7 @@ def _run_receiver(config: dict) -> None:
             _last_frame_at = time.time()
             if _outage_active:
                 _outage_active = False
-                logger.info("[TELEMETRY_RESUMED] télémétrie de nouveau reçue")
+                logger.info("[TELEMETRY_RESUMED] telemetry received again")
             logger.debug(
                 "MQTT telemetry frame stored: sequence=%s altitude=%.2f speed=%.2f count=%s",
                 frame["sequence_number"],
@@ -172,11 +217,14 @@ def _run_receiver(config: dict) -> None:
             )
         except Exception as exc:
             logger.error("Failed to decode MQTT telemetry payload: %s", exc)
+            # Also surface it in the frontend errors terminal (throttled) - a
+            # corrupted frame must never be silent for the operator.
+            _alert_bad_frame(len(message.payload), exc)
 
     reconnect_delay = DEFAULT_RECONNECT_DELAY_SECONDS
 
     while True:
-        global _broker_connected
+        global _broker_connected, _broker_was_down
         client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
         client.on_connect = on_connect
         client.on_disconnect = on_disconnect
@@ -187,12 +235,13 @@ def _run_receiver(config: dict) -> None:
             client.loop_forever()
         except Exception as exc:
             _broker_connected = False
-            logger.error(
-                "MQTT telemetry receiver connection to %s:%s failed: %s; retrying in %ss",
-                config["broker_host"],
-                config["broker_port"],
-                exc,
-                reconnect_delay,
+            _broker_was_down = True
+            # alert() dedups (1 line / 60 s) so this 3 s retry loop doesn't flood
+            # the errors terminal or `gss debug` while the broker stays down.
+            bridge_log_store.alert(
+                "ERROR", "backend",
+                f"[BROKER] cannot reach {config['broker_host']}:{config['broker_port']} "
+                f"({exc}) - Pi off or wrong IP? Retrying every {reconnect_delay}s",
             )
             time.sleep(reconnect_delay)
         finally:
@@ -217,7 +266,7 @@ def _run_frame_watchdog(timeout_seconds: int) -> None:
         if elapsed > timeout_seconds and not _outage_active:
             _outage_active = True
             logger.warning(
-                "[RPI_DISCONNECTED] télémétrie non reçue (aucune trame depuis %.0fs)",
+                "[RPI_DISCONNECTED] telemetry not received (no frame for %.0fs)",
                 elapsed,
             )
 

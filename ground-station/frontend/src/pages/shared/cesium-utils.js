@@ -1,9 +1,11 @@
 import {
     ArcGisMapServerImageryProvider,
     Cartesian3,
+    Cartographic,
     createWorldImageryAsync,
     Ion,
     IonWorldImageryStyle,
+    Math as CesiumMath,
     OpenStreetMapImageryProvider,
     TileMapServiceImageryProvider,
 } from 'cesium';
@@ -43,6 +45,10 @@ export const getTelemetryRecordGeo = (record) => {
     const lon = toTelemetryNumber(record?.['U_Long'], null);
     const alt = getTelemetryNumber(record, ['U_Alt', 'U Alt'], 0);
     if (lat === null || lon === null) return null;
+    // (0,0) is the GPS no-fix sentinel, not a real position — returning null
+    // keeps the CubeSat model/trajectory at the last valid fix instead of
+    // teleporting to the Gulf of Guinea.
+    if (lat === 0 && lon === 0) return null;
     return { lat, lon, alt };
 };
 
@@ -58,13 +64,7 @@ export const getCesiumGroundPosition = (record) => {
     return Cartesian3.fromDegrees(geo.lon, geo.lat, 0);
 };
 
-export const getTrajectoryCameraView = (records) => {
-    const points = records.map(getTelemetryRecordGeo).filter(Boolean);
-    if (points.length === 0) {
-        return { lon: DEFAULT_CENTER[1], lat: DEFAULT_CENTER[0], height: MAP_CAMERA_HEIGHT };
-    }
-    const lats = points.map((p) => p.lat);
-    const lons = points.map((p) => p.lon);
+const cameraViewFromLatLon = (lats, lons) => {
     const minLat = Math.min(...lats);
     const maxLat = Math.max(...lats);
     const minLon = Math.min(...lons);
@@ -75,6 +75,29 @@ export const getTrajectoryCameraView = (records) => {
         lat: (minLat + maxLat) / 2,
         height: Math.min(MAP_MAX_CAMERA_HEIGHT, Math.max(MAP_CAMERA_HEIGHT, span * 640000)),
     };
+};
+
+// Camera fit computed from the ALREADY-DRAWN Cartesian3 positions (the ones that
+// passed the plausibility gate), not the raw records. A teleported fix is a
+// perfectly valid-looking lat/lon — getTelemetryRecordGeo can't tell — so fitting
+// the camera to raw records would zoom all the way out to fit the bad point every
+// time the view remounts. Fitting to the gated positions keeps that from happening.
+export const getCameraViewFromPositions = (positions) => {
+    if (!positions || positions.length === 0) {
+        return { lon: DEFAULT_CENTER[1], lat: DEFAULT_CENTER[0], height: MAP_CAMERA_HEIGHT };
+    }
+    const lats = [];
+    const lons = [];
+    for (const p of positions) {
+        const carto = Cartographic.fromCartesian(p);
+        if (!carto) continue;
+        lats.push(CesiumMath.toDegrees(carto.latitude));
+        lons.push(CesiumMath.toDegrees(carto.longitude));
+    }
+    if (lats.length === 0) {
+        return { lon: DEFAULT_CENTER[1], lat: DEFAULT_CENTER[0], height: MAP_CAMERA_HEIGHT };
+    }
+    return cameraViewFromLatLon(lats, lons);
 };
 
 export const createBaseImageryProvider = async () => {

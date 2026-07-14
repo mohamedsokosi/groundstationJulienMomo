@@ -1,5 +1,6 @@
 import os
 import time
+import uuid
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
@@ -9,7 +10,12 @@ from fastapi.staticfiles import StaticFiles
 
 from common.logger import logger
 from common.profiling import install_request_timing, stop_boot_profile_and_report
-from pipeline import bridge_log_store, telemetry_store
+from pipeline import (
+    bridge_log_store,
+    telemetry_csv_logger,
+    telemetry_sheets_sync,
+    telemetry_store,
+)
 from pipeline.mqtt_telemetry_receiver import (
     get_broker_connected,
     get_last_bridge_message,
@@ -69,6 +75,19 @@ app.mount(
 TELEMETRY_PROTOBUF_MEDIA_TYPE = "application/x-protobuf"
 TELEMETRY_PROTOBUF_SCHEMA = "groundstation.telemetry.v1.TelemetryBatch"
 
+# Session identity, read by the frontend on every frames poll (response headers).
+# BOOT_ID changes on every backend (re)start; SESSION_MODE says whether this run
+# is a simulation replay or a live/hardware session (GS_SESSION_MODE, set by
+# start-local.sh). The frontend resets its graphs when a NEW simulation session
+# starts, but RESUMES across live restarts (a mid-flight backend restart must
+# never wipe the operator's charts).
+GS_BOOT_ID = uuid.uuid4().hex
+GS_SESSION_MODE = (
+    "simulation"
+    if os.getenv("GS_SESSION_MODE", "live").strip().lower() == "simulation"
+    else "live"
+)
+
 
 @app.get("/api/telemetry/mqtt/frames")
 async def get_mqtt_only_frames():
@@ -81,6 +100,10 @@ async def get_mqtt_only_frames():
             headers={
                 "Cache-Control": "no-store",
                 "X-Protobuf-Schema": TELEMETRY_PROTOBUF_SCHEMA,
+                # Session identity: lets the poller detect a NEW backend session
+                # (and whether it is a simulation) without an extra request.
+                "X-GS-Boot-Id": GS_BOOT_ID,
+                "X-GS-Session-Mode": GS_SESSION_MODE,
             },
         )
     except Exception as e:
@@ -137,13 +160,15 @@ async def get_operator_status():
         and bridge_age is not None
         and bridge_age < 15
         and "rfd" in bridge_msg.lower()
-        and ("branch" in bridge_msg.lower() or "introuvable" in bridge_msg.lower())
+        and ("disconnected" in bridge_msg.lower() or "not plugged" in bridge_msg.lower() or "not found" in bridge_msg.lower())
     ):
         rfd_status = "disconnected"
     else:
         rfd_status = "unknown"
 
     return {
+        "boot_id": GS_BOOT_ID,
+        "session_mode": GS_SESSION_MODE,
         "mqtt_enabled": is_mqtt_enabled(),
         "broker_host": cfg["broker_host"],
         "broker_port": cfg["broker_port"],
@@ -154,6 +179,10 @@ async def get_operator_status():
         "rfd_status": rfd_status,
         "bridge_last_message": bridge_msg,
         "bridge_last_age_sec": round(bridge_age, 1) if bridge_age is not None else None,
+        # Backup-sink health so the operator sees a failing archive (Sheet quota,
+        # disk full…) in the status block, not only in the errors terminal.
+        "sheets_sync": telemetry_sheets_sync.get_status(),
+        "csv_log": telemetry_csv_logger.get_status(),
     }
 
 

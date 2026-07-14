@@ -30,11 +30,11 @@ import {
 import { formatTelemetryNumber } from '../shared/telemetry-utils.js';
 
 const statusToneStyles = {
-    success: { color: '#2e7d32', background: 'rgba(46, 125, 50, 0.12)' },
-    warning: { color: '#ed6c02', background: 'rgba(237, 108, 2, 0.12)' },
-    error: { color: '#d32f2f', background: 'rgba(211, 47, 47, 0.12)' },
-    info: { color: '#0288d1', background: 'rgba(2, 136, 209, 0.12)' },
-    default: { color: '#6b7280', background: 'rgba(107, 114, 128, 0.12)' },
+    success: { color: '#4caf50', background: 'rgba(76, 175, 80, 0.12)' },
+    warning: { color: '#f5a623', background: 'rgba(245, 166, 35, 0.12)' },
+    error: { color: '#e5433b', background: 'rgba(229, 67, 59, 0.12)' },
+    info: { color: '#3d8fc4', background: 'rgba(61, 143, 196, 0.12)' },
+    default: { color: '#9aa1ab', background: 'rgba(154, 161, 171, 0.12)' },
 };
 
 export default function CubeSatSubsystemPanel({

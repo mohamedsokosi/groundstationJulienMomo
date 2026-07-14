@@ -30,8 +30,8 @@ const ANALYSE_STORAGE_KEY = 'analyse_charts_config';
 const STATION_LEFT_COL_KEY = 'station_left_column_config';
 
 const BOTTOM_CHART_DEFS = [
-    { id: 'station-bottom-alt',   xKey: '_elapsed_min', lines: [{ key: 'U_Alt',  color: '#4fb7d6' }] },
-    { id: 'station-bottom-speed', xKey: '_elapsed_min', lines: [{ key: 'Speed',  color: '#ee8a22' }] },
+    { id: 'station-bottom-alt',   xKey: '_elapsed_min', lines: [{ key: 'U_Alt',  color: '#3d8fc4' }] },
+    { id: 'station-bottom-speed', xKey: '_elapsed_min', lines: [{ key: 'Speed',  color: '#bf8018' }] },
 ];
 
 function loadFavoriteCharts() {
@@ -204,7 +204,7 @@ export default function StationDashboard() {
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = 'station-colonne-gauche.json';
+        a.download = 'station-left-column.json';
         a.click();
         URL.revokeObjectURL(url);
     }, []);
@@ -327,11 +327,11 @@ export default function StationDashboard() {
             <Stack direction="row" spacing={1} sx={{ mr: 1 }}>
                 <Button variant="outlined" size="small" startIcon={<FileDownloadIcon />} onClick={exportConfig}
                     sx={{ color: 'white', borderColor: 'rgba(255,255,255,0.5)', '&:hover': { borderColor: 'white' } }}>
-                    Exporter
+                    Export
                 </Button>
                 <Button variant="outlined" size="small" component="label" startIcon={<FileUploadIcon />}
                     sx={{ color: 'white', borderColor: 'rgba(255,255,255,0.5)', '&:hover': { borderColor: 'white' } }}>
-                    Importer
+                    Import
                     <input type="file" accept=".json" hidden onChange={importConfig} />
                 </Button>
                 <Button
@@ -342,7 +342,7 @@ export default function StationDashboard() {
                     color={editMode ? 'success' : 'inherit'}
                     sx={editMode ? {} : { color: 'white', borderColor: 'rgba(255,255,255,0.5)', '&:hover': { borderColor: 'white' } }}
                 >
-                    {editMode ? 'Terminer' : 'Modifier'}
+                    {editMode ? 'Done' : 'Edit'}
                 </Button>
             </Stack>
         );
@@ -372,8 +372,8 @@ export default function StationDashboard() {
                         <Stack spacing={1}>
                             <Stack direction="row" spacing={0.5} flexWrap="wrap">
                                 <FormControl size="small" sx={{ minWidth: 110 }}>
-                                    <InputLabel>Axe X</InputLabel>
-                                    <Select value={newX} onChange={(e) => setNewX(e.target.value)} label="Axe X">
+                                    <InputLabel>X Axis</InputLabel>
+                                    <Select value={newX} onChange={(e) => setNewX(e.target.value)} label="X Axis">
                                         {AVAILABLE_FIELDS.map((f) => (
                                             <MenuItem key={f.key} value={f.key}>{f.label}</MenuItem>
                                         ))}
@@ -415,11 +415,11 @@ export default function StationDashboard() {
                             </Stack>
                             <Stack direction="row" spacing={0.5}>
                                 <FormControl size="small" sx={{ minWidth: 130 }}>
-                                    <InputLabel>Type terminal</InputLabel>
-                                    <Select value={newTerminalVariant} onChange={(e) => setNewTerminalVariant(e.target.value)} label="Type terminal">
-                                        <MenuItem value="telemetry">Télémétrie</MenuItem>
+                                    <InputLabel>Terminal type</InputLabel>
+                                    <Select value={newTerminalVariant} onChange={(e) => setNewTerminalVariant(e.target.value)} label="Terminal type">
+                                        <MenuItem value="telemetry">Telemetry</MenuItem>
                                         <MenuItem value="verbose">Verbose</MenuItem>
-                                        <MenuItem value="errors">Erreurs</MenuItem>
+                                        <MenuItem value="errors">Errors</MenuItem>
                                     </Select>
                                 </FormControl>
                                 <Button size="small" variant="outlined" startIcon={<AddIcon />} onClick={addTerminal}
@@ -440,7 +440,7 @@ export default function StationDashboard() {
                 {leftItems.length === 0 && !editMode && (
                     <Box sx={{ p: 1 }}>
                         <Typography variant="caption" sx={{ color: 'text.disabled', fontSize: 11 }}>
-                            Empty column — use Edit to add items.
+                            Empty column. Use Edit to add items.
                         </Typography>
                     </Box>
                 )}
@@ -488,7 +488,7 @@ export default function StationDashboard() {
                                         ) : (
                                             <Box sx={{ display: 'flex', alignItems: 'center', flexShrink: 0 }}>
                                                 <IconButton size="small" onClick={() => toggleFavorite(item)}
-                                                    sx={{ p: 0.25, color: favouriteIds.has(item.id) ? '#fbbf24' : alpha(theme.palette.text.secondary, 0.3) }}>
+                                                    sx={{ p: 0.25, color: favouriteIds.has(item.id) ? '#f5a623' : alpha(theme.palette.text.secondary, 0.3) }}>
                                                     {favouriteIds.has(item.id)
                                                         ? <StarIcon sx={{ fontSize: 14 }} />
                                                         : <StarBorderOutlinedIcon sx={{ fontSize: 14 }} />}

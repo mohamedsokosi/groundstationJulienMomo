@@ -1,6 +1,10 @@
-import React, { useMemo } from 'react';
-import { Box, Button, Container, GlobalStyles, Paper, Typography } from '@mui/material';
+import React, { useMemo, useState } from 'react';
+import {
+    Box, Button, Container, Dialog, DialogActions, DialogContent,
+    DialogContentText, DialogTitle, GlobalStyles, Paper, Typography,
+} from '@mui/material';
 import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
+import RestartAltIcon from '@mui/icons-material/RestartAlt';
 import {
     Legend,
     Line,
@@ -10,7 +14,10 @@ import {
     XAxis,
     YAxis,
 } from 'recharts';
-import { useTelemetryStream } from '../shared/use-telemetry-stream.jsx';
+import {
+    suppressTelemetryPersistenceForReset,
+    useTelemetryStream,
+} from '../shared/use-telemetry-stream.jsx';
 import { AVAILABLE_FIELDS, CHART_COLORS, fieldLabel, fieldStep } from '../shared/chart-fields.js';
 import { pagedDomain } from '../shared/chart-logic.js';
 
@@ -18,8 +25,8 @@ const ANALYSE_STORAGE_KEY = 'analyse_charts_config';
 
 // The two hardcoded charts shown at the bottom of /station (BOTTOM_CHART_DEFS).
 const STATION_CHARTS = [
-    { id: 'report-station-alt',   xKey: '_elapsed_min', lines: [{ key: 'U_Alt', color: '#4fb7d6' }] },
-    { id: 'report-station-speed', xKey: '_elapsed_min', lines: [{ key: 'Speed', color: '#ee8a22' }] },
+    { id: 'report-station-alt',   xKey: '_elapsed_min', lines: [{ key: 'U_Alt', color: '#3d8fc4' }] },
+    { id: 'report-station-speed', xKey: '_elapsed_min', lines: [{ key: 'Speed', color: '#bf8018' }] },
 ];
 
 function migrateChart(c) {
@@ -186,7 +193,7 @@ function ReportChart({ data, xKey, lines }) {
                                     type="monotone"
                                     dataKey={`${key}_ghost`}
                                     name={fieldLabel(key)}
-                                    stroke="#ff3030"
+                                    stroke="#e5433b"
                                     dot={false}
                                     strokeWidth={2}
                                     isAnimationActive={false}
@@ -219,6 +226,21 @@ export default function RapportDashboard() {
     const allCharts = useMemo(() => [...STATION_CHARTS, ...analyseCharts], [analyseCharts]);
 
     const handleExportPDF = () => window.print();
+
+    // Manual telemetry reset (confirmed): the ONLY way to clear a LIVE session —
+    // live restarts resume automatically, and only simulations auto-reset.
+    // Clears the backend deque + the tab's persisted snapshot, then reloads so
+    // every consumer (charts, globe, terminals) restarts from a blank slate.
+    const [confirmResetOpen, setConfirmResetOpen] = useState(false);
+    const [resetting, setResetting] = useState(false);
+    const handleResetConfirmed = async () => {
+        setResetting(true);
+        try {
+            await fetch('/api/telemetry/mqtt/clear', { method: 'POST' });
+        } catch (_) { /* backend unreachable — still clear the frontend side */ }
+        suppressTelemetryPersistenceForReset();
+        window.location.reload();
+    };
 
     return (
         <Container maxWidth="lg" sx={{ py: 4 }}>
@@ -253,16 +275,53 @@ export default function RapportDashboard() {
                         PDF export of the two /station charts (Altitude, Speed) and all /analyse charts.
                     </Typography>
                 </Box>
-                <Button
-                    variant="contained"
-                    color="error"
-                    startIcon={<PictureAsPdfIcon />}
-                    onClick={handleExportPDF}
-                    disabled={!hasData}
-                >
-                    Export PDF
-                </Button>
+                <Box sx={{ display: 'flex', gap: 1.5, alignItems: 'center' }}>
+                    <Button
+                        variant="outlined"
+                        color="warning"
+                        startIcon={<RestartAltIcon />}
+                        onClick={() => setConfirmResetOpen(true)}
+                        disabled={!hasData || resetting}
+                    >
+                        Reset data
+                    </Button>
+                    <Button
+                        variant="contained"
+                        color="error"
+                        startIcon={<PictureAsPdfIcon />}
+                        onClick={handleExportPDF}
+                        disabled={!hasData}
+                    >
+                        Export PDF
+                    </Button>
+                </Box>
             </Box>
+
+            <Dialog open={confirmResetOpen} onClose={() => !resetting && setConfirmResetOpen(false)}>
+                <DialogTitle>Reset all telemetry data?</DialogTitle>
+                <DialogContent>
+                    <DialogContentText>
+                        This clears the graphs and the live telemetry buffer on ALL pages
+                        (/station, /analyse, /vueGlobe3d, this report). New frames start a
+                        fresh session. The local CSV archive and the Google Sheet are NOT
+                        affected. This cannot be undone.
+                    </DialogContentText>
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => setConfirmResetOpen(false)} disabled={resetting}>
+                        Cancel
+                    </Button>
+                    <Button
+                        color="warning"
+                        variant="contained"
+                        startIcon={<RestartAltIcon />}
+                        onClick={handleResetConfirmed}
+                        disabled={resetting}
+                    >
+                        {resetting ? 'Resetting…' : 'Yes, reset everything'}
+                    </Button>
+                </DialogActions>
+            </Dialog>
 
             {!hasData && (
                 <Typography color="text.secondary" sx={{ fontStyle: 'italic' }}>

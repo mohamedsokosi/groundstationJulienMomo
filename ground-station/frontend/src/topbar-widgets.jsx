@@ -28,7 +28,7 @@ function useNow(intervalMs = 1000) {
 }
 
 // --- Weather + wind ----------------------------------------------------------
-// Single source for both the Météo and Vent widgets. Swap THIS function to use a
+// Single source for both the Weather and Wind widgets. Swap THIS function to use a
 // different provider — it must resolve to { tempC, windKmh, windDir, code }.
 async function fetchWeather({ lat, lon }, signal) {
     const url =
@@ -75,21 +75,21 @@ function useWeather() {
     return { weather, error };
 }
 
-// WMO weather code → icon + French label
+// WMO weather code → icon + English label
 function weatherFor(code) {
-    if (code == null) return { Icon: CloudIcon, text: '—' };
-    if (code === 0) return { Icon: WbSunnyIcon, text: 'Dégagé' };
-    if (code <= 2) return { Icon: FilterDramaIcon, text: 'Partiel' };
-    if (code === 3) return { Icon: CloudIcon, text: 'Couvert' };
-    if (code <= 48) return { Icon: FoggyIcon, text: 'Brouillard' };
-    if (code <= 67) return { Icon: GrainIcon, text: 'Pluie' };
-    if (code <= 77) return { Icon: AcUnitIcon, text: 'Neige' };
-    if (code <= 82) return { Icon: GrainIcon, text: 'Averses' };
-    if (code <= 86) return { Icon: AcUnitIcon, text: 'Neige' };
-    return { Icon: ThunderstormIcon, text: 'Orage' };
+    if (code == null) return { Icon: CloudIcon, text: '' };
+    if (code === 0) return { Icon: WbSunnyIcon, text: 'Clear' };
+    if (code <= 2) return { Icon: FilterDramaIcon, text: 'Partly cloudy' };
+    if (code === 3) return { Icon: CloudIcon, text: 'Overcast' };
+    if (code <= 48) return { Icon: FoggyIcon, text: 'Fog' };
+    if (code <= 67) return { Icon: GrainIcon, text: 'Rain' };
+    if (code <= 77) return { Icon: AcUnitIcon, text: 'Snow' };
+    if (code <= 82) return { Icon: GrainIcon, text: 'Showers' };
+    if (code <= 86) return { Icon: AcUnitIcon, text: 'Snow' };
+    return { Icon: ThunderstormIcon, text: 'Storm' };
 }
 
-const COMPASS = ['N', 'NE', 'E', 'SE', 'S', 'SO', 'O', 'NO'];
+const COMPASS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
 function compass(deg) {
     if (deg == null) return '';
     return COMPASS[Math.round(deg / 45) % 8];
@@ -143,21 +143,21 @@ function WidgetBox({ icon, value, label, title, onClick }) {
 }
 
 function ClockWidget({ now }) {
-    const time = new Date(now).toLocaleTimeString('fr-CA', { hour12: false });
-    const date = new Date(now).toLocaleDateString('fr-CA', { day: '2-digit', month: 'short' });
-    return <WidgetBox icon={<AccessTimeIcon sx={{ fontSize: 18 }} />} value={time} label={date.toUpperCase()} title="Heure locale" />;
+    const time = new Date(now).toLocaleTimeString('en-GB', { hour12: false });
+    const date = new Date(now).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
+    return <WidgetBox icon={<AccessTimeIcon sx={{ fontSize: 18 }} />} value={time} label={date.toUpperCase()} title="Local time" />;
 }
 
 function WeatherWidget({ weather, error }) {
     const { Icon, text } = weatherFor(weather?.code);
-    const value = error ? '—' : weather ? `${Math.round(weather.tempC)}°C` : '…';
-    return <WidgetBox icon={<Icon sx={{ fontSize: 18 }} />} value={value} label={error ? 'MÉTÉO N/A' : text.toUpperCase()} title="Météo (station sol)" />;
+    const value = error ? '' : weather ? `${Math.round(weather.tempC)}°C` : '…';
+    return <WidgetBox icon={<Icon sx={{ fontSize: 18 }} />} value={value} label={error ? 'WEATHER N/A' : text.toUpperCase()} title="Weather (ground station)" />;
 }
 
 function WindWidget({ weather, error }) {
-    const value = error || !weather ? (error ? '—' : '…') : `${Math.round(weather.windKmh)} km/h`;
-    const label = weather && !error ? `VENT ${compass(weather.windDir)}` : 'VENT';
-    return <WidgetBox icon={<AirIcon sx={{ fontSize: 18 }} />} value={value} label={label} title="Vitesse et direction du vent" />;
+    const value = error || !weather ? (error ? '' : '…') : `${Math.round(weather.windKmh)} km/h`;
+    const label = weather && !error ? `WIND ${compass(weather.windDir)}` : 'WIND';
+    return <WidgetBox icon={<AirIcon sx={{ fontSize: 18 }} />} value={value} label={label} title="Wind speed and direction" />;
 }
 
 function CountdownWidget({ now }) {
@@ -195,12 +195,12 @@ function CountdownWidget({ now }) {
                     onChange={(e) => setDraft(e.target.value)}
                     style={{
                         background: 'rgba(255,255,255,0.1)', color: 'white',
-                        border: '1px solid rgba(255,255,255,0.3)', borderRadius: 4,
+                        border: '1px solid rgba(255,255,255,0.3)', borderRadius: 0,
                         padding: '4px 6px', fontSize: 12, colorScheme: 'dark',
                     }}
                 />
-                <Tooltip title="Valider l'heure de lancement">
-                    <IconButton size="small" onClick={commit} sx={{ color: '#7CFC00' }}>
+                <Tooltip title="Confirm launch time">
+                    <IconButton size="small" onClick={commit} sx={{ color: '#4caf50' }}>
                         <CheckIcon fontSize="small" />
                     </IconButton>
                 </Tooltip>
@@ -217,8 +217,8 @@ function CountdownWidget({ now }) {
         <WidgetBox
             icon={<RocketLaunchIcon sx={{ fontSize: 18 }} />}
             value={formatCountdown(launchMs - now)}
-            label="DÉCOMPTE T"
-            title="Modifier l'heure de lancement"
+            label="COUNTDOWN"
+            title="Edit launch time"
             onClick={openEditor}
         />
     );
